@@ -38,6 +38,17 @@ pip install -r requirements.txt
 echo "Installing dependencies from backend/requirements.txt..."
 pip install -r backend/requirements.txt
 
+echo "Verifying core imports..."
+python - <<'PY'
+import importlib, sys
+packages = ['fastapi', 'pydantic', 'spacy']
+missing = [p for p in packages if importlib.util.find_spec(p) is None]
+if missing:
+    print(f"❌ Missing packages: {', '.join(missing)}")
+    sys.exit(1)
+print("✅ All required packages are available")
+PY
+
 echo ""
 echo "Setup complete! The virtual environment '$VENV_DIR' is ready."
 echo "Remember to activate it in your shell by running: source $VENV_DIR/bin/activate"

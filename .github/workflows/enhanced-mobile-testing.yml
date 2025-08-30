@@ -54,6 +54,19 @@ jobs:
       - name: Install Python dependencies
         run: |
           pip install -r requirements.txt
+          pip install -r backend/requirements.txt
+
+      - name: Verify Python imports
+        run: |
+          python - <<'PY'
+import importlib, sys
+packages = ['fastapi', 'pydantic', 'spacy']
+missing = [p for p in packages if importlib.util.find_spec(p) is None]
+if missing:
+    print(f"Missing packages: {', '.join(missing)}")
+    sys.exit(1)
+print('✅ All required packages imported successfully')
+PY
           
       - name: Install frontend dependencies
         working-directory: ./svelte-frontend
@@ -91,10 +104,23 @@ jobs:
           cache-dependency-path: 'svelte-frontend/package-lock.json'
           
       - name: Install dependencies
-        working-directory: ./svelte-frontend
         run: |
-          npm ci
+          pip install -r requirements.txt
+          pip install -r backend/requirements.txt
+          npm ci --prefix svelte-frontend
           npx playwright install --with-deps
+
+      - name: Verify Python imports
+        run: |
+          python - <<'PY'
+import importlib, sys
+packages = ['fastapi', 'pydantic', 'spacy']
+missing = [p for p in packages if importlib.util.find_spec(p) is None]
+if missing:
+    print(f"Missing packages: {', '.join(missing)}")
+    sys.exit(1)
+print('✅ All required packages imported successfully')
+PY
           
       - name: Start backend services
         run: |
@@ -146,9 +172,22 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
+          pip install -r backend/requirements.txt
           cd svelte-frontend
           npm ci
           npx playwright install --with-deps
+
+      - name: Verify Python imports
+        run: |
+          python - <<'PY'
+import importlib, sys
+packages = ['fastapi', 'pydantic', 'spacy']
+missing = [p for p in packages if importlib.util.find_spec(p) is None]
+if missing:
+    print(f"Missing packages: {', '.join(missing)}")
+    sys.exit(1)
+print('✅ All required packages imported successfully')
+PY
           
       - name: Start full GödelOS system
         run: |

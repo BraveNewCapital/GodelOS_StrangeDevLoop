@@ -32,10 +32,12 @@ def check_dependencies():
     """Check if required dependencies are installed."""
     required_packages = [
         "pytest",
-        "pytest-asyncio", 
+        "pytest-asyncio",
         "pytest-cov",
         "requests",
         "fastapi",
+        "pydantic",
+        "spacy",
         "websockets"
     ]
     
