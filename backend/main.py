@@ -41,9 +41,15 @@ from backend.knowledge_models import (
     TextImportRequest, BatchImportRequest, SearchQuery, Category,
     ImportSource
 )
-from backend.knowledge_ingestion import knowledge_ingestion_service
-from backend.knowledge_management import knowledge_management_service
-from backend.knowledge_pipeline_service import knowledge_pipeline_service
+from backend.knowledge_ingestion import (
+    knowledge_ingestion_service as default_knowledge_ingestion_service,
+)
+from backend.knowledge_management import (
+    knowledge_management_service as default_knowledge_management_service,
+)
+from backend.knowledge_pipeline_service import (
+    knowledge_pipeline_service as default_knowledge_pipeline_service,
+)
 from backend.llm_cognitive_driver import get_llm_cognitive_driver
 
 # Configure logging
@@ -53,26 +59,56 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Initialize WebSocket manager early (after logger is defined)
-websocket_manager = WebSocketManager()
+# Global service instances (overridable for testing)
+knowledge_ingestion_service = default_knowledge_ingestion_service
+knowledge_management_service = default_knowledge_management_service
+knowledge_pipeline_service = default_knowledge_pipeline_service
 
-# Set WebSocket manager on services immediately
-logger.info(f"🔍 IMPORT: Setting websocket_manager on services at import time")
-knowledge_ingestion_service.websocket_manager = websocket_manager
-logger.info(f"🔍 IMPORT: WebSocket manager set on knowledge_ingestion_service: {knowledge_ingestion_service.websocket_manager is not None}")
+websocket_manager: Optional[WebSocketManager] = None
 
-# Set knowledge management service reference for real-time updates
-import backend.knowledge_ingestion as ki_module
-ki_module.knowledge_management_service = knowledge_management_service
-logger.info(f"🔍 IMPORT: Connected knowledge ingestion to knowledge management service")
+# Service override storage for tests
+_service_overrides: Dict[str, Any] = {}
 
-# Set websocket manager on knowledge pipeline service
-knowledge_pipeline_service.websocket_manager = websocket_manager
-logger.info(f"🔍 IMPORT: WebSocket manager set on knowledge_pipeline_service")
+
+def startup_services() -> None:
+    """Wire service dependencies, allowing overrides for tests."""
+    global websocket_manager, knowledge_ingestion_service
+    global knowledge_management_service, knowledge_pipeline_service
+
+    ws_override = _service_overrides.get("ws_manager")
+    ingestion_override = _service_overrides.get("ingestion")
+    management_override = _service_overrides.get("management")
+    pipeline_override = _service_overrides.get("pipeline")
+
+    websocket_manager = ws_override or WebSocketManager()
+    knowledge_ingestion_service = ingestion_override or default_knowledge_ingestion_service
+    knowledge_management_service = management_override or default_knowledge_management_service
+    knowledge_pipeline_service = pipeline_override or default_knowledge_pipeline_service
+
+    knowledge_ingestion_service.websocket_manager = websocket_manager
+    import backend.knowledge_ingestion as ki_module
+    ki_module.knowledge_management_service = knowledge_management_service
+    knowledge_pipeline_service.websocket_manager = websocket_manager
+
+    logger.info("🛠️ Services wired during startup")
+
+
+def create_app(
+    ws_manager: Optional[WebSocketManager] = None,
+    ingestion_service: Optional[Any] = None,
+    knowledge_management: Optional[Any] = None,
+    knowledge_pipeline: Optional[Any] = None,
+):
+    """Configure service overrides and return the FastAPI app."""
+    _service_overrides["ws_manager"] = ws_manager
+    _service_overrides["ingestion"] = ingestion_service
+    _service_overrides["management"] = knowledge_management
+    _service_overrides["pipeline"] = knowledge_pipeline
+    return app
+
 
 # Global instances
 godelos_integration: Optional[GödelOSIntegration] = None
-# websocket_manager already initialized above at line 52
 cognitive_streaming_task: Optional[asyncio.Task] = None
 llm_cognitive_driver = None
 
@@ -152,8 +188,9 @@ async def continuous_cognitive_streaming():
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     global godelos_integration, cognitive_streaming_task
-    
+
     # Startup
+    startup_services()
     logger.info("🔍 BACKEND DIAGNOSTIC: Starting GödelOS system initialization...")
     try:
         logger.info("🔍 BACKEND DIAGNOSTIC: Creating GödelOS integration instance...")
