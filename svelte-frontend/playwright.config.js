@@ -16,19 +16,24 @@ export default defineConfig({
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: 'html',
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
-  use: {
-    /* Base URL to use in actions like `await page.goto('/')`. */
-    baseURL: 'http://localhost:3001',
+    use: {
+      /* Base URL to use in actions like `await page.goto('/')`. */
+      baseURL: 'http://localhost:3001',
 
-    /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
-    trace: 'on-first-retry',
-    
-    /* Take screenshot on failure */
-    screenshot: 'only-on-failure',
-    
-    /* Record video on failure */
-    video: 'retain-on-failure',
-  },
+      /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
+      trace: 'on-first-retry',
+
+      /* Take screenshot on failure */
+      screenshot: 'only-on-failure',
+
+      /* Disable video recording to avoid requiring ffmpeg */
+      video: 'off',
+
+      /* Allow using a system-installed Chromium when a Playwright binary isn't available */
+      launchOptions: {
+        executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH,
+      },
+    },
 
   /* Configure projects for major browsers */
   projects: [

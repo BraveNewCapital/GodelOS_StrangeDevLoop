@@ -13,6 +13,11 @@
   let refreshInterval = null;
   let autoRefresh = true;
 
+  // WebSocket for live reasoning stream
+  let reasoningSocket = null;
+  const API_BASE = window.location.origin;
+  const WS_BASE = API_BASE.replace(/^http/, 'ws');
+
   onMount(() => {
     loadActiveSessions();
     if (autoRefresh) {
@@ -24,6 +29,8 @@
     if (refreshInterval) {
       clearInterval(refreshInterval);
     }
+
+    if (reasoningSocket) reasoningSocket.close();
   });
 
   function startAutoRefresh() {
@@ -39,7 +46,7 @@
 
   async function loadActiveSessions() {
     try {
-      const response = await fetch('http://localhost:8000/api/transparency/sessions/active');
+      const response = await fetch(`${API_BASE}/api/transparency/sessions/active`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       activeSessions = data.active_sessions || [];
@@ -57,14 +64,15 @@
   async function selectSession(session) {
     selectedSession = session;
     await loadSessionDetails(session.session_id);
+    connectReasoningStream(session.session_id);
   }
 
   async function loadSessionDetails(sessionId) {
     if (!sessionId) return;
-    
+
     isLoading = true;
     try {
-      const response = await fetch(`http://localhost:8000/api/transparency/session/${sessionId}/trace`);
+      const response = await fetch(`${API_BASE}/api/transparency/session/${sessionId}/trace`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       sessionDetails = data;
@@ -83,10 +91,10 @@
       const query = prompt('Enter a query for the new reasoning session:');
       if (!query) return;
       
-      const response = await fetch('http://localhost:8000/api/transparency/session/start', {
+      const response = await fetch(`${API_BASE}/api/transparency/session/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           query, 
           transparency_level: 'detailed' 
         })
@@ -121,6 +129,28 @@
   function formatTimestamp(timestamp) {
     if (!timestamp) return 'N/A';
     return new Date(timestamp * 1000).toLocaleString();
+  }
+
+  function connectReasoningStream(id) {
+    if (!id) return;
+    if (reasoningSocket) {
+      reasoningSocket.close();
+    }
+    try {
+      reasoningSocket = new WebSocket(`${WS_BASE}/api/transparency/reasoning/stream/${id}`);
+      reasoningSocket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (sessionDetails) {
+            sessionDetails.steps = [...(sessionDetails.steps || []), data];
+          }
+        } catch (err) {
+          console.warn('Invalid reasoning stream message', err);
+        }
+      };
+    } catch (err) {
+      console.warn('Reasoning stream unavailable', err);
+    }
   }
 </script>
 
