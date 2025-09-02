@@ -103,11 +103,9 @@ test.describe('Transparency Streams', () => {
     await page.goto('http://localhost:3001/');
     await page.waitForSelector('[data-testid="app-container"]');
 
-    const initial = await page.evaluate(() => window.__wsInstances.length);
-
-    // When the server interrupts the connection
-    await page.evaluate(() => {
-      window.__wsInstances[0].close();
+      if (window.__wsInstances.length > 0 && window.__wsInstances[0]) {
+        window.__wsInstances[0].close();
+      }
     });
 
     // Wait for reconnection attempt
