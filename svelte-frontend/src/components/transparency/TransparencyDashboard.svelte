@@ -14,22 +14,70 @@
   let selectedEdge = null;
   let hoveredElement = null;
   let realSessionData = null;
-  
+
+  // WebSocket references and real-time activity
+  let reasoningSocket = null;
+  let provenanceSocket = null;
+  let activityEvents = [];
+
   // API configuration
-  const API_BASE = 'http://localhost:8000';
+  const API_BASE = window.location.origin;
+  const WS_BASE = API_BASE.replace(/^http/, 'ws');
   
   onMount(async () => {
     await loadDashboardData();
-    
+
     // Poll for updates every 5 seconds
     pollInterval = setInterval(loadDashboardData, 5000);
+
+    // Connect to reasoning and provenance streams
+    connectStreams();
   });
-  
+
   onDestroy(() => {
     if (pollInterval) {
       clearInterval(pollInterval);
     }
+
+    if (reasoningSocket) reasoningSocket.close();
+    if (provenanceSocket) provenanceSocket.close();
   });
+
+  function connectStreams() {
+    try {
+      reasoningSocket = new WebSocket(`${WS_BASE}/api/transparency/reasoning/stream`);
+      reasoningSocket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          activityEvents = [
+            { time: Date.now(), type: data.type || 'reasoning', description: data.message || data.description || 'Reasoning update' },
+            ...activityEvents
+          ].slice(0, 50);
+        } catch (err) {
+          console.warn('Failed to parse reasoning stream message', err);
+        }
+      };
+    } catch (err) {
+      console.warn('Reasoning stream unavailable', err);
+    }
+
+    try {
+      provenanceSocket = new WebSocket(`${WS_BASE}/api/transparency/provenance/stream`);
+      provenanceSocket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          activityEvents = [
+            { time: Date.now(), type: data.type || 'provenance', description: data.message || data.description || 'Provenance update' },
+            ...activityEvents
+          ].slice(0, 50);
+        } catch (err) {
+          console.warn('Failed to parse provenance stream message', err);
+        }
+      };
+    } catch (err) {
+      console.warn('Provenance stream unavailable', err);
+    }
+  }
   
   async function loadDashboardData() {
     try {
@@ -72,12 +120,11 @@
       isLoading = false;
     } catch (err) {
       console.error('Error loading transparency dashboard:', err);
-      error = err.message;
-      // Ensure activeSessions is always an array even on error
+      // Provide graceful fallback data so dashboard still renders
+      error = null;
       activeSessions = [];
-      // Provide fallback stats
       transparencyStats = {
-        status: 'Error',
+        status: 'Unavailable',
         transparency_level: 'Unknown',
         total_sessions: 0,
         active_sessions: 0
@@ -558,26 +605,19 @@
       <div class="activity-feed" transition:scale>
         <h3>📡 Real-Time Activity</h3>
         <div class="activity-list">
-          <div class="activity-item">
-            <span class="activity-time">{new Date().toLocaleTimeString()}</span>
-            <span class="activity-type session">Session Started</span>
-            <span class="activity-description">New cognitive analysis session initiated</span>
-          </div>
-          <div class="activity-item">
-            <span class="activity-time">{new Date(Date.now() - 30000).toLocaleTimeString()}</span>
-            <span class="activity-type processing">NLP Processing</span>
-            <span class="activity-description">Entity extraction completed: 12 entities found</span>
-          </div>
-          <div class="activity-item">
-            <span class="activity-time">{new Date(Date.now() - 60000).toLocaleTimeString()}</span>
-            <span class="activity-type graph">Graph Updated</span>
-            <span class="activity-description">Knowledge graph expanded with 3 new nodes</span>
-          </div>
-          <div class="activity-item">
-            <span class="activity-time">{new Date(Date.now() - 90000).toLocaleTimeString()}</span>
-            <span class="activity-type insight">Insight Generated</span>
-            <span class="activity-description">Pattern analysis revealed semantic clustering</span>
-          </div>
+          {#if activityEvents.length === 0}
+            <div class="activity-item">
+              <span class="activity-description">No activity yet</span>
+            </div>
+          {:else}
+            {#each activityEvents as event}
+              <div class="activity-item">
+                <span class="activity-time">{new Date(event.time).toLocaleTimeString()}</span>
+                <span class="activity-type {event.type}">{event.type}</span>
+                <span class="activity-description">{event.description}</span>
+              </div>
+            {/each}
+          {/if}
         </div>
       </div>
       
