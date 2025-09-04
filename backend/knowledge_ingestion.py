@@ -39,6 +39,7 @@ from .knowledge_models import (
     KnowledgeItem, ImportSource, ImportStatistics
 )
 from .external_apis import wikipedia_api, web_scraper, content_processor
+from .persistence import get_persistence_layer
 
 # Will be set by main.py to avoid circular imports
 knowledge_management_service = None
@@ -222,8 +223,36 @@ class KnowledgeIngestionService:
         return import_ids
     
     async def get_import_progress(self, import_id: str) -> Optional[ImportProgress]:
-        """Get the progress of an import operation."""
-        return self.active_imports.get(import_id)
+        """Get the progress of an import operation from memory or persistence."""
+        # Check memory first
+        if import_id in self.active_imports:
+            return self.active_imports[import_id]
+        
+        # Check persistence if not in memory
+        try:
+            persistence = await get_persistence_layer()
+            progress_data = await persistence.import_tracker.load_progress(import_id)
+            if progress_data:
+                # Reconstruct ImportProgress object
+                progress = ImportProgress(
+                    import_id=progress_data["import_id"],
+                    status=progress_data["status"],
+                    progress_percentage=progress_data["progress_percentage"],
+                    current_step=progress_data["current_step"],
+                    total_steps=progress_data["total_steps"],
+                    completed_steps=progress_data["completed_steps"],
+                    started_at=progress_data["started_at"],
+                    estimated_completion=progress_data.get("estimated_completion"),
+                    error_message=progress_data.get("error_message"),
+                    warnings=progress_data.get("warnings", [])
+                )
+                # Add back to memory cache
+                self.active_imports[import_id] = progress
+                return progress
+        except Exception as e:
+            logger.error(f"Error loading import progress from persistence: {e}")
+        
+        return None
     
     async def cancel_import(self, import_id: str) -> bool:
         """Cancel an import operation."""
@@ -237,8 +266,30 @@ class KnowledgeIngestionService:
         return False
     
     async def _broadcast_progress_update(self, import_id: str, progress: ImportProgress):
-        """Broadcast progress update via WebSocket if available."""
+        """Broadcast progress update via WebSocket and save to persistence."""
         logger.info(f"🔍 DEBUG: _broadcast_progress_update called for {import_id}")
+        
+        # Save progress to persistence
+        try:
+            persistence = await get_persistence_layer()
+            progress_data = {
+                "import_id": import_id,
+                "status": progress.status,
+                "progress_percentage": progress.progress_percentage,
+                "current_step": progress.current_step,
+                "total_steps": progress.total_steps,
+                "completed_steps": progress.completed_steps,
+                "started_at": progress.started_at,
+                "estimated_completion": progress.estimated_completion,
+                "error_message": progress.error_message,
+                "warnings": progress.warnings
+            }
+            await persistence.import_tracker.store_progress(import_id, progress_data)
+            logger.debug(f"Saved import progress for {import_id} to persistence")
+        except Exception as e:
+            logger.error(f"Error saving import progress to persistence: {e}")
+        
+        # Broadcast via WebSocket if available
         logger.info(f"🔍 DEBUG: websocket_manager exists: {self.websocket_manager is not None}")
         
         if self.websocket_manager:

@@ -44,12 +44,33 @@ class ProvenanceSnapshot(BaseModel):
     """Provenance snapshot model."""
     description: str
 
-# Thread-safe global state with locks
+# Thread-safe global state with locks and persistent storage
 _state_lock = asyncio.Lock()
-active_sessions = {}
+active_sessions = {}  # Keep in-memory cache for performance
 knowledge_graph_nodes = []
 knowledge_graph_relationships = []
 provenance_snapshots = []
+
+# Import persistence layer
+from .persistence import get_persistence_layer
+
+async def _load_session_from_persistence(session_id: str) -> Optional[Dict[str, Any]]:
+    """Load session from persistent storage."""
+    try:
+        persistence = await get_persistence_layer()
+        return await persistence.session_manager.load_session(session_id)
+    except Exception as e:
+        logger.error(f"Error loading session {session_id} from persistence: {e}")
+        return None
+
+async def _save_session_to_persistence(session_id: str, session_data: Dict[str, Any]) -> bool:
+    """Save session to persistent storage."""
+    try:
+        persistence = await get_persistence_layer()
+        return await persistence.session_manager.store_session(session_id, session_data)
+    except Exception as e:
+        logger.error(f"Error saving session {session_id} to persistence: {e}")
+        return False
 
 @router.post("/configure")
 async def configure_transparency(config: TransparencyConfig):
@@ -62,21 +83,27 @@ async def configure_transparency(config: TransparencyConfig):
 
 @router.post("/session/start")
 async def start_reasoning_session(session: ReasoningSession):
-    """Start a new reasoning session with secure session ID generation."""
+    """Start a new reasoning session with secure session ID generation and persistence."""
     # Generate cryptographically secure session ID
     session_id = f"session_{uuid.uuid4().hex}_{secrets.token_hex(8)}"
     
+    session_data = {
+        "id": session_id,
+        "query": session.query,
+        "transparency_level": session.transparency_level,
+        "start_time": time.time(),
+        "status": "active",
+        "reasoning_steps": [],
+        "created_at": time.time(),
+        "last_activity": time.time()
+    }
+    
     async with _state_lock:
-        active_sessions[session_id] = {
-            "id": session_id,
-            "query": session.query,
-            "transparency_level": session.transparency_level,
-            "start_time": time.time(),
-            "status": "active",
-            "reasoning_steps": [],
-            "created_at": time.time(),
-            "last_activity": time.time()
-        }
+        # Store in memory cache
+        active_sessions[session_id] = session_data
+        
+        # Save to persistent storage
+        await _save_session_to_persistence(session_id, session_data)
     
     return {
         "session_id": session_id,

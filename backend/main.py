@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from backend.godelos_integration import GödelOSIntegration
 from backend.input_validation import validator
+from backend.persistence import initialize_persistence, shutdown_persistence
 from backend.websocket_manager import WebSocketManager
 from backend.cognitive_transparency_integration import cognitive_transparency_api
 from backend.enhanced_cognitive_api import router as enhanced_cognitive_router
@@ -192,6 +193,16 @@ async def lifespan(app: FastAPI):
 
     # Startup
     startup_services()
+    
+    # Initialize persistence layer first
+    logger.info("🔍 BACKEND DIAGNOSTIC: Initializing persistence layer...")
+    try:
+        await initialize_persistence()
+        logger.info("✅ BACKEND DIAGNOSTIC: Persistence layer initialized successfully")
+    except Exception as e:
+        logger.error(f"❌ BACKEND DIAGNOSTIC: Failed to initialize persistence layer: {e}")
+        raise
+    
     logger.info("🔍 BACKEND DIAGNOSTIC: Starting GödelOS system initialization...")
     try:
         logger.info("🔍 BACKEND DIAGNOSTIC: Creating GödelOS integration instance...")
@@ -261,6 +272,14 @@ async def lifespan(app: FastAPI):
     # Shutdown knowledge services
     await knowledge_ingestion_service.shutdown()
     logger.info("Knowledge services shutdown complete")
+    
+    # Shutdown persistence layer
+    logger.info("Shutting down persistence layer...")
+    try:
+        await shutdown_persistence()
+        logger.info("Persistence layer shutdown complete")
+    except Exception as e:
+        logger.error(f"Error shutting down persistence layer: {e}")
     
     if godelos_integration:
         await godelos_integration.shutdown()
