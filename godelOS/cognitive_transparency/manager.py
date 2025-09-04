@@ -7,6 +7,7 @@ coordinating reasoning stream tracking, session management, and transparency lev
 
 import asyncio
 import logging
+import secrets
 import time
 import uuid
 from typing import Any, Dict, List, Optional, Set, Callable
@@ -156,9 +157,9 @@ class CognitiveTransparencyManager:
             # Clean up oldest sessions if at limit
             await self._cleanup_oldest_sessions(1)
         
-        # Generate session ID if not provided
+        # Generate secure session ID if not provided
         if not session_id:
-            session_id = str(uuid.uuid4())
+            session_id = f"session_{uuid.uuid4().hex}_{secrets.token_hex(8)}"
         
         # Use provided transparency level or default
         if not transparency_level:

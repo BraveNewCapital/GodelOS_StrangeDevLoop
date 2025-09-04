@@ -4,6 +4,8 @@ These endpoints support the cognitive architecture pipeline tests
 """
 
 import asyncio
+import secrets
+import uuid
 from fastapi import APIRouter, HTTPException, Query
 from typing import Dict, List, Optional, Any
 import time
@@ -60,8 +62,9 @@ async def configure_transparency(config: TransparencyConfig):
 
 @router.post("/session/start")
 async def start_reasoning_session(session: ReasoningSession):
-    """Start a new reasoning session."""
-    session_id = f"session_{int(time.time())}"
+    """Start a new reasoning session with secure session ID generation."""
+    # Generate cryptographically secure session ID
+    session_id = f"session_{uuid.uuid4().hex}_{secrets.token_hex(8)}"
     
     async with _state_lock:
         active_sessions[session_id] = {
@@ -70,7 +73,9 @@ async def start_reasoning_session(session: ReasoningSession):
             "transparency_level": session.transparency_level,
             "start_time": time.time(),
             "status": "active",
-            "reasoning_steps": []
+            "reasoning_steps": [],
+            "created_at": time.time(),
+            "last_activity": time.time()
         }
     
     return {

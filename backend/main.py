@@ -28,6 +28,7 @@ from pydantic import BaseModel
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from backend.godelos_integration import GödelOSIntegration
+from backend.input_validation import validator
 from backend.websocket_manager import WebSocketManager
 from backend.cognitive_transparency_integration import cognitive_transparency_api
 from backend.enhanced_cognitive_api import router as enhanced_cognitive_router
@@ -869,12 +870,21 @@ async def internal_error_handler(request, exc):
 
 @app.post("/api/knowledge/import/url")
 async def import_from_url(request: Union[URLImportRequest, Dict[str, Any]]):
-    """Import knowledge from a URL."""
+    """Import knowledge from a URL with comprehensive input validation."""
     try:
         # Handle simple dict format
         if isinstance(request, dict):
-            url = request.get('url')
-            category = request.get('category', 'web')
+            # Validate and sanitize input
+            try:
+                validated_request = validator.validate_import_request(request)
+            except ValueError as e:
+                logger.warning(f"URL import validation failed: {e}")
+                raise HTTPException(status_code=422, detail=f"Invalid input: {str(e)}")
+            
+            # Extract validated fields
+            url = validated_request.get('url')
+            category = validated_request.get('category', 'web')
+            metadata = validated_request.get('metadata', {})
             
             if not url:
                 raise HTTPException(status_code=422, detail="URL is required")
@@ -883,7 +893,7 @@ async def import_from_url(request: Union[URLImportRequest, Dict[str, Any]]):
             import_source = ImportSource(
                 source_type="url",
                 source_identifier=str(url),
-                metadata={"category": category}
+                metadata={**metadata, "category": category}
             )
             
             url_request = URLImportRequest(
@@ -1008,14 +1018,22 @@ async def import_from_file(
 
 @app.post("/api/knowledge/import/wikipedia")
 async def import_from_wikipedia(request: Union[WikipediaImportRequest, Dict[str, Any]]):
-    """Import knowledge from Wikipedia."""
+    """Import knowledge from Wikipedia with comprehensive input validation."""
     try:
         # Handle simple dict format
         if isinstance(request, dict):
-            # Support both 'topic' and 'title' for backward compatibility
-            topic = request.get('topic') or request.get('title')
-            category = request.get('category', 'encyclopedia')
-            language = request.get('language', 'en')
+            # Validate and sanitize input
+            try:
+                validated_request = validator.validate_import_request(request)
+            except ValueError as e:
+                logger.warning(f"Wikipedia import validation failed: {e}")
+                raise HTTPException(status_code=422, detail=f"Invalid input: {str(e)}")
+            
+            # Extract validated fields
+            topic = validated_request.get('topic')
+            category = validated_request.get('category', 'encyclopedia')
+            language = validated_request.get('language', 'en')
+            metadata = validated_request.get('metadata', {})
             
             if not topic:
                 raise HTTPException(status_code=422, detail="Topic or title is required")
@@ -1024,7 +1042,7 @@ async def import_from_wikipedia(request: Union[WikipediaImportRequest, Dict[str,
             import_source = ImportSource(
                 source_type="wikipedia",
                 source_identifier=topic,
-                metadata={"category": category}
+                metadata={**metadata, "category": category}
             )
             
             wiki_request = WikipediaImportRequest(

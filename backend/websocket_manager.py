@@ -72,13 +72,22 @@ class WebSocketManager:
     """Manages WebSocket connections and event broadcasting with cognitive streaming."""
     
     def __init__(self):
-        """Initialize the WebSocket manager."""
+        """Initialize the WebSocket manager with security controls."""
         self.active_connections: List[WebSocket] = []
         self.connection_subscriptions: Dict[WebSocket, Set[str]] = {}
         self.connection_metadata: Dict[WebSocket, Dict[str, Any]] = {}
         self.event_queue: List[Dict[str, Any]] = []
         self.max_queue_size = 1000
         self.broadcast_lock = asyncio.Lock()
+        
+        # Security controls
+        self.max_connections = 100  # Limit total connections
+        self.max_connections_per_ip = 10  # Limit per IP address
+        self.connection_ips: Dict[str, int] = {}  # Track connections per IP
+        self.authenticated_connections: Set[WebSocket] = set()  # Track authenticated connections
+        self.rate_limit_window = 60  # Rate limit window in seconds
+        self.max_events_per_window = 1000  # Max events per client per window
+        self.client_event_counts: Dict[str, Dict[str, int]] = {}  # Track event counts per client
         
         # Enhanced cognitive streaming features
         self.cognitive_connections: Dict[str, WebSocket] = {}  # client_id -> websocket
@@ -89,42 +98,85 @@ class WebSocketManager:
         # Stream coordination
         self.stream_coordinator = None  # Will be set by enhanced metacognition manager
         
-        logger.info("Enhanced WebSocket manager initialized")
+        logger.info("Enhanced WebSocket manager initialized with security controls")
     
     def set_stream_coordinator(self, coordinator):
         """Set the stream coordinator for cognitive streaming."""
         self.stream_coordinator = coordinator
         logger.info("Stream coordinator attached to WebSocket manager")
     
-    async def connect(self, websocket: WebSocket):
-        """Accept a new WebSocket connection."""
+    async def connect(self, websocket: WebSocket, client_ip: str = None, auth_token: str = None):
+        """Accept a new WebSocket connection with security checks."""
         try:
+            # Security checks
+            if len(self.active_connections) >= self.max_connections:
+                logger.warning(f"WebSocket connection rejected: Maximum connections ({self.max_connections}) reached")
+                await websocket.close(code=1008, reason="Maximum connections reached")
+                return False
+            
+            # Check per-IP connection limits
+            if client_ip:
+                current_ip_connections = self.connection_ips.get(client_ip, 0)
+                if current_ip_connections >= self.max_connections_per_ip:
+                    logger.warning(f"WebSocket connection rejected: Too many connections from IP {client_ip}")
+                    await websocket.close(code=1008, reason="Too many connections from this IP")
+                    return False
+                self.connection_ips[client_ip] = current_ip_connections + 1
+            
+            # Accept the connection
             await websocket.accept()
+            
+            # Generate secure connection ID
+            connection_id = f"conn_{uuid.uuid4().hex[:12]}"
+            
             self.active_connections.append(websocket)
             self.connection_subscriptions[websocket] = set()
             self.connection_metadata[websocket] = {
                 "connected_at": time.time(),
                 "events_sent": 0,
-                "last_activity": time.time()
+                "last_activity": time.time(),
+                "connection_id": connection_id,
+                "client_ip": client_ip,
+                "authenticated": bool(auth_token),  # Simple auth check
+                "rate_limit_reset": time.time() + self.rate_limit_window,
+                "events_this_window": 0
             }
             
-            logger.info(f"WebSocket connected. Total connections: {len(self.active_connections)}")
+            # Track authentication
+            if auth_token:
+                self.authenticated_connections.add(websocket)
             
-            # Send welcome message
+            logger.info(f"WebSocket connected (ID: {connection_id}). Total connections: {len(self.active_connections)}")
+            
+            # Send welcome message with secure connection ID
             await self._send_to_connection(websocket, {
                 "type": "connection_established",
                 "timestamp": time.time(),
                 "message": "Connected to GödelOS cognitive stream",
-                "connection_id": id(websocket)
+                "connection_id": connection_id,
+                "authenticated": bool(auth_token),
+                "rate_limits": {
+                    "max_events_per_window": self.max_events_per_window,
+                    "window_seconds": self.rate_limit_window
+                }
             })
+            
+            return True
             
         except Exception as e:
             logger.error(f"Error accepting WebSocket connection: {e}")
-            await self._cleanup_connection(websocket)
+            await self._cleanup_connection(websocket, client_ip)
+            return False
     
     def disconnect(self, websocket: WebSocket):
-        """Remove a WebSocket connection."""
+        """Remove a WebSocket connection and update IP tracking."""
         try:
+            # Get client IP before cleanup for IP tracking
+            client_ip = None
+            if websocket in self.connection_metadata:
+                client_ip = self.connection_metadata[websocket].get("client_ip")
+            
+            # Clean up connection tracking
             if websocket in self.active_connections:
                 self.active_connections.remove(websocket)
             
@@ -133,6 +185,16 @@ class WebSocketManager:
             
             if websocket in self.connection_metadata:
                 del self.connection_metadata[websocket]
+            
+            # Update IP tracking
+            if client_ip and client_ip in self.connection_ips:
+                self.connection_ips[client_ip] = max(0, self.connection_ips[client_ip] - 1)
+                if self.connection_ips[client_ip] == 0:
+                    del self.connection_ips[client_ip]
+            
+            # Remove from authenticated connections
+            if websocket in self.authenticated_connections:
+                self.authenticated_connections.remove(websocket)
             
             # Remove from cognitive connections if present
             client_id = self._get_client_id(websocket)
@@ -150,7 +212,7 @@ class WebSocketManager:
         except Exception as e:
             logger.error(f"Error disconnecting WebSocket: {e}")
     
-    async def _cleanup_connection(self, websocket: WebSocket):
+    async def _cleanup_connection(self, websocket: WebSocket, client_ip: str = None):
         """Clean up a failed connection."""
         try:
             await websocket.close()
