@@ -1146,27 +1146,38 @@ async def batch_import(request: Union[BatchImportRequest, Dict[str, Any]]):
 async def get_import_progress(import_id: str):
     """Get the progress of an import operation."""
     try:
-        # Return mock progress data
-        progress = {
-            "import_id": import_id,
-            "status": "completed",  # could be: queued, processing, completed, failed
-            "progress": 100,        # percentage
-            "total_items": 5,
-            "processed_items": 5,
-            "failed_items": 0,
-            "start_time": time.time() - 300,  # 5 minutes ago
-            "completion_time": time.time() - 30,  # 30 seconds ago
-            "estimated_remaining": 0,
-            "message": "Import completed successfully",
-            "details": {
-                "source_type": "mock",
-                "items_created": 5,
-                "categories_added": 2
-            }
+        # Get real progress from the knowledge ingestion service
+        progress = await knowledge_ingestion_service.get_import_progress(import_id)
+        
+        if progress is None:
+            raise HTTPException(status_code=404, detail=f"Import operation not found: {import_id}")
+        
+        # Convert the ImportProgress model to the expected response format
+        result = {
+            "import_id": progress.import_id,
+            "status": progress.status,
+            "progress": progress.progress_percentage,
+            "current_step": progress.current_step,
+            "total_steps": progress.total_steps,
+            "completed_steps": progress.completed_steps,
+            "start_time": progress.started_at,
+            "estimated_completion": progress.estimated_completion,
+            "message": progress.current_step,
+            "warnings": progress.warnings
         }
         
-        return progress
+        # Add error information if failed
+        if progress.error_message:
+            result["error_message"] = progress.error_message
         
+        # Add completion time if completed
+        if progress.status == "completed":
+            result["completion_time"] = progress.estimated_completion or progress.started_at
+        
+        return result
+        
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error getting import progress: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get import progress: {str(e)}")
