@@ -7,6 +7,7 @@ export class MobileEnhancer {
     this.isMobile = this.detectMobile();
     this.isTouch = this.detectTouch();
     this.orientation = this.getOrientation();
+    this.sidebarElement = null;
     this.setupMobileOptimizations();
   }
 
@@ -26,6 +27,13 @@ export class MobileEnhancer {
   setupMobileOptimizations() {
     if (!this.isMobile) return;
 
+    // Add mobile class to body for CSS targeting
+    document.body.classList.add('mobile-device');
+    
+    // Set initial mobile device properties
+    document.body.classList.toggle('portrait', this.orientation === 'portrait');
+    document.body.classList.toggle('landscape', this.orientation === 'landscape');
+
     // Prevent zoom on input focus (iOS)
     this.preventIOSZoom();
 
@@ -40,6 +48,9 @@ export class MobileEnhancer {
 
     // Setup viewport height fix for mobile browsers
     this.setupViewportHeightFix();
+    
+    // Initialize sidebar for mobile
+    this.initializeMobileSidebar();
   }
 
   preventIOSZoom() {
@@ -112,6 +123,51 @@ export class MobileEnhancer {
     window.addEventListener('resize', setVH);
     window.addEventListener('orientationchange', () => {
       setTimeout(setVH, 100);
+    });
+  }
+
+  // Initialize mobile sidebar behavior
+  initializeMobileSidebar() {
+    // Wait for DOM to be ready
+    const initSidebar = () => {
+      this.sidebarElement = document.querySelector('.sidebar');
+      if (this.sidebarElement && this.isMobile) {
+        // Ensure sidebar starts collapsed on mobile
+        this.sidebarElement.classList.add('collapsed');
+        
+        // Add mobile overlay click handler
+        this.setupSidebarOverlayClose();
+      }
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initSidebar);
+    } else {
+      initSidebar();
+    }
+  }
+
+  // Setup click outside to close sidebar on mobile
+  setupSidebarOverlayClose() {
+    if (!this.sidebarElement) return;
+
+    document.addEventListener('click', (e) => {
+      if (this.isMobile && !this.sidebarElement.classList.contains('collapsed')) {
+        // Check if click is outside sidebar and not on toggle button
+        const isClickInsideSidebar = this.sidebarElement.contains(e.target);
+        const isToggleButton = e.target.closest('.sidebar-toggle');
+        
+        if (!isClickInsideSidebar && !isToggleButton) {
+          this.sidebarElement.classList.add('collapsed');
+        }
+      }
+    });
+
+    // Close sidebar on escape key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && this.isMobile && !this.sidebarElement.classList.contains('collapsed')) {
+        this.sidebarElement.classList.add('collapsed');
+      }
     });
   }
 
@@ -231,30 +287,66 @@ export function initializeMobileEnhancements() {
   const enhancer = new MobileEnhancer();
   
   // Setup swipe gestures for sidebar
-  const sidebar = document.querySelector('.sidebar');
-  const mainContent = document.querySelector('.main-content');
-  
-  if (sidebar && enhancer.isMobile) {
-    enhancer.setupSwipeGestures(mainContent, {
-      swipeRight: () => {
-        // Open sidebar
-        sidebar.classList.remove('collapsed');
-        enhancer.vibrate([50]);
-      },
-      swipeLeft: () => {
-        // Close sidebar
-        sidebar.classList.add('collapsed');
-        enhancer.vibrate([50]);
-      }
-    });
+  const setupSidebarSwipes = () => {
+    const sidebar = document.querySelector('.sidebar');
+    const mainContent = document.querySelector('.main-content');
+    
+    if (sidebar && mainContent && enhancer.isMobile) {
+      // Swipe right from left edge to open sidebar
+      enhancer.setupSwipeGestures(document.body, {
+        swipeRight: (e) => {
+          // Only open if swipe starts from left edge
+          const startX = e.changedTouches[0]?.clientX || 0;
+          if (startX < 50 && sidebar.classList.contains('collapsed')) {
+            sidebar.classList.remove('collapsed');
+            enhancer.vibrate([50]);
+          }
+        },
+        swipeLeft: (e) => {
+          // Close sidebar if it's open
+          if (!sidebar.classList.contains('collapsed')) {
+            sidebar.classList.add('collapsed');
+            enhancer.vibrate([50]);
+          }
+        }
+      });
+      
+      console.log('📱 Mobile swipe gestures setup for sidebar');
+    }
+  };
+
+  // Setup swipe gestures when DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupSidebarSwipes);
+  } else {
+    setTimeout(setupSidebarSwipes, 100); // Small delay to ensure elements exist
   }
 
   // Setup network monitoring
   enhancer.setupNetworkMonitoring();
 
   // Make interactive elements touch-friendly
-  const interactiveElements = document.querySelectorAll('button, .nav-item, .expand-btn, [role="button"]');
-  interactiveElements.forEach(makeTouchFriendly);
+  const makeTouchFriendlyElements = () => {
+    const interactiveElements = document.querySelectorAll('button, .nav-item, .expand-btn, [role="button"]');
+    interactiveElements.forEach(makeTouchFriendly);
+  };
+
+  // Apply touch-friendly improvements when DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', makeTouchFriendlyElements);
+  } else {
+    makeTouchFriendlyElements();
+  }
+
+  // Re-apply on dynamic content changes
+  const observer = new MutationObserver(() => {
+    makeTouchFriendlyElements();
+  });
+
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true
+  });
 
   return enhancer;
 }

@@ -44,6 +44,7 @@
   let fullscreenMode = false;
   let pollInterval;
   let mobileEnhancer;
+  let isMobileDevice = false;
 
   // Check URL parameters for direct view access
   onMount(() => {
@@ -71,8 +72,17 @@
     try {
       console.log('🚀 Initializing GödelOS cognitive interface...');
       
+      // Detect mobile device first and set initial state
+      isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768;
+      
       // Initialize mobile enhancements first
       mobileEnhancer = initializeMobileEnhancements();
+      
+      // Set sidebar collapsed on mobile by default
+      if (isMobileDevice) {
+        sidebarCollapsed = true;
+        console.log('📱 Mobile device detected - sidebar collapsed');
+      }
       
       // Initialize enhanced cognitive features
       await initializeEnhancedCognitive();
@@ -664,8 +674,18 @@
     overflow: hidden;
   }
 
+  :global(html) {
+    /* CSS custom property for viewport height */
+    --vh: 1vh;
+  }
+
+  :global(*) {
+    box-sizing: border-box;
+  }
+
   .godelos-interface {
     height: 100vh;
+    height: calc(var(--vh, 1vh) * 100); /* Use CSS custom property for mobile */
     display: flex;
     flex-direction: column;
     background: transparent;
@@ -1438,23 +1458,33 @@
       overflow-x: hidden;
     }
 
-    .sidebar:not(.collapsed) {
-      width: 100%;
+    /* Mobile sidebar - full screen overlay when open */
+    .sidebar {
       position: fixed;
-      z-index: 200;
-      height: 100vh;
       top: 0;
       left: 0;
-      /* Add backdrop for mobile overlay */
+      width: 100vw;
+      height: 100vh;
+      z-index: 200;
+      /* Mobile overlay background */
       background: rgba(15, 20, 35, 0.98);
       backdrop-filter: blur(20px);
-      /* Enable smooth slide animation */
+      /* Smooth slide animation */
       transform: translateX(0);
-      transition: transform 0.3s ease;
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     .sidebar.collapsed {
+      /* Hide sidebar completely off-screen */
       transform: translateX(-100%);
+      pointer-events: none;
+    }
+
+    /* Ensure sidebar content is properly scrollable on mobile */
+    .nav-sections {
+      max-height: calc(100vh - 200px); /* Account for header and status */
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
     }
     
     /* Mobile-optimized header */
@@ -1485,7 +1515,12 @@
     }
 
     .subtitle {
-      display: none; /* Hide subtitle on mobile */
+      display: none; /* Hide subtitle on mobile to save space */
+    }
+    
+    /* Hide view indicator on mobile to save space */
+    .header-center {
+      display: none;
     }
     
     /* Improved mobile navigation */
@@ -1525,22 +1560,34 @@
       /* Enable momentum scrolling on iOS */
       -webkit-overflow-scrolling: touch;
       overflow-y: auto;
+      width: 100%;
     }
 
+    /* Fix dashboard layout for mobile - single column */
     .dashboard-layout {
       gap: 0.75rem;
       /* Optimize for vertical scrolling on mobile */
-      grid-template-rows: auto auto auto;
+      display: flex;
+      flex-direction: column;
       height: auto;
       overflow: visible;
     }
+
+    .dashboard-top, .dashboard-middle, .dashboard-bottom {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      width: 100%;
+    }
     
     .query-panel, .response-panel, .cognitive-panel, .evolution-panel,
-    .insights-panel, .knowledge-preview-panel {
+    .insights-panel, .knowledge-preview-panel, .interaction-panel {
       padding: 0.75rem;
       border-radius: 12px;
       /* Ensure touch-friendly interaction */
       touch-action: manipulation;
+      width: 100%;
+      box-sizing: border-box;
     }
 
     .panel-header {
@@ -1557,13 +1604,8 @@
       font-size: 0.85rem;
       border-radius: 6px;
       /* Touch-friendly button */
-      min-height: 40px;
-      min-width: 40px;
-    }
-
-    /* Hide view indicator on mobile to save space */
-    .header-center {
-      display: none;
+      min-height: 44px; /* iOS recommended touch target size */
+      min-width: 44px;
     }
 
     /* Mobile-specific component container optimization */
@@ -1573,6 +1615,18 @@
       /* Enable smooth scrolling within components */
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
+    }
+
+    /* Query layout mobile optimization */
+    .query-layout {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      height: auto;
+    }
+
+    .query-main, .query-sidebar {
+      width: 100%;
     }
 
     /* Optimize buttons for touch */
@@ -1598,8 +1652,9 @@
     }
 
     .knowledge-stats {
+      display: grid;
       grid-template-columns: repeat(2, 1fr);
-      gap: 0.25rem;
+      gap: 0.5rem;
     }
 
     .stat {
@@ -1643,16 +1698,27 @@
     }
 
     .query-panel, .response-panel, .cognitive-panel, .evolution-panel,
-    .insights-panel, .knowledge-preview-panel {
+    .insights-panel, .knowledge-preview-panel, .interaction-panel {
       padding: 0.5rem;
     }
 
     .knowledge-stats {
       grid-template-columns: 1fr;
+      gap: 0.5rem;
     }
 
     .dashboard-layout {
       gap: 0.5rem;
+    }
+
+    /* Smaller text for ultra-small screens */
+    .nav-title {
+      font-size: 0.9rem;
+    }
+
+    .section-header {
+      font-size: 0.8rem;
+      padding: 0.4rem 0.5rem;
     }
   }
 
@@ -1690,6 +1756,20 @@
       transform: scale(0.96) !important;
       transition: all 0.1s ease !important;
     }
+
+    /* Larger touch targets for interactive elements */
+    .nav-item, button, .expand-btn {
+      min-height: 48px;
+      padding: 0.75rem 1rem;
+    }
+
+    /* Improve touch scrolling performance */
+    .nav-sections,
+    .main-content,
+    .component-container {
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+    }
   }
 
   /* Touch-friendly utility classes */
@@ -1701,6 +1781,28 @@
     justify-content: center;
     touch-action: manipulation;
     -webkit-tap-highlight-color: rgba(100, 181, 246, 0.2);
+  }
+
+  /* Mobile device specific styles */
+  :global(body.mobile-device) {
+    /* Improve mobile performance */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  :global(body.mobile-device .sidebar) {
+    /* Ensure mobile sidebar is properly layered */
+    z-index: 1000;
+  }
+
+  :global(body.mobile-device .sidebar.collapsed) {
+    /* Completely hide collapsed sidebar on mobile */
+    visibility: hidden;
+  }
+
+  :global(body.mobile-device .sidebar:not(.collapsed)) {
+    /* Show mobile sidebar overlay */
+    visibility: visible;
   }
 
   /* Network status indicators */
