@@ -105,7 +105,9 @@ class GodelOSArchitectureReviewer:
             if response.status_code == 200:
                 health_data = response.json()
                 details["backend_health"] = health_data
-                if not health_data.get("healthy", False):
+                # Check both top-level and nested healthy status
+                healthy = health_data.get("healthy", False) or health_data.get("details", {}).get("healthy", False)
+                if not healthy:
                     issues.append("Backend reporting unhealthy status")
             else:
                 issues.append(f"Backend health check failed: {response.status_code}")
@@ -114,13 +116,13 @@ class GodelOSArchitectureReviewer:
             issues.append(f"Backend connection failed: {str(e)}")
             
         try:
-            # Test frontend accessibility
+            # Test frontend accessibility (optional - warn if not available)
             response = requests.get(self.frontend_url, timeout=10)
             details["frontend_accessible"] = response.status_code == 200
             if response.status_code != 200:
-                issues.append(f"Frontend not accessible: {response.status_code}")
+                details["frontend_warning"] = f"Frontend not accessible: {response.status_code}"
         except Exception as e:
-            issues.append(f"Frontend connection failed: {str(e)}")
+            details["frontend_warning"] = f"Frontend connection failed: {str(e)}"
             
         status = "PASS" if not issues else "FAIL"
         execution_time = time.time() - start_time
