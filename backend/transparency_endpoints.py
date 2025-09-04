@@ -4,6 +4,8 @@ These endpoints support the cognitive architecture pipeline tests
 """
 
 import asyncio
+import secrets
+import uuid
 from fastapi import APIRouter, HTTPException, Query
 from typing import Dict, List, Optional, Any
 import time
@@ -42,12 +44,33 @@ class ProvenanceSnapshot(BaseModel):
     """Provenance snapshot model."""
     description: str
 
-# Thread-safe global state with locks
+# Thread-safe global state with locks and persistent storage
 _state_lock = asyncio.Lock()
-active_sessions = {}
+active_sessions = {}  # Keep in-memory cache for performance
 knowledge_graph_nodes = []
 knowledge_graph_relationships = []
 provenance_snapshots = []
+
+# Import persistence layer
+from .persistence import get_persistence_layer
+
+async def _load_session_from_persistence(session_id: str) -> Optional[Dict[str, Any]]:
+    """Load session from persistent storage."""
+    try:
+        persistence = await get_persistence_layer()
+        return await persistence.session_manager.load_session(session_id)
+    except Exception as e:
+        logger.error(f"Error loading session {session_id} from persistence: {e}")
+        return None
+
+async def _save_session_to_persistence(session_id: str, session_data: Dict[str, Any]) -> bool:
+    """Save session to persistent storage."""
+    try:
+        persistence = await get_persistence_layer()
+        return await persistence.session_manager.store_session(session_id, session_data)
+    except Exception as e:
+        logger.error(f"Error saving session {session_id} to persistence: {e}")
+        return False
 
 @router.post("/configure")
 async def configure_transparency(config: TransparencyConfig):
@@ -60,18 +83,27 @@ async def configure_transparency(config: TransparencyConfig):
 
 @router.post("/session/start")
 async def start_reasoning_session(session: ReasoningSession):
-    """Start a new reasoning session."""
-    session_id = f"session_{int(time.time())}"
+    """Start a new reasoning session with secure session ID generation and persistence."""
+    # Generate cryptographically secure session ID
+    session_id = f"session_{uuid.uuid4().hex}_{secrets.token_hex(8)}"
+    
+    session_data = {
+        "id": session_id,
+        "query": session.query,
+        "transparency_level": session.transparency_level,
+        "start_time": time.time(),
+        "status": "active",
+        "reasoning_steps": [],
+        "created_at": time.time(),
+        "last_activity": time.time()
+    }
     
     async with _state_lock:
-        active_sessions[session_id] = {
-            "id": session_id,
-            "query": session.query,
-            "transparency_level": session.transparency_level,
-            "start_time": time.time(),
-            "status": "active",
-            "reasoning_steps": []
-        }
+        # Store in memory cache
+        active_sessions[session_id] = session_data
+        
+        # Save to persistent storage
+        await _save_session_to_persistence(session_id, session_data)
     
     return {
         "session_id": session_id,
@@ -166,6 +198,26 @@ async def get_active_sessions():
         "total_active": len(active_list)
     }
 
+@router.get("/sessions")
+async def get_all_sessions():
+    """Get all reasoning sessions."""
+    async with _state_lock:
+        all_sessions = [
+            {
+                "session_id": sid,
+                "query": session["query"],
+                "start_time": session["start_time"],
+                "status": session["status"],
+                "duration": session.get("completion_time", time.time()) - session["start_time"] if session["status"] == "completed" else None
+            }
+            for sid, session in active_sessions.items()
+        ]
+    
+    return {
+        "sessions": all_sessions,
+        "total": len(all_sessions)
+    }
+
 # Alternative consistent route for better API design
 @router.get("/session/active")
 async def get_active_sessions_consistent():
@@ -209,6 +261,11 @@ async def get_session_statistics(session_id: str):
         "query_complexity": 0.75,
         "transparency_overhead": 0.15
     }
+
+@router.get("/session/{session_id}/stats")
+async def get_session_stats(session_id: str):
+    """Get statistics for a specific session (alias for statistics)."""
+    return await get_session_statistics(session_id)
 
 @router.post("/knowledge-graph/node")
 async def add_knowledge_graph_node(node: KnowledgeGraphNode):

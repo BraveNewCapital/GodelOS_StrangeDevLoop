@@ -39,6 +39,7 @@ from .knowledge_models import (
     KnowledgeItem, ImportSource, ImportStatistics
 )
 from .external_apis import wikipedia_api, web_scraper, content_processor
+from .persistence import get_persistence_layer
 
 # Will be set by main.py to avoid circular imports
 knowledge_management_service = None
@@ -222,8 +223,36 @@ class KnowledgeIngestionService:
         return import_ids
     
     async def get_import_progress(self, import_id: str) -> Optional[ImportProgress]:
-        """Get the progress of an import operation."""
-        return self.active_imports.get(import_id)
+        """Get the progress of an import operation from memory or persistence."""
+        # Check memory first
+        if import_id in self.active_imports:
+            return self.active_imports[import_id]
+        
+        # Check persistence if not in memory
+        try:
+            persistence = await get_persistence_layer()
+            progress_data = await persistence.import_tracker.load_progress(import_id)
+            if progress_data:
+                # Reconstruct ImportProgress object
+                progress = ImportProgress(
+                    import_id=progress_data["import_id"],
+                    status=progress_data["status"],
+                    progress_percentage=progress_data["progress_percentage"],
+                    current_step=progress_data["current_step"],
+                    total_steps=progress_data["total_steps"],
+                    completed_steps=progress_data["completed_steps"],
+                    started_at=progress_data["started_at"],
+                    estimated_completion=progress_data.get("estimated_completion"),
+                    error_message=progress_data.get("error_message"),
+                    warnings=progress_data.get("warnings", [])
+                )
+                # Add back to memory cache
+                self.active_imports[import_id] = progress
+                return progress
+        except Exception as e:
+            logger.error(f"Error loading import progress from persistence: {e}")
+        
+        return None
     
     async def cancel_import(self, import_id: str) -> bool:
         """Cancel an import operation."""
@@ -237,8 +266,30 @@ class KnowledgeIngestionService:
         return False
     
     async def _broadcast_progress_update(self, import_id: str, progress: ImportProgress):
-        """Broadcast progress update via WebSocket if available."""
+        """Broadcast progress update via WebSocket and save to persistence."""
         logger.info(f"🔍 DEBUG: _broadcast_progress_update called for {import_id}")
+        
+        # Save progress to persistence
+        try:
+            persistence = await get_persistence_layer()
+            progress_data = {
+                "import_id": import_id,
+                "status": progress.status,
+                "progress_percentage": progress.progress_percentage,
+                "current_step": progress.current_step,
+                "total_steps": progress.total_steps,
+                "completed_steps": progress.completed_steps,
+                "started_at": progress.started_at,
+                "estimated_completion": progress.estimated_completion,
+                "error_message": progress.error_message,
+                "warnings": progress.warnings
+            }
+            await persistence.import_tracker.store_progress(import_id, progress_data)
+            logger.debug(f"Saved import progress for {import_id} to persistence")
+        except Exception as e:
+            logger.error(f"Error saving import progress to persistence: {e}")
+        
+        # Broadcast via WebSocket if available
         logger.info(f"🔍 DEBUG: websocket_manager exists: {self.websocket_manager is not None}")
         
         if self.websocket_manager:
@@ -531,49 +582,90 @@ class KnowledgeIngestionService:
             raise
 
     async def _process_url_import(self, import_id: str, request):
-        """Process URL import request."""
+        """Process URL import request with real web scraping and progress tracking."""
         try:
             progress = self.active_imports[import_id]
-            progress.current_step = "Fetching URL content"
-            progress.progress_percentage = 25.0
+            progress.current_step = "Connecting to URL"
+            progress.progress_percentage = 15.0
             progress.completed_steps = 1
             
             # Broadcast progress update
             await self._broadcast_progress_update(import_id, progress)
             
-            # This is a placeholder - would need actual web scraping implementation
-            content = f"Content from URL: {request.url}"
-            title = f"Web Content from {request.url}"
+            # Get URL from request
+            url = str(getattr(request, 'url', getattr(request, 'source_url', 'Unknown')))
             
-            progress.current_step = "Processing web content"
-            progress.progress_percentage = 50.0
+            progress.current_step = f"Fetching content from {url}"
+            progress.progress_percentage = 30.0
             progress.completed_steps = 2
-            
-            # Broadcast progress update
             await self._broadcast_progress_update(import_id, progress)
             
-            processed_data = await self._process_content(
-                content=content,
-                title=title,
-                metadata=request.source.metadata
-            )
+            # Use the real web scraper
+            logger.info(f"🔍 DEBUG: Scraping URL: {url}")
+            scraped_data = await web_scraper.scrape_url(url)
             
-            progress.current_step = "Creating knowledge item"
-            progress.progress_percentage = 75.0
+            if scraped_data.get('is_fallback'):
+                logger.warning(f"Using fallback content for {url}")
+            
+            content = scraped_data.get('content', '')
+            title = scraped_data.get('title', f"Web Content from {url}")
+            
+            # Update progress with content size information
+            word_count = scraped_data.get('word_count', len(content.split()))
+            progress.current_step = f"Processing {word_count} words from web page"
+            progress.progress_percentage = 55.0
             progress.completed_steps = 3
             
             # Broadcast progress update
             await self._broadcast_progress_update(import_id, progress)
             
-            # Create knowledge item
+            # Process the actual content
+            logger.info(f"🔍 DEBUG: Processing scraped content for {import_id}")
+            metadata = {
+                'source_url': url,
+                'description': scraped_data.get('description', ''),
+                'keywords': scraped_data.get('metadata', {}).get('keywords', []),
+                'word_count': word_count,
+                'char_count': scraped_data.get('char_count', len(content)),
+                'content_type': scraped_data.get('metadata', {}).get('content_type', ''),
+                'is_fallback': scraped_data.get('is_fallback', False)
+            }
+            
+            # Merge with any existing metadata from request
+            if hasattr(request, 'source') and hasattr(request.source, 'metadata'):
+                metadata.update(request.source.metadata)
+            
+            progress.current_step = "Processing and extracting knowledge"
+            progress.progress_percentage = 75.0
+            progress.completed_steps = 4
+            await self._broadcast_progress_update(import_id, progress)
+            
+            processed_data = await self._process_content(
+                content=content,
+                title=title,
+                metadata=metadata
+            )
+            
+            progress.current_step = "Creating knowledge item"
+            progress.progress_percentage = 90.0
+            progress.completed_steps = 5
+            
+            # Broadcast progress update
+            await self._broadcast_progress_update(import_id, progress)
+            
+            # Create knowledge item with real data
             knowledge_item = KnowledgeItem(
                 id=f"url-{import_id}",
                 content=processed_data['content'],
                 knowledge_type="fact",
                 title=processed_data['title'],
-                source=request.source,
+                source=ImportSource(
+                    source_type="url",
+                    source_identifier=url,
+                    metadata=metadata
+                ),
                 import_id=import_id,
-                confidence=0.7,
+                confidence=0.8 if not scraped_data.get('is_fallback') else 0.4,
                 quality_score=0.75,
                 categories=request.categorization_hints or ["web"],
                 auto_categories=[],
@@ -677,57 +769,97 @@ class KnowledgeIngestionService:
             raise
 
     async def _process_wikipedia_import(self, import_id: str, request):
-        """Process Wikipedia import request."""
+        """Process Wikipedia import request with real API calls and progress tracking."""
         try:
             logger.info(f"🔍 DEBUG: Starting Wikipedia processing for {import_id}")
             progress = self.active_imports[import_id]
-            progress.current_step = "Fetching Wikipedia content"
-            progress.progress_percentage = 25.0
+            progress.current_step = "Connecting to Wikipedia API"
+            progress.progress_percentage = 10.0
             progress.completed_steps = 1
             
             # Broadcast progress update
             logger.info(f"🔍 DEBUG: Broadcasting progress update 1 for {import_id}")
             await self._broadcast_progress_update(import_id, progress)
             
-            # This is a placeholder - would need actual Wikipedia API implementation
-            logger.info(f"🔍 DEBUG: Fetching content for page: {request.page_title}")
-            content = f"Wikipedia content for: {request.page_title}"
-            title = request.page_title
+            # Get Wikipedia page title from request
+            page_title = getattr(request, 'page_title', getattr(request, 'topic', getattr(request, 'title', 'Unknown')))
+            language = getattr(request, 'language', 'en')
             
-            progress.current_step = "Processing Wikipedia content"
-            progress.progress_percentage = 50.0
+            progress.current_step = f"Fetching Wikipedia content for '{page_title}'"
+            progress.progress_percentage = 25.0
             progress.completed_steps = 2
+            await self._broadcast_progress_update(import_id, progress)
+            
+            # Use the real Wikipedia API
+            logger.info(f"🔍 DEBUG: Fetching content for page: {page_title}")
+            wikipedia_data = await wikipedia_api.get_page_content(page_title, language)
+            
+            if wikipedia_data.get('is_fallback'):
+                logger.warning(f"Using fallback content for {page_title}")
+            
+            content = wikipedia_data.get('content', '')
+            title = wikipedia_data.get('title', page_title)
+            
+            # Update progress with content size information
+            word_count = wikipedia_data.get('word_count', len(content.split()))
+            progress.current_step = f"Processing {word_count} words from Wikipedia article"
+            progress.progress_percentage = 50.0
+            progress.completed_steps = 3
             
             # Broadcast progress update
             logger.info(f"🔍 DEBUG: Broadcasting progress update 2 for {import_id}")
             await self._broadcast_progress_update(import_id, progress)
             
+            # Process the actual content
             logger.info(f"🔍 DEBUG: Processing content for {import_id}")
+            metadata = {
+                'source_url': wikipedia_data.get('url', ''),
+                'language': language,
+                'sections': wikipedia_data.get('sections', []),
+                'summary': wikipedia_data.get('summary', ''),
+                'word_count': word_count,
+                'char_count': wikipedia_data.get('char_count', len(content)),
+                'is_fallback': wikipedia_data.get('is_fallback', False)
+            }
+            
+            # Merge with any existing metadata from request
+            if hasattr(request, 'source') and hasattr(request.source, 'metadata'):
+                metadata.update(request.source.metadata)
+            
+            progress.current_step = "Processing and extracting knowledge"
+            progress.progress_percentage = 70.0
+            progress.completed_steps = 4
+            await self._broadcast_progress_update(import_id, progress)
+            
             processed_data = await self._process_content(
                 content=content,
                 title=title,
-                metadata=request.source.metadata
+                metadata=metadata
             )
             logger.info(f"🔍 DEBUG: Content processed for {import_id}")
             
             progress.current_step = "Creating knowledge item"
-            progress.progress_percentage = 75.0
-            progress.completed_steps = 3
+            progress.progress_percentage = 85.0
+            progress.completed_steps = 5
             
             # Broadcast progress update
             logger.info(f"🔍 DEBUG: Broadcasting progress update 3 for {import_id}")
             await self._broadcast_progress_update(import_id, progress)
             
-            # Create knowledge item
+            # Create knowledge item with real data
             logger.info(f"🔍 DEBUG: Creating knowledge item for {import_id}")
             knowledge_item = KnowledgeItem(
                 id=f"wikipedia-{import_id}",
                 content=processed_data['content'],
                 knowledge_type="fact",
                 title=processed_data['title'],
-                source=request.source,
+                source=ImportSource(
+                    source_type="wikipedia",
+                    source_identifier=page_title,
+                    metadata=metadata
+                ),
                 import_id=import_id,
-                confidence=0.8,
+                confidence=0.9 if not wikipedia_data.get('is_fallback') else 0.3,
                 quality_score=0.8,
                 categories=request.categorization_hints or ["wikipedia"],
                 auto_categories=[],

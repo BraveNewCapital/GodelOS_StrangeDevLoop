@@ -28,6 +28,8 @@ from pydantic import BaseModel
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from backend.godelos_integration import GödelOSIntegration
+from backend.input_validation import validator
+from backend.persistence import initialize_persistence, shutdown_persistence
 from backend.websocket_manager import WebSocketManager
 from backend.cognitive_transparency_integration import cognitive_transparency_api
 from backend.enhanced_cognitive_api import router as enhanced_cognitive_router
@@ -191,6 +193,16 @@ async def lifespan(app: FastAPI):
 
     # Startup
     startup_services()
+    
+    # Initialize persistence layer first
+    logger.info("🔍 BACKEND DIAGNOSTIC: Initializing persistence layer...")
+    try:
+        await initialize_persistence()
+        logger.info("✅ BACKEND DIAGNOSTIC: Persistence layer initialized successfully")
+    except Exception as e:
+        logger.error(f"❌ BACKEND DIAGNOSTIC: Failed to initialize persistence layer: {e}")
+        raise
+    
     logger.info("🔍 BACKEND DIAGNOSTIC: Starting GödelOS system initialization...")
     try:
         logger.info("🔍 BACKEND DIAGNOSTIC: Creating GödelOS integration instance...")
@@ -260,6 +272,14 @@ async def lifespan(app: FastAPI):
     # Shutdown knowledge services
     await knowledge_ingestion_service.shutdown()
     logger.info("Knowledge services shutdown complete")
+    
+    # Shutdown persistence layer
+    logger.info("Shutting down persistence layer...")
+    try:
+        await shutdown_persistence()
+        logger.info("Persistence layer shutdown complete")
+    except Exception as e:
+        logger.error(f"Error shutting down persistence layer: {e}")
     
     if godelos_integration:
         await godelos_integration.shutdown()
@@ -869,12 +889,21 @@ async def internal_error_handler(request, exc):
 
 @app.post("/api/knowledge/import/url")
 async def import_from_url(request: Union[URLImportRequest, Dict[str, Any]]):
-    """Import knowledge from a URL."""
+    """Import knowledge from a URL with comprehensive input validation."""
     try:
         # Handle simple dict format
         if isinstance(request, dict):
-            url = request.get('url')
-            category = request.get('category', 'web')
+            # Validate and sanitize input
+            try:
+                validated_request = validator.validate_import_request(request)
+            except ValueError as e:
+                logger.warning(f"URL import validation failed: {e}")
+                raise HTTPException(status_code=422, detail=f"Invalid input: {str(e)}")
+            
+            # Extract validated fields
+            url = validated_request.get('url')
+            category = validated_request.get('category', 'web')
+            metadata = validated_request.get('metadata', {})
             
             if not url:
                 raise HTTPException(status_code=422, detail="URL is required")
@@ -883,7 +912,7 @@ async def import_from_url(request: Union[URLImportRequest, Dict[str, Any]]):
             import_source = ImportSource(
                 source_type="url",
                 source_identifier=str(url),
-                metadata={"category": category}
+                metadata={**metadata, "category": category}
             )
             
             url_request = URLImportRequest(
@@ -1008,21 +1037,31 @@ async def import_from_file(
 
 @app.post("/api/knowledge/import/wikipedia")
 async def import_from_wikipedia(request: Union[WikipediaImportRequest, Dict[str, Any]]):
-    """Import knowledge from Wikipedia."""
+    """Import knowledge from Wikipedia with comprehensive input validation."""
     try:
         # Handle simple dict format
         if isinstance(request, dict):
-            topic = request.get('topic')
-            category = request.get('category', 'encyclopedia')
+            # Validate and sanitize input
+            try:
+                validated_request = validator.validate_import_request(request)
+            except ValueError as e:
+                logger.warning(f"Wikipedia import validation failed: {e}")
+                raise HTTPException(status_code=422, detail=f"Invalid input: {str(e)}")
+            
+            # Extract validated fields
+            topic = validated_request.get('topic')
+            category = validated_request.get('category', 'encyclopedia')
+            language = validated_request.get('language', 'en')
+            metadata = validated_request.get('metadata', {})
             
             if not topic:
-                raise HTTPException(status_code=422, detail="Topic is required")
+                raise HTTPException(status_code=422, detail="Topic or title is required")
             
             # Create proper WikipediaImportRequest
             import_source = ImportSource(
                 source_type="wikipedia",
                 source_identifier=topic,
-                metadata={"category": category}
+                metadata={**metadata, "category": category}
             )
             
             wiki_request = WikipediaImportRequest(
@@ -1144,27 +1183,38 @@ async def batch_import(request: Union[BatchImportRequest, Dict[str, Any]]):
 async def get_import_progress(import_id: str):
     """Get the progress of an import operation."""
     try:
-        # Return mock progress data
-        progress = {
-            "import_id": import_id,
-            "status": "completed",  # could be: queued, processing, completed, failed
-            "progress": 100,        # percentage
-            "total_items": 5,
-            "processed_items": 5,
-            "failed_items": 0,
-            "start_time": time.time() - 300,  # 5 minutes ago
-            "completion_time": time.time() - 30,  # 30 seconds ago
-            "estimated_remaining": 0,
-            "message": "Import completed successfully",
-            "details": {
-                "source_type": "mock",
-                "items_created": 5,
-                "categories_added": 2
-            }
+        # Get real progress from the knowledge ingestion service
+        progress = await knowledge_ingestion_service.get_import_progress(import_id)
+        
+        if progress is None:
+            raise HTTPException(status_code=404, detail=f"Import operation not found: {import_id}")
+        
+        # Convert the ImportProgress model to the expected response format
+        result = {
+            "import_id": progress.import_id,
+            "status": progress.status,
+            "progress": progress.progress_percentage,
+            "current_step": progress.current_step,
+            "total_steps": progress.total_steps,
+            "completed_steps": progress.completed_steps,
+            "start_time": progress.started_at,
+            "estimated_completion": progress.estimated_completion,
+            "message": progress.current_step,
+            "warnings": progress.warnings
         }
         
-        return progress
+        # Add error information if failed
+        if progress.error_message:
+            result["error_message"] = progress.error_message
         
+        # Add completion time if completed
+        if progress.status == "completed":
+            result["completion_time"] = progress.estimated_completion or progress.started_at
+        
+        return result
+        
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error getting import progress: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get import progress: {str(e)}")
