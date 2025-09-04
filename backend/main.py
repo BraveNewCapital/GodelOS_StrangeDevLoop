@@ -1012,11 +1012,13 @@ async def import_from_wikipedia(request: Union[WikipediaImportRequest, Dict[str,
     try:
         # Handle simple dict format
         if isinstance(request, dict):
-            topic = request.get('topic')
+            # Support both 'topic' and 'title' for backward compatibility
+            topic = request.get('topic') or request.get('title')
             category = request.get('category', 'encyclopedia')
+            language = request.get('language', 'en')
             
             if not topic:
-                raise HTTPException(status_code=422, detail="Topic is required")
+                raise HTTPException(status_code=422, detail="Topic or title is required")
             
             # Create proper WikipediaImportRequest
             import_source = ImportSource(

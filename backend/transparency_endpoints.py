@@ -166,6 +166,26 @@ async def get_active_sessions():
         "total_active": len(active_list)
     }
 
+@router.get("/sessions")
+async def get_all_sessions():
+    """Get all reasoning sessions."""
+    async with _state_lock:
+        all_sessions = [
+            {
+                "session_id": sid,
+                "query": session["query"],
+                "start_time": session["start_time"],
+                "status": session["status"],
+                "duration": session.get("completion_time", time.time()) - session["start_time"] if session["status"] == "completed" else None
+            }
+            for sid, session in active_sessions.items()
+        ]
+    
+    return {
+        "sessions": all_sessions,
+        "total": len(all_sessions)
+    }
+
 # Alternative consistent route for better API design
 @router.get("/session/active")
 async def get_active_sessions_consistent():
@@ -209,6 +229,11 @@ async def get_session_statistics(session_id: str):
         "query_complexity": 0.75,
         "transparency_overhead": 0.15
     }
+
+@router.get("/session/{session_id}/stats")
+async def get_session_stats(session_id: str):
+    """Get statistics for a specific session (alias for statistics)."""
+    return await get_session_statistics(session_id)
 
 @router.post("/knowledge-graph/node")
 async def add_knowledge_graph_node(node: KnowledgeGraphNode):
