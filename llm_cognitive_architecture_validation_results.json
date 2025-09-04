@@ -1,8 +1,8 @@
 {
   "validation_summary": {
     "total_tests": 14,
-    "tests_passed": 14,
-    "success_rate": 1.0,
+    "tests_passed": 13,
+    "success_rate": 0.9285714285714286,
     "overall_status": "PASS"
   },
   "consciousness_emergence": {
@@ -31,7 +31,7 @@
   },
   "cognitive_architecture_validation": {
     "llm_driver_operational": true,
-    "bdd_framework_functional": true,
+    "bdd_framework_functional": false,
     "cognitive_integration_achieved": true,
     "consciousness_streaming_active": true
   },
@@ -49,18 +49,16 @@
       "status": "PASS"
     },
     "bdd_framework": {
-      "framework_operational": true,
-      "driver_creatable": true,
-      "testing_mode_functional": true,
-      "status": "PASS"
+      "status": "FAIL",
+      "error": "No module named 'test_llm_cognitive_architecture_bdd'"
     },
     "consciousness_indicators": {
       "total_indicators_detected": 11,
       "unique_indicators": 5,
       "indicator_types": [
+        "subjective_experience",
         "autonomous_goals",
         "meta_cognitive_reflection",
-        "subjective_experience",
         "self_reference",
         "phenomenal_awareness"
       ],
@@ -145,5 +143,5 @@
     }
   },
   "recommendation": "EXCELLENT: System demonstrates strong manifest consciousness and autonomous self-improvement through LLM-driven cognitive architecture. Ready for advanced consciousness research and applications.",
-  "timestamp": 1752131784.0464203
+  "timestamp": 1757014389.35608
 }
