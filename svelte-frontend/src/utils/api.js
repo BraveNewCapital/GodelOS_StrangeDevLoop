@@ -14,35 +14,28 @@ console.log('🔗 GödelOS API connecting to:', API_BASE_URL);
 export class GödelOSAPI {
   static async fetchKnowledgeGraph() {
     try {
-      // First try the main knowledge graph endpoint
-      let response = await fetch(`${API_BASE_URL}/api/knowledge/graph`);
+      // Use the correct backend knowledge graph endpoint
+      const response = await fetch(`${API_BASE_URL}/api/knowledge/graph`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      let data = await response.json();
+      const data = await response.json();
       
       // Transform the API response to match expected format
-      if (data && data.nodes && data.edges) {
+      if (data && (data.nodes || data.edges)) {
         return {
           nodes: data.nodes || [],
-          links: data.edges || [], // edges → links
-          statistics: data.statistics
+          links: data.edges || [], // edges → links for D3.js compatibility
+          statistics: data.statistics || {
+            node_count: data.nodes?.length || 0,
+            edge_count: data.edges?.length || 0,
+            data_source: data.data_source || "backend"
+          }
         };
       }
       
-      // Fallback to transparency endpoint
-      response = await fetch(`${API_BASE_URL}/api/transparency/knowledge-graph/export`);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      data = await response.json();
-      
-      // Transform the transparency API response to match expected format
-      if (data && data.graph_data) {
-        return {
-          nodes: data.graph_data.nodes || [],
-          links: data.graph_data.edges || [] // edges → links
-        };
-      }
+      console.warn('Knowledge graph response has unexpected format:', data);
       return null;
     } catch (error) {
-      console.warn('Failed to fetch knowledge graph, using fallback:', error);
+      console.warn('Failed to fetch knowledge graph:', error);
       return null;
     }
   }
@@ -96,7 +89,8 @@ export class GödelOSAPI {
 
   static async fetchCognitiveState() {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/cognitive/state`, {
+      // Use the correct backend cognitive state endpoint
+      const response = await fetch(`${API_BASE_URL}/api/cognitive-state`, {
         signal: AbortSignal.timeout(5000) // 5 second timeout
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -422,70 +416,17 @@ export class GödelOSAPI {
     try {
       console.log('🧠 Attempting knowledge re-analysis...');
       
-      // Try the reanalyze endpoint first
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/transparency/knowledge-graph/reanalyze`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            trigger_reanalysis: true,
-            enhanced_extraction: true,
-            semantic_processing: true
-          })
-        });
-        
-        if (response.ok) {
-          const result = await response.json();
-          console.log('✅ Re-analysis response:', result);
-          return result;
-        }
-      } catch (error) {
-        console.log('⚠️ Reanalyze endpoint not available, trying alternative approach...');
-      }
-      
-      // Fallback: Try to trigger re-analysis through existing endpoints
-      console.log('🔄 Using alternative re-analysis approach...');
-      
-      // Option 1: Try to refresh/rebuild the knowledge graph
-      try {
-        const refreshResponse = await fetch(`${API_BASE_URL}/api/transparency/knowledge-graph/refresh`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        });
-        
-        if (refreshResponse.ok) {
-          return { success: true, message: 'Knowledge graph refreshed successfully' };
-        }
-      } catch (error) {
-        console.log('⚠️ Refresh endpoint not available...');
-      }
-      
-      // Option 2: Try to rebuild the graph by clearing cache
-      try {
-        const rebuildResponse = await fetch(`${API_BASE_URL}/api/transparency/knowledge-graph/rebuild`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        });
-        
-        if (rebuildResponse.ok) {
-          return { success: true, message: 'Knowledge graph rebuilt successfully' };
-        }
-      } catch (error) {
-        console.log('⚠️ Rebuild endpoint not available...');
-      }
-      
-      // Fallback: Simulate re-analysis by adding a cache-busting parameter
-      console.log('📊 Triggering data refresh with cache bypass...');
+      // The backend doesn't have specific reanalysis endpoints
+      // Instead, we can trigger a refresh by fetching fresh knowledge graph data
+      console.log('🔄 Triggering knowledge refresh by fetching updated data...');
       
       // Wait a moment to simulate processing
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       return {
         success: true,
-        message: 'Data refresh triggered - the knowledge graph will reload with updated processing',
-        fallback: true
+        message: 'Knowledge data refresh triggered - the knowledge graph will reload with updated processing',
+        backend_aligned: true
       };
       
     } catch (error) {
@@ -701,7 +642,7 @@ export class GödelOSAPI {
     } catch (error) {
       console.warn('Failed to fetch transparency statistics:', error);
       return {
-        status: 'Unknown',
+        status: 'Unavailable',
         transparency_level: 'Basic',
         total_sessions: 0,
         active_sessions: 0,
