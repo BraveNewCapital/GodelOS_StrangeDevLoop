@@ -88,8 +88,9 @@ class DynamicKnowledgeProcessor:
             self.nlp = spacy.load(self.model_name)
             
             # Add custom components for concept extraction
-            if "concept_extractor" not in self.nlp.pipe_names:
-                self.nlp.add_pipe("concept_extractor", last=True, config={})
+            # TODO: Implement concept_extractor component
+            # if "concept_extractor" not in self.nlp.pipe_names:
+            #     self.nlp.add_pipe("concept_extractor", last=True, config={})
                 
             logger.info("✅ Dynamic Knowledge Processor initialized successfully")
         except OSError:

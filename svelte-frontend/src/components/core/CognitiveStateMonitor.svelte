@@ -23,11 +23,15 @@
 
   // Enhanced attention focus data structure - made reactive to store
   $: {
+    const safeString = (value, fallback) => {
+      return (value && typeof value === 'string' && value !== 'undefined') ? value : fallback;
+    };
+    
     currentFocus = {
-      topic: $attentionFocus?.topic || $cognitiveState?.attention_focus?.topic || 'System Initialization',
-      context: $attentionFocus?.context || $cognitiveState?.attention_focus?.context || 'Cognitive processing',
-      intensity: $attentionFocus?.intensity || $cognitiveState?.attention_focus?.intensity || 0.5,
-      mode: $attentionFocus?.mode || $cognitiveState?.attention_focus?.mode || 'Active',
+      topic: safeString($attentionFocus?.topic || $cognitiveState?.attention_focus?.topic, 'System Initialization'),
+      context: safeString($attentionFocus?.context || $cognitiveState?.attention_focus?.context, 'Cognitive processing'),
+      intensity: safeNumber($attentionFocus?.intensity || $cognitiveState?.attention_focus?.intensity, 0.5),
+      mode: safeString($attentionFocus?.mode || $cognitiveState?.attention_focus?.mode, 'Active'),
       depth: 'surface', // Force surface for now since backend doesn't provide depth
       timestamp: Date.now()
     };
@@ -308,7 +312,7 @@
               Working Memory
             </h4>
             <div class="memory-count">
-              {safeLength($cognitiveState.working_memory?.items || $cognitiveState.manifestConsciousness?.workingMemory)}/{$cognitiveState.working_memory?.capacity || 10}
+              {safeLength($cognitiveState?.working_memory?.items || $cognitiveState?.manifestConsciousness?.workingMemory)}/{safeNumber($cognitiveState?.working_memory?.capacity, 10)}
             </div>
           </div>
           
@@ -316,11 +320,11 @@
             <div class="capacity-bar">
               <div 
                 class="capacity-fill"
-                style="width: {Math.min(100, (($cognitiveState.working_memory?.utilization || safeLength($cognitiveState.working_memory?.items || $cognitiveState.manifestConsciousness?.workingMemory) / ($cognitiveState.working_memory?.capacity || 10)) * 100))}%"
+                style="width: {Math.min(100, (($cognitiveState?.working_memory?.utilization || safeLength($cognitiveState?.working_memory?.items || $cognitiveState?.manifestConsciousness?.workingMemory) / safeNumber($cognitiveState?.working_memory?.capacity, 10)) * 100))}%"
               ></div>
             </div>
             <span class="capacity-text">
-              {Math.round(($cognitiveState.working_memory?.utilization || safeLength($cognitiveState.working_memory?.items || $cognitiveState.manifestConsciousness?.workingMemory) / ($cognitiveState.working_memory?.capacity || 10)) * 100)}% utilized
+              {Math.round(($cognitiveState?.working_memory?.utilization || safeLength($cognitiveState?.working_memory?.items || $cognitiveState?.manifestConsciousness?.workingMemory) / safeNumber($cognitiveState?.working_memory?.capacity, 10)) * 100)}% utilized
             </span>
           </div>
           
