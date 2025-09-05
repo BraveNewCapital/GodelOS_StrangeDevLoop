@@ -45,6 +45,7 @@
   let pollInterval;
   let mobileEnhancer;
   let isMobileDevice = false;
+  let systemHealthCollapsed = false;
 
   // Check URL parameters for direct view access
   onMount(() => {
@@ -303,6 +304,10 @@
     }
   }
 
+  function toggleSystemHealth() {
+    systemHealthCollapsed = !systemHealthCollapsed;
+  }
+
   function getHealthColor(value) {
     if (value >= 0.8) return '#66bb6a';
     if (value >= 0.6) return '#ffa726';
@@ -432,34 +437,41 @@
         <!-- System Status in Sidebar -->
         <div class="sidebar-status">
           <div class="status-section">
-            <h4>System Health</h4>
-            <div class="health-overview">
-              {#each Object.entries($cognitiveState.systemHealth) as [module, health]}
-                {#if typeof health === 'number' && !isNaN(health) && health >= 0 && health <= 1}
-                  <div class="health-item">
-                    <span class="module-name">{module}</span>
-                    <div class="health-bar">
-                      <div class="health-fill" style="width: {health * 100}%; background: {getHealthColor(health)}"></div>
-                    </div>
-                    <span class="health-value" style="color: {getHealthColor(health)}">{Math.round(health * 100)}%</span>
-                  </div>
-                {/if}
-              {/each}
-              
-              <!-- Enhanced Cognitive Health -->
-              {#if $enhancedCognitiveState.systemHealth}
-                {#each Object.entries($enhancedCognitiveState.systemHealth) as [module, status]}
-                  {#if typeof status === 'string' && ['healthy', 'degraded', 'critical', 'connected', 'disconnected'].includes(status)}
-                    <div class="health-item enhanced">
-                      <span class="module-name enhanced-module">{module}</span>
-                      <div class="status-badge {status}">
-                        {status}
+            <div class="status-header">
+              <h4>System Health</h4>
+              <button class="collapse-btn" on:click={toggleSystemHealth} title={systemHealthCollapsed ? 'Expand' : 'Collapse'}>
+                {systemHealthCollapsed ? '▼' : '▲'}
+              </button>
+            </div>
+            {#if !systemHealthCollapsed}
+              <div class="health-overview">
+                {#each Object.entries($cognitiveState.systemHealth) as [module, health]}
+                  {#if typeof health === 'number' && !isNaN(health) && health >= 0 && health <= 1}
+                    <div class="health-item">
+                      <span class="module-name">{module}</span>
+                      <div class="health-bar">
+                        <div class="health-fill" style="width: {health * 100}%; background: {getHealthColor(health)}"></div>
                       </div>
+                      <span class="health-value" style="color: {getHealthColor(health)}">{Math.round(health * 100)}%</span>
                     </div>
                   {/if}
                 {/each}
-              {/if}
-            </div>
+                
+                <!-- Enhanced Cognitive Health -->
+                {#if $enhancedCognitiveState.systemHealth}
+                  {#each Object.entries($enhancedCognitiveState.systemHealth) as [module, status]}
+                    {#if typeof status === 'string' && ['healthy', 'degraded', 'critical', 'connected', 'disconnected'].includes(status)}
+                      <div class="health-item enhanced">
+                        <span class="module-name enhanced-module">{module}</span>
+                        <div class="status-badge {status}">
+                          {status}
+                        </div>
+                      </div>
+                    {/if}
+                  {/each}
+                {/if}
+              </div>
+            {/if}
           </div>
           
           <div class="status-section">
@@ -1073,11 +1085,34 @@
     margin-bottom: 1.5rem;
   }
 
+  .status-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+  }
+
   .status-section h4 {
-    margin: 0 0 0.75rem 0;
+    margin: 0;
     font-size: 0.9rem;
     color: #64b5f6;
     font-weight: 600;
+  }
+
+  .collapse-btn {
+    background: rgba(100, 181, 246, 0.1);
+    border: 1px solid rgba(100, 181, 246, 0.3);
+    color: #64b5f6;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    transition: all 0.2s ease;
+  }
+
+  .collapse-btn:hover {
+    background: rgba(100, 181, 246, 0.2);
+    border-color: rgba(100, 181, 246, 0.5);
   }
 
   .health-overview {
