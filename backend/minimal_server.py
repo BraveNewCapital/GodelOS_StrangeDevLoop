@@ -15,6 +15,14 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Quer
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+# Import the new tool-based LLM integration
+try:
+    from llm_tool_integration import ToolBasedLLMIntegration, GödelOSToolProvider
+    LLM_INTEGRATION_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"LLM integration not available: {e}")
+    LLM_INTEGRATION_AVAILABLE = False
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -147,10 +155,18 @@ async def root():
         "status": "operational",
         "endpoints": [
             "/cognitive/state",
-            "/cognitive/query",
+            "/cognitive/query", 
             "/enhanced-cognitive/stream/configure",
             "/llm/cognitive-query",
+            "/llm/test-integration",
+            "/llm/tools",
             "/ws/cognitive-stream"
+        ],
+        "new_features": [
+            "Tool-based LLM integration",
+            "Function calling architecture", 
+            "Cognitive grounding verification",
+            "Comprehensive tool documentation"
         ]
     }
 
@@ -345,50 +361,207 @@ async def configure_cognitive_streaming(config: CognitiveStreamConfig):
 @app.post("/llm/cognitive-query")
 async def llm_cognitive_query(request: LLMCognitiveRequest):
     """
-    Process queries through the LLM cognitive architecture with tool usage.
-    This is the core endpoint for LLM-driven cognitive processing.
+    Process queries through the LLM cognitive architecture with comprehensive tool usage.
+    This endpoint now uses the new tool-based architecture for grounded responses.
     """
     start_time = datetime.now()
     
-    # Simulate real LLM integration with tools
     try:
-        # Check if SYNTHETIC_API_KEY is available
-        api_key = os.getenv("SYNTHETIC_API_KEY") or os.getenv("OPENAI_API_KEY")
-        
-        if api_key and api_key != "test-api-key":
-            # Attempt real LLM integration
-            response_text, tools_used = await process_with_real_llm(request, api_key)
-            confidence = 0.85
+        if LLM_INTEGRATION_AVAILABLE:
+            # Initialize tool-based LLM integration
+            llm_integration = ToolBasedLLMIntegration()
+            
+            # Process query with tool-based approach
+            result = await llm_integration.process_query(request.query)
+            
+            processing_time = (datetime.now() - start_time).total_seconds()
+            
+            # Update cognitive state based on tool usage
+            cognitive_changes = update_cognitive_state_from_tools(result.get("tool_results", []))
+            
+            # Broadcast cognitive event to WebSocket clients
+            await broadcast_cognitive_event({
+                "type": "llm_query_processed",
+                "query": request.query,
+                "tools_used": result.get("tools_used", []),
+                "processing_time": processing_time,
+                "cognitive_grounding": result.get("cognitive_grounding", False),
+                "timestamp": datetime.now().isoformat()
+            })
+            
+            return LLMCognitiveResponse(
+                response=result.get("response", "Processing failed"),
+                tools_used=result.get("tools_used", []),
+                confidence=0.9 if result.get("cognitive_grounding", False) else 0.5,
+                processing_time=processing_time,
+                cognitive_state_changes=cognitive_changes
+            )
         else:
-            # Use enhanced simulation with tool usage
+            # Fallback to enhanced simulation
             response_text, tools_used = simulate_cognitive_processing(request)
-            confidence = 0.75
-        
-        processing_time = (datetime.now() - start_time).total_seconds()
-        
-        # Update cognitive state based on processing
-        cognitive_changes = update_cognitive_state_from_query(request, tools_used)
-        
-        # Broadcast cognitive event to WebSocket clients
-        await broadcast_cognitive_event({
-            "type": "llm_query_processed",
-            "query": request.query,
-            "tools_used": tools_used,
-            "processing_time": processing_time,
-            "timestamp": datetime.now().isoformat()
-        })
-        
-        return LLMCognitiveResponse(
-            response=response_text,
-            tools_used=tools_used,
-            confidence=confidence,
-            processing_time=processing_time,
-            cognitive_state_changes=cognitive_changes
-        )
+            processing_time = (datetime.now() - start_time).total_seconds()
+            cognitive_changes = update_cognitive_state_from_query(request, tools_used)
+            
+            return LLMCognitiveResponse(
+                response=response_text,
+                tools_used=tools_used,
+                confidence=0.75,
+                processing_time=processing_time,
+                cognitive_state_changes=cognitive_changes
+            )
         
     except Exception as e:
         logger.error(f"Error in LLM cognitive query: {e}")
-        raise HTTPException(status_code=500, detail=f"Cognitive processing failed: {str(e)}")
+        # Fallback to simulation on error
+        try:
+            response_text, tools_used = simulate_cognitive_processing(request)
+            processing_time = (datetime.now() - start_time).total_seconds()
+            cognitive_changes = update_cognitive_state_from_query(request, tools_used)
+            
+            return LLMCognitiveResponse(
+                response=f"Fallback processing: {response_text}",
+                tools_used=tools_used,
+                confidence=0.6,
+                processing_time=processing_time,
+                cognitive_state_changes=cognitive_changes
+            )
+        except Exception as fallback_error:
+            logger.error(f"Fallback processing also failed: {fallback_error}")
+            raise HTTPException(status_code=500, detail=f"Cognitive processing failed: {str(e)}")
+
+def update_cognitive_state_from_tools(tool_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Update cognitive state based on actual tool usage results."""
+    changes = {}
+    
+    for tool_result in tool_results:
+        tool_name = tool_result.get("tool", "")
+        
+        # Update attention based on tool usage
+        if "attention" in tool_name or "focus" in tool_name:
+            if tool_result.get("result", {}).get("success", False):
+                result_data = tool_result["result"].get("data", {})
+                if isinstance(result_data, dict) and "topic" in result_data:
+                    cognitive_state["attention_focus"].update(result_data)
+                    changes["attention_focus"] = cognitive_state["attention_focus"]
+        
+        # Update working memory based on tool usage
+        elif "memory" in tool_name:
+            if tool_result.get("result", {}).get("success", False):
+                result_data = tool_result["result"].get("data", {})
+                if isinstance(result_data, dict) and "items" in result_data:
+                    cognitive_state["working_memory"].update(result_data)
+                    changes["working_memory"] = cognitive_state["working_memory"]
+        
+        # Update processing load based on tool complexity
+        cognitive_state["processing_load"] = min(1.0, cognitive_state["processing_load"] + 0.05)
+    
+    changes["processing_load"] = cognitive_state["processing_load"]
+    changes["last_update"] = datetime.now().isoformat()
+    
+    return changes
+
+@app.get("/llm/test-integration")
+async def test_llm_integration():
+    """
+    Test the new tool-based LLM integration to verify it's working correctly.
+    """
+    try:
+        if not LLM_INTEGRATION_AVAILABLE:
+            return {
+                "status": "unavailable",
+                "message": "LLM integration not available - missing dependencies",
+                "available_tools": [],
+                "test_result": None
+            }
+        
+        # Initialize and test the integration
+        llm_integration = ToolBasedLLMIntegration()
+        test_result = await llm_integration.test_integration()
+        
+        # Get available tools
+        available_tools = list(llm_integration.tool_provider.tools.keys())
+        
+        return {
+            "status": "available",
+            "message": "Tool-based LLM integration is operational",
+            "available_tools": available_tools,
+            "total_tools": len(available_tools),
+            "test_result": test_result
+        }
+        
+    except Exception as e:
+        logger.error(f"LLM integration test failed: {e}")
+        return {
+            "status": "error", 
+            "message": f"Integration test failed: {str(e)}",
+            "available_tools": [],
+            "test_result": None
+        }
+
+@app.get("/llm/tools")
+async def get_available_tools():
+    """
+    Get comprehensive list of available cognitive tools for LLM integration.
+    """
+    try:
+        if not LLM_INTEGRATION_AVAILABLE:
+            return {
+                "status": "unavailable",
+                "tools": [],
+                "message": "LLM integration not available"
+            }
+        
+        tool_provider = GödelOSToolProvider()
+        
+        # Format tools for documentation
+        tools_documentation = {}
+        for tool_name, tool_def in tool_provider.tools.items():
+            function_def = tool_def["function"]
+            tools_documentation[tool_name] = {
+                "name": function_def["name"],
+                "description": function_def["description"],
+                "parameters": function_def.get("parameters", {}),
+                "category": _categorize_tool(tool_name)
+            }
+        
+        return {
+            "status": "available",
+            "tools": tools_documentation,
+            "total_tools": len(tools_documentation),
+            "categories": {
+                "cognitive_state": [t for t, d in tools_documentation.items() if d["category"] == "cognitive_state"],
+                "memory": [t for t, d in tools_documentation.items() if d["category"] == "memory"],
+                "knowledge": [t for t, d in tools_documentation.items() if d["category"] == "knowledge"],
+                "system_health": [t for t, d in tools_documentation.items() if d["category"] == "system_health"],
+                "reasoning": [t for t, d in tools_documentation.items() if d["category"] == "reasoning"],
+                "meta_cognitive": [t for t, d in tools_documentation.items() if d["category"] == "meta_cognitive"]
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get tools documentation: {e}")
+        return {
+            "status": "error",
+            "tools": [],
+            "message": f"Failed to get tools: {str(e)}"
+        }
+
+def _categorize_tool(tool_name: str) -> str:
+    """Categorize tools by functionality."""
+    if "cognitive_state" in tool_name or "attention" in tool_name:
+        return "cognitive_state"
+    elif "memory" in tool_name:
+        return "memory"
+    elif "knowledge" in tool_name:
+        return "knowledge"
+    elif "health" in tool_name:
+        return "system_health"
+    elif "reasoning" in tool_name or "analyze" in tool_name:
+        return "reasoning"
+    elif "reflect" in tool_name or "assess" in tool_name:
+        return "meta_cognitive"
+    else:
+        return "general"
 
 async def process_with_real_llm(request: LLMCognitiveRequest, api_key: str):
     """Process request with real LLM using tool-calling."""
