@@ -271,7 +271,6 @@ test.describe('Critical Functionality Issues Validation', () => {
     console.log('🔍 Analyzing WebSocket connection behavior...');
     
     // Monitor WebSocket activity
-    const wsActivity = [];
     let wsConnections = 0;
     let wsErrors = 0;
     let wsMessages = 0;
@@ -320,7 +319,7 @@ test.describe('Critical Functionality Issues Validation', () => {
     };
     
     // Get WebSocket activity from page
-    const wsActivity = await page.evaluate(() => window.wsActivity || []);
+    const initialWsActivity = await page.evaluate(() => window.wsActivity || []);
     
     // Monitor for a longer period
     console.log('Monitoring WebSocket for 15 seconds...');

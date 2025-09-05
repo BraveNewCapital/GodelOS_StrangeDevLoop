@@ -14,9 +14,24 @@ console.log('🔗 GödelOS API connecting to:', API_BASE_URL);
 export class GödelOSAPI {
   static async fetchKnowledgeGraph() {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/transparency/knowledge-graph/export`);
+      // First try the main knowledge graph endpoint
+      let response = await fetch(`${API_BASE_URL}/api/knowledge/graph`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json();
+      let data = await response.json();
+      
+      // Transform the API response to match expected format
+      if (data && data.nodes && data.edges) {
+        return {
+          nodes: data.nodes || [],
+          links: data.edges || [], // edges → links
+          statistics: data.statistics
+        };
+      }
+      
+      // Fallback to transparency endpoint
+      response = await fetch(`${API_BASE_URL}/api/transparency/knowledge-graph/export`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      data = await response.json();
       
       // Transform the transparency API response to match expected format
       if (data && data.graph_data) {

@@ -1,0 +1,493 @@
+# Page snapshot
+
+```yaml
+- main [ref=e3]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - button "◀️" [ref=e7] [cursor=pointer]:
+        - generic [ref=e8] [cursor=pointer]: ◀️
+      - heading "🦉 GödelOS Cognitive Interface" [level=1] [ref=e9]:
+        - generic [ref=e10]: 🦉
+        - generic [ref=e11]: GödelOS
+        - generic [ref=e12]: Cognitive Interface
+    - generic [ref=e14]:
+      - generic [ref=e15]: 🚀
+      - generic [ref=e16]:
+        - generic [ref=e17]: Enhanced Dashboard
+        - generic [ref=e18]: Unified cognitive enhancement overview
+    - generic [ref=e19]:
+      - button "Disconnected" [ref=e21] [cursor=pointer]:
+        - generic:
+          - img
+        - generic [ref=e23] [cursor=pointer]: Disconnected
+      - button "⛶" [ref=e27] [cursor=pointer]:
+        - generic [ref=e28] [cursor=pointer]: ⛶
+  - generic [ref=e29]:
+    - navigation [ref=e30]:
+      - generic [ref=e31]:
+        - heading "🧭 Navigation" [level=3] [ref=e32]
+        - generic [ref=e33]: 15 views available
+      - generic [ref=e34]:
+        - generic [ref=e35]:
+          - generic [ref=e36]:
+            - generic [ref=e37]: ⭐
+            - generic [ref=e38]: Core Features
+          - generic [ref=e39]:
+            - button "🏠 Dashboard" [ref=e40] [cursor=pointer]:
+              - generic [ref=e41] [cursor=pointer]: 🏠
+              - generic [ref=e43] [cursor=pointer]: Dashboard
+            - button "🧠 Cognitive State" [ref=e44] [cursor=pointer]:
+              - generic [ref=e45] [cursor=pointer]: 🧠
+              - generic [ref=e47] [cursor=pointer]: Cognitive State
+            - button "🕸️ Knowledge Graph" [ref=e48] [cursor=pointer]:
+              - generic [ref=e49] [cursor=pointer]: 🕸️
+              - generic [ref=e51] [cursor=pointer]: Knowledge Graph
+            - button "💬 Query Interface" [ref=e52] [cursor=pointer]:
+              - generic [ref=e53] [cursor=pointer]: 💬
+              - generic [ref=e55] [cursor=pointer]: Query Interface
+            - button "🤝 Human Interaction ✨" [ref=e56] [cursor=pointer]:
+              - generic [ref=e57] [cursor=pointer]: 🤝
+              - generic [ref=e58] [cursor=pointer]:
+                - generic [ref=e59] [cursor=pointer]: Human Interaction
+                - generic [ref=e60] [cursor=pointer]: ✨
+        - generic [ref=e61]:
+          - generic [ref=e62]:
+            - generic [ref=e63]: 🚀
+            - generic [ref=e64]: Enhanced Cognition
+            - generic [ref=e65]: NEW
+          - generic [ref=e66]:
+            - button "🚀 Enhanced Dashboard ✨" [ref=e67] [cursor=pointer]:
+              - generic [ref=e68] [cursor=pointer]: 🚀
+              - generic [ref=e69] [cursor=pointer]:
+                - generic [ref=e70] [cursor=pointer]: Enhanced Dashboard
+                - generic [ref=e71] [cursor=pointer]: ✨
+            - button "🌊 Stream of Consciousness ✨" [ref=e72] [cursor=pointer]:
+              - generic [ref=e73] [cursor=pointer]: 🌊
+              - generic [ref=e74] [cursor=pointer]:
+                - generic [ref=e75] [cursor=pointer]: Stream of Consciousness
+                - generic [ref=e76] [cursor=pointer]: ✨
+            - button "🤖 Autonomous Learning ✨" [ref=e77] [cursor=pointer]:
+              - generic [ref=e78] [cursor=pointer]: 🤖
+              - generic [ref=e79] [cursor=pointer]:
+                - generic [ref=e80] [cursor=pointer]: Autonomous Learning
+                - generic [ref=e81] [cursor=pointer]: ✨
+        - generic [ref=e82]:
+          - generic [ref=e83]:
+            - generic [ref=e84]: 🔬
+            - generic [ref=e85]: Analysis & Tools
+          - generic [ref=e86]:
+            - button "🔍 Transparency" [ref=e87] [cursor=pointer]:
+              - generic [ref=e88] [cursor=pointer]: 🔍
+              - generic [ref=e90] [cursor=pointer]: Transparency
+            - button "🎯 Reasoning Sessions" [ref=e91] [cursor=pointer]:
+              - generic [ref=e92] [cursor=pointer]: 🎯
+              - generic [ref=e94] [cursor=pointer]: Reasoning Sessions
+            - button "🪞 Reflection" [ref=e95] [cursor=pointer]:
+              - generic [ref=e96] [cursor=pointer]: 🪞
+              - generic [ref=e98] [cursor=pointer]: Reflection
+            - button "🔗 Provenance" [ref=e99] [cursor=pointer]:
+              - generic [ref=e100] [cursor=pointer]: 🔗
+              - generic [ref=e102] [cursor=pointer]: Provenance
+        - generic [ref=e103]:
+          - generic [ref=e104]:
+            - generic [ref=e105]: ⚙️
+            - generic [ref=e106]: System Management
+          - generic [ref=e107]:
+            - button "📥 Knowledge Import" [ref=e108] [cursor=pointer]:
+              - generic [ref=e109] [cursor=pointer]: 📥
+              - generic [ref=e111] [cursor=pointer]: Knowledge Import
+            - button "📈 Capabilities" [ref=e112] [cursor=pointer]:
+              - generic [ref=e113] [cursor=pointer]: 📈
+              - generic [ref=e115] [cursor=pointer]: Capabilities
+            - button "⚡ Resources" [ref=e116] [cursor=pointer]:
+              - generic [ref=e117] [cursor=pointer]: ⚡
+              - generic [ref=e119] [cursor=pointer]: Resources
+      - generic [ref=e120]:
+        - generic [ref=e121]:
+          - generic [ref=e122]:
+            - heading "System Health" [level=4] [ref=e123]
+            - button "▲" [ref=e124] [cursor=pointer]
+          - generic [ref=e125]:
+            - generic [ref=e126]:
+              - generic [ref=e127]: overall
+              - generic [ref=e128]: healthy
+            - generic [ref=e129]:
+              - generic [ref=e130]: inferenceEngine
+              - generic [ref=e131]: critical
+            - generic [ref=e132]:
+              - generic [ref=e133]: knowledgeStore
+              - generic [ref=e134]: critical
+            - generic [ref=e135]:
+              - generic [ref=e136]: autonomousLearning
+              - generic [ref=e137]: healthy
+            - generic [ref=e138]:
+              - generic [ref=e139]: cognitiveStreaming
+              - generic [ref=e140]: healthy
+            - generic [ref=e141]:
+              - generic [ref=e142]: websocketConnection
+              - generic [ref=e143]: disconnected
+        - generic [ref=e144]:
+          - heading "Knowledge Stats" [level=4] [ref=e145]
+          - generic [ref=e146]:
+            - generic [ref=e147]:
+              - generic [ref=e148]: "0"
+              - generic [ref=e149]: Concepts
+            - generic [ref=e150]:
+              - generic [ref=e151]: "0"
+              - generic [ref=e152]: Connections
+            - generic [ref=e153]:
+              - generic [ref=e154]: "0"
+              - generic [ref=e155]: Documents
+            - generic [ref=e156]:
+              - generic [ref=e157]: "0"
+              - generic [ref=e158]: Knowledge Gaps
+            - generic [ref=e159]:
+              - generic [ref=e160]: "0"
+              - generic [ref=e161]: Acquisitions
+    - generic [ref=e163]:
+      - generic [ref=e164]:
+        - heading "Enhanced Dashboard" [level=2] [ref=e165]
+        - paragraph [ref=e166]: Unified cognitive enhancement overview
+      - generic [ref=e168]:
+        - generic [ref=e170]:
+          - generic [ref=e171]:
+            - generic [ref=e172]:
+              - generic [ref=e173]: 🧠
+              - generic [ref=e174]:
+                - heading "Enhanced Cognitive Dashboard" [level=1] [ref=e175]
+                - paragraph [ref=e176]: Real-time monitoring of autonomous cognitive processes
+            - generic [ref=e177]:
+              - generic [ref=e181]: Connected
+              - generic [ref=e182]:
+                - generic [ref=e183]:
+                  - generic [ref=e184]: 💚
+                  - generic [ref=e185]: 0%
+                - generic [ref=e186]: unknown
+              - generic [ref=e187]:
+                - generic [ref=e188]: 1:12:21 PM
+                - generic [ref=e189]: Last update
+          - button "🔄 Refresh" [ref=e191] [cursor=pointer]:
+            - generic [ref=e192] [cursor=pointer]: 🔄
+            - generic [ref=e193] [cursor=pointer]: Refresh
+        - generic [ref=e194]:
+          - heading "System Health" [level=2] [ref=e195]
+          - generic [ref=e196]:
+            - generic [ref=e197]:
+              - generic [ref=e198]:
+                - generic [ref=e199]: ⚡
+                - generic [ref=e200]:
+                  - heading "Inference Engine" [level=3] [ref=e201]
+                  - paragraph [ref=e202]: ~0ms avg response
+              - generic [ref=e205]: critical
+            - generic [ref=e206]:
+              - generic [ref=e207]:
+                - generic [ref=e208]: 📚
+                - generic [ref=e209]:
+                  - heading "Knowledge Store" [level=3] [ref=e210]
+                  - paragraph [ref=e211]: 0 entities indexed
+              - generic [ref=e214]: critical
+            - generic [ref=e215]:
+              - generic [ref=e216]:
+                - generic [ref=e217]: 🤖
+                - generic [ref=e218]:
+                  - heading "Autonomous Learning" [level=3] [ref=e219]
+                  - paragraph [ref=e220]: 0 active plans
+              - generic [ref=e223]: healthy
+            - generic [ref=e224]:
+              - generic [ref=e225]:
+                - generic [ref=e226]: 🌊
+                - generic [ref=e227]:
+                  - heading "Cognitive Streaming" [level=3] [ref=e228]
+                  - paragraph [ref=e229]: 0 active clients
+              - generic [ref=e232]: healthy
+          - generic [ref=e234]:
+            - generic [ref=e235]: "System Uptime:"
+            - generic [ref=e236]: Unknown
+        - main [ref=e237]:
+          - generic [ref=e238]:
+            - generic [ref=e239]:
+              - generic [ref=e241]:
+                - generic [ref=e242]:
+                  - generic [ref=e243]:
+                    - button "Collapse" [ref=e244] [cursor=pointer]:
+                      - img [ref=e246] [cursor=pointer]
+                    - generic [ref=e248]:
+                      - heading "🧠 Stream of Consciousness" [level=3] [ref=e249]:
+                        - generic [ref=e250]: 🧠
+                        - text: Stream of Consciousness
+                      - generic [ref=e251]:
+                        - generic [ref=e255]: Live
+                        - generic [ref=e257]:
+                          - generic [ref=e258]: "0"
+                          - generic [ref=e259]: events
+                  - generic [ref=e260]:
+                    - button "Clear" [ref=e261] [cursor=pointer]:
+                      - img [ref=e262] [cursor=pointer]
+                      - text: Clear
+                    - button "Export" [ref=e264] [cursor=pointer]:
+                      - img [ref=e265] [cursor=pointer]
+                      - text: Export
+                    - generic [ref=e268]:
+                      - generic [ref=e269]:
+                        - checkbox [checked]
+                      - generic [ref=e271]: Auto-scroll
+                - generic [ref=e272]:
+                  - generic [ref=e274]:
+                    - img [ref=e275]
+                    - textbox "Search events..." [ref=e277]
+                  - generic [ref=e278]:
+                    - generic [ref=e279]:
+                      - generic [ref=e280]: "Event Types:"
+                      - generic [ref=e281]:
+                        - button "🧠 reasoning" [ref=e282] [cursor=pointer]:
+                          - generic [ref=e283] [cursor=pointer]: 🧠
+                          - generic [ref=e284] [cursor=pointer]: reasoning
+                        - button "❓ knowledge gap" [ref=e285] [cursor=pointer]:
+                          - generic [ref=e286] [cursor=pointer]: ❓
+                          - generic [ref=e287] [cursor=pointer]: knowledge gap
+                        - button "📚 acquisition" [ref=e288] [cursor=pointer]:
+                          - generic [ref=e289] [cursor=pointer]: 📚
+                          - generic [ref=e290] [cursor=pointer]: acquisition
+                        - button "🤔 reflection" [ref=e291] [cursor=pointer]:
+                          - generic [ref=e292] [cursor=pointer]: 🤔
+                          - generic [ref=e293] [cursor=pointer]: reflection
+                        - button "💡 learning" [ref=e294] [cursor=pointer]:
+                          - generic [ref=e295] [cursor=pointer]: 💡
+                          - generic [ref=e296] [cursor=pointer]: learning
+                        - button "🔄 synthesis" [ref=e297] [cursor=pointer]:
+                          - generic [ref=e298] [cursor=pointer]: 🔄
+                          - generic [ref=e299] [cursor=pointer]: synthesis
+                    - generic [ref=e300]:
+                      - generic [ref=e301]: "Granularity:"
+                      - generic [ref=e302]:
+                        - button "detailed" [ref=e303] [cursor=pointer]:
+                          - generic [ref=e304] [cursor=pointer]: detailed
+                        - button "summary" [ref=e305] [cursor=pointer]:
+                          - generic [ref=e306] [cursor=pointer]: summary
+                        - button "minimal" [ref=e307] [cursor=pointer]:
+                          - generic [ref=e308] [cursor=pointer]: minimal
+                - generic [ref=e311]:
+                  - generic [ref=e312]: 🧠
+                  - heading "No cognitive events" [level=4] [ref=e313]
+                  - paragraph [ref=e314]: Try adjusting your filters to see more events
+              - generic [ref=e316]:
+                - generic [ref=e317]:
+                  - generic [ref=e318]:
+                    - button "Collapse" [ref=e319] [cursor=pointer]:
+                      - img [ref=e321] [cursor=pointer]
+                    - generic [ref=e323]:
+                      - heading "🧠 Cognitive State Monitor" [level=3] [ref=e324]:
+                        - generic [ref=e325]: 🧠
+                        - text: Cognitive State Monitor
+                      - generic [ref=e326]:
+                        - generic [ref=e327]:
+                          - generic [ref=e328]: 100%
+                          - generic [ref=e329]: health
+                        - generic [ref=e331]:
+                          - generic [ref=e332]: "0"
+                          - generic [ref=e333]: agents
+                        - generic [ref=e335]:
+                          - generic [ref=e336]: 0%
+                          - generic [ref=e337]: load
+                  - generic [ref=e339]:
+                    - generic [ref=e340]: 💚
+                    - generic [ref=e341]: 100%
+                - generic [ref=e343]:
+                  - generic [ref=e344]:
+                    - generic [ref=e345]:
+                      - heading "🎯 Attention Focus" [level=4] [ref=e346]:
+                        - generic [ref=e347]: 🎯
+                        - text: Attention Focus
+                      - generic [ref=e348]: 0%
+                    - generic [ref=e349]:
+                      - generic [ref=e350]:
+                        - heading "undefined" [level=5] [ref=e351]
+                        - paragraph [ref=e352]: undefined
+                      - generic [ref=e353]:
+                        - generic [ref=e354]:
+                          - generic [ref=e355]: "Depth:"
+                          - generic [ref=e356]:
+                            - generic [ref=e357]: ○
+                            - generic [ref=e358]: undefined
+                        - generic [ref=e359]:
+                          - generic [ref=e360]: "Mode:"
+                          - generic [ref=e361]: undefined
+                  - generic [ref=e363]:
+                    - generic [ref=e364]:
+                      - heading "⚡ Processing Load" [level=4] [ref=e365]:
+                        - generic [ref=e366]: ⚡
+                        - text: Processing Load
+                      - generic [ref=e367]: HIGH
+                    - generic [ref=e369]: 100%
+                    - generic [ref=e373]: Recent Activity
+                  - generic [ref=e388]:
+                    - generic [ref=e389]:
+                      - heading "💭 Working Memory" [level=4] [ref=e390]:
+                        - generic [ref=e391]: 💭
+                        - text: Working Memory
+                      - generic [ref=e392]: 6/7
+                    - generic [ref=e396]: 86% utilized
+                    - generic [ref=e397]:
+                      - generic [ref=e398]:
+                        - generic [ref=e399]:
+                          - generic [ref=e400]: process
+                          - generic [ref=e401]: 90%
+                        - generic [ref=e402]: System Status
+                      - generic [ref=e403]:
+                        - generic [ref=e404]:
+                          - generic [ref=e405]: process
+                          - generic [ref=e406]: 80%
+                        - generic [ref=e407]: Consciousness
+                      - generic [ref=e408]:
+                        - generic [ref=e409]:
+                          - generic [ref=e410]: process
+                          - generic [ref=e411]: 70%
+                        - generic [ref=e412]: Gödel's Theorems and Conscious
+                      - generic [ref=e413]: +3 more items
+                  - generic [ref=e414]:
+                    - heading "❓ Current Query" [level=4] [ref=e416]:
+                      - generic [ref=e417]: ❓
+                      - text: Current Query
+                    - generic [ref=e418]:
+                      - generic [ref=e419]: ❓
+                      - generic [ref=e420]: No active query
+                - generic [ref=e421]:
+                  - heading "📊 Recent Focus History" [level=4] [ref=e422]:
+                    - generic [ref=e423]: 📊
+                    - text: Recent Focus History
+                  - generic [ref=e424]:
+                    - generic [ref=e428]:
+                      - generic [ref=e429]:
+                        - heading "Knowledge Graph Analysis" [level=5] [ref=e430]
+                        - generic [ref=e431]:
+                          - generic [ref=e432]: 1s ago
+                          - generic [ref=e436]: 85%
+                      - paragraph [ref=e437]: User interaction with network visualization
+                    - generic [ref=e441]:
+                      - generic [ref=e442]:
+                        - heading "SmartImport Processing" [level=5] [ref=e443]
+                        - generic [ref=e444]:
+                          - generic [ref=e445]: 45s ago
+                          - generic [ref=e449]: 72%
+                      - paragraph [ref=e450]: File upload and entity extraction
+                    - generic [ref=e454]:
+                      - generic [ref=e455]:
+                        - heading "Transparency Dashboard" [level=5] [ref=e456]
+                        - generic [ref=e457]:
+                          - generic [ref=e458]: 2m ago
+                          - generic [ref=e462]: 64%
+                      - paragraph [ref=e463]: Cognitive state monitoring update
+                    - generic [ref=e467]:
+                      - generic [ref=e468]:
+                        - heading "API Response Processing" [level=5] [ref=e469]
+                        - generic [ref=e470]:
+                          - generic [ref=e471]: 3m ago
+                          - generic [ref=e475]: 78%
+                      - paragraph [ref=e476]: Backend knowledge retrieval
+                    - generic [ref=e480]:
+                      - generic [ref=e481]:
+                        - heading "UI Component Rendering" [level=5] [ref=e482]
+                        - generic [ref=e483]:
+                          - generic [ref=e484]: 4m ago
+                          - generic [ref=e488]: 45%
+                      - paragraph [ref=e489]: Frontend visual updates
+                - heading "💚 System Health Overview" [level=4] [ref=e491]:
+                  - generic [ref=e492]: 💚
+                  - text: System Health Overview
+            - generic [ref=e495]:
+              - generic [ref=e496]:
+                - generic [ref=e497]:
+                  - button "Collapse" [ref=e498] [cursor=pointer]:
+                    - img [ref=e500] [cursor=pointer]
+                  - generic [ref=e502]:
+                    - heading "🤖 Autonomous Learning Monitor" [level=3] [ref=e503]:
+                      - generic [ref=e504]: 🤖
+                      - text: Autonomous Learning Monitor
+                    - generic [ref=e505]:
+                      - generic [ref=e509]: Active
+                      - generic [ref=e511]:
+                        - generic [ref=e512]: "0"
+                        - generic [ref=e513]: active plans
+                      - generic [ref=e515]:
+                        - generic [ref=e516]: 0%
+                        - generic [ref=e517]: efficiency
+                - generic [ref=e518]:
+                  - button "Pause" [ref=e519] [cursor=pointer]:
+                    - img [ref=e520] [cursor=pointer]
+                    - text: Pause
+                  - button "Refresh" [ref=e522] [cursor=pointer]:
+                    - img [ref=e524] [cursor=pointer]
+                    - text: Refresh
+              - generic [ref=e528]:
+                - generic [ref=e529]:
+                  - generic [ref=e530]: ⚡
+                  - generic [ref=e531]:
+                    - generic [ref=e532]: "0"
+                    - generic [ref=e533]: Active Acquisitions
+                - generic [ref=e534]:
+                  - generic [ref=e535]: ✅
+                  - generic [ref=e536]:
+                    - generic [ref=e537]: "0"
+                    - generic [ref=e538]: Completed
+                - generic [ref=e539]:
+                  - generic [ref=e540]: 🎯
+                  - generic [ref=e541]:
+                    - generic [ref=e542]: "0"
+                    - generic [ref=e543]: High Priority Gaps
+                - generic [ref=e544]:
+                  - generic [ref=e545]: 📋
+                  - generic [ref=e546]:
+                    - generic [ref=e547]: "0"
+                    - generic [ref=e548]: Active Plans
+              - navigation [ref=e549]:
+                - generic [ref=e550]:
+                  - button "📊 Overview" [ref=e551] [cursor=pointer]:
+                    - generic [ref=e552] [cursor=pointer]: 📊
+                    - generic [ref=e553] [cursor=pointer]: Overview
+                  - button "🎯 Knowledge Gaps" [ref=e554] [cursor=pointer]:
+                    - generic [ref=e555] [cursor=pointer]: 🎯
+                    - generic [ref=e556] [cursor=pointer]: Knowledge Gaps
+                  - button "🚀 Active Plans" [ref=e557] [cursor=pointer]:
+                    - generic [ref=e558] [cursor=pointer]: 🚀
+                    - generic [ref=e559] [cursor=pointer]: Active Plans
+                  - button "📚 History" [ref=e560] [cursor=pointer]:
+                    - generic [ref=e561] [cursor=pointer]: 📚
+                    - generic [ref=e562] [cursor=pointer]: History
+              - main [ref=e563]:
+                - generic [ref=e564]:
+                  - generic [ref=e565]:
+                    - heading "Learning Configuration" [level=4] [ref=e566]
+                    - generic [ref=e567]:
+                      - generic [ref=e568]:
+                        - generic [ref=e569]: Learning Rate
+                        - generic [ref=e570]:
+                          - slider [ref=e571]: "1"
+                          - generic [ref=e572]: "1"
+                      - generic [ref=e573]:
+                        - generic [ref=e574]: Gap Detection Sensitivity
+                        - generic [ref=e575]: Medium
+                      - generic [ref=e576]:
+                        - generic [ref=e577]: Max Concurrent Acquisitions
+                        - generic [ref=e578]: "3"
+                      - generic [ref=e579]:
+                        - generic [ref=e580]: Auto Trigger Threshold
+                        - generic [ref=e581]: "0.7"
+                  - generic [ref=e582]:
+                    - heading "Performance Metrics" [level=4] [ref=e583]
+                    - generic [ref=e584]:
+                      - generic [ref=e585]:
+                        - generic [ref=e586]:
+                          - generic [ref=e587]: 📈
+                          - generic [ref=e588]: Success Rate
+                        - generic [ref=e589]: 0%
+                      - generic [ref=e591]:
+                        - generic [ref=e592]:
+                          - generic [ref=e593]: ⏱️
+                          - generic [ref=e594]: Avg. Acquisition Time
+                        - generic [ref=e595]: 0s
+                      - generic [ref=e596]:
+                        - generic [ref=e597]:
+                          - generic [ref=e598]: 🎯
+                          - generic [ref=e599]: Total Gaps Detected
+                        - generic [ref=e600]: "0"
+```
