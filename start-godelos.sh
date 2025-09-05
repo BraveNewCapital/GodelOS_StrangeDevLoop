@@ -521,7 +521,7 @@ start_backend() {
     # Wait for backend to start
     log_step "Waiting for backend initialization..."
     local attempts=0
-    local max_attempts=30
+    local max_attempts=50
     
     while [ $attempts -lt $max_attempts ]; do
         if port_in_use $BACKEND_PORT; then

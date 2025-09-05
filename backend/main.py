@@ -708,12 +708,6 @@ async def process_query(request: QueryRequest):
         raise HTTPException(status_code=500, detail=f"Query processing failed: {str(e)}")
 
 
-@app.get("/api/simple-test")
-async def simple_test():
-    """Simple test route."""
-    return {"message": "simple test works", "timestamp": time.time()}
-
-
 # Knowledge API Routes
 
 @app.get("/api/knowledge")
@@ -1696,53 +1690,6 @@ async def get_knowledge_concepts():
     except Exception as e:
         logger.error(f"Error getting concepts: {e}")
         return {"concepts": [], "total_count": 0}
-
-
-@app.get("/api/test-route")
-async def test_route():
-    """Test route to verify routing is working."""
-    logger.info("🔍 TEST ROUTE: This route is working!")
-    return {"message": "test route works", "timestamp": time.time()}
-
-
-@app.get("/api/evo-test")
-async def get_evolution_test():
-    """Test route for evolution data."""
-    return {
-        "evolution_data": [
-            {"timestamp": time.time() - 3600, "node_count": 10, "edge_count": 8, "concepts": 5},
-            {"timestamp": time.time() - 1800, "node_count": 15, "edge_count": 12, "concepts": 8},
-            {"timestamp": time.time(), "node_count": 20, "edge_count": 18, "concepts": 12}
-        ],
-        "metrics": {
-            "growth_rate": 0.25,
-            "connectivity_increase": 0.3,
-            "concept_expansion": 0.4
-        }
-    }
-
-
-@app.get("/api/graph-test")
-async def get_graph_test():
-    """Test route for graph data."""
-    return {
-        "nodes": [
-            {"id": "concept_1", "label": "Knowledge", "type": "concept", "size": 10},
-            {"id": "concept_2", "label": "Learning", "type": "concept", "size": 8},
-            {"id": "entity_1", "label": "GödelOS", "type": "entity", "size": 12},
-            {"id": "fact_1", "label": "System Active", "type": "fact", "size": 6}
-        ],
-        "edges": [
-            {"source": "entity_1", "target": "concept_1", "type": "relates_to", "weight": 1.0},
-            {"source": "concept_1", "target": "concept_2", "type": "connected_to", "weight": 0.8},
-            {"source": "entity_1", "target": "fact_1", "type": "has_property", "weight": 0.9}
-        ],
-        "statistics": {
-            "node_count": 4,
-            "edge_count": 3,
-            "total_count": 7
-        }
-    }
 
 
 @app.get("/api/human-interaction/metrics")

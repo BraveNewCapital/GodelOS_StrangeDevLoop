@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { cognitiveState, knowledgeState, evolutionState, uiState } from './stores/cognitive.js';
-  import { enhancedCognitiveState, autonomousLearningState, streamState } from './stores/enhanced-cognitive.js';
+  import { enhancedCognitiveState, autonomousLearningState, streamState, enhancedCognitive } from './stores/enhanced-cognitive.js';
   import { setupWebSocket, connectToCognitiveStream } from './utils/websocket.js';
   import { GödelOSAPI } from './utils/api.js';
   import { initializeMobileEnhancements } from './utils/mobile.js';

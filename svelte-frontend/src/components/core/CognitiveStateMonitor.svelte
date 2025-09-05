@@ -66,14 +66,8 @@
     return fallback;
   }
   
-  // Mock realistic focus history for demonstration
-  let enhancedFocusHistory = [
-    { topic: 'Knowledge Graph Analysis', context: 'User interaction with network visualization', intensity: 0.85, depth: 'deep', timestamp: Date.now() - 1000 },
-    { topic: 'SmartImport Processing', context: 'File upload and entity extraction', intensity: 0.72, depth: 'deep', timestamp: Date.now() - 45000 },
-    { topic: 'Transparency Dashboard', context: 'Cognitive state monitoring update', intensity: 0.64, depth: 'surface', timestamp: Date.now() - 120000 },
-    { topic: 'API Response Processing', context: 'Backend knowledge retrieval', intensity: 0.78, depth: 'deep', timestamp: Date.now() - 180000 },
-    { topic: 'UI Component Rendering', context: 'Frontend visual updates', intensity: 0.45, depth: 'surface', timestamp: Date.now() - 240000 }
-  ];
+  // Enhanced focus history (will be populated from real data)
+  let enhancedFocusHistory = [];
   
   // Track attention focus over time with enhanced data
   $: if ($attentionFocus) {

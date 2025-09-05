@@ -441,69 +441,6 @@ class EnhancedMetacognitionManager(BaseMetacognitionManager):
         """Start cognitive streaming capabilities."""
         # Stream coordinator is already started in start() method
         logger.info("Cognitive streaming started")
-        
-        # Start a background task to generate test cognitive events (controlled)
-        test_events_task = asyncio.create_task(self._generate_test_events())
-        self.background_tasks.add(test_events_task)
-        logger.info("Test cognitive events generation started (controlled)")
-    
-    async def _generate_test_events(self) -> None:
-        """Generate test cognitive events for demonstration purposes."""
-        # Wait a bit after startup to ensure everything is initialized
-        await asyncio.sleep(5)
-        
-        event_count = 0
-        max_events = 20  # Limit number of test events
-        
-        while self.is_running and event_count < max_events:
-            try:
-                # Generate different types of test events
-                events = [
-                    {
-                        "type": CognitiveEventType.MONITORING_PHASE,
-                        "data": {
-                            "reasoning_step": f"Analyzing concept #{event_count}",
-                            "confidence": 0.8 + (event_count % 5) * 0.04,
-                            "context": ["knowledge_integration", "pattern_recognition"]
-                        },
-                        "granularity": GranularityLevel.STANDARD
-                    },
-                    {
-                        "type": CognitiveEventType.KNOWLEDGE_GAP,
-                        "data": {
-                            "gap_concept": f"missing_knowledge_area_{event_count % 3}",
-                            "priority": 0.5 + (event_count % 6) * 0.08,
-                            "context": ["autonomous_learning", "gap_detection"]
-                        },
-                        "granularity": GranularityLevel.DETAILED
-                    },
-                    {
-                        "type": CognitiveEventType.REFLECTION,
-                        "data": {
-                            "reflection_content": f"Metacognitive insight #{event_count}",
-                            "learning_impact": 0.7,
-                            "context": ["self_monitoring", "cognitive_enhancement"]
-                        },
-                        "granularity": GranularityLevel.STANDARD
-                    }
-                ]
-                
-                # Emit one of the test events
-                event = events[event_count % len(events)]
-                await self._emit_cognitive_event(
-                    event["type"],
-                    event["data"],
-                    event["granularity"]
-                )
-                
-                event_count += 1
-                
-                # Wait 3-5 seconds between events
-                await asyncio.sleep(3 + (event_count % 3))
-                
-            except Exception as e:
-                logger.error(f"Error generating test cognitive events: {e}")
-                await asyncio.sleep(10)  # Wait before retrying
     
     async def _gap_detection_loop(self) -> None:
         """Background loop for autonomous gap detection."""
