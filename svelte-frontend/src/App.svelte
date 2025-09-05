@@ -413,6 +413,7 @@
                 <button
                   class="nav-item {activeView === key ? 'active' : ''} {config.featured ? 'featured' : ''}"
                   data-testid="nav-item-{key}"
+                  data-nav="{key}"
                   on:click={() => {
                     console.log(`🧭 Navigation clicked: ${key} -> ${config.title}`);
                     activeView = key;

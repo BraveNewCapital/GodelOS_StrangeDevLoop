@@ -104,6 +104,11 @@ test.describe('Transparency Streams', () => {
     await page.goto('http://localhost:3001/');
     await page.waitForSelector('[data-testid="app-container"]');
 
+    // Record initial connection count
+    const initial = await page.evaluate(() => window.__wsInstances.length);
+
+    // Force disconnection by closing the first WebSocket instance
+    await page.evaluate(() => {
       if (window.__wsInstances.length > 0 && window.__wsInstances[0]) {
         window.__wsInstances[0].close();
       }
@@ -118,7 +123,6 @@ test.describe('Transparency Streams', () => {
   });
 });
 
-=======
 // Mock data for API responses
 const MOCK_STATS = {
   status: 'Active',
