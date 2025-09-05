@@ -246,7 +246,8 @@ async def configure_cognitive_streaming(
     """Configure global cognitive streaming settings."""
     try:
         # Convert to internal config format
-        from ..metacognition_modules import CognitiveStreamingConfig, GranularityLevel
+        from backend.metacognition_modules.enhanced_metacognition_manager import CognitiveStreamingConfig
+        from backend.metacognition_modules.cognitive_models import GranularityLevel
         
         internal_config = CognitiveStreamingConfig(
             enabled=True,

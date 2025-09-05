@@ -306,6 +306,7 @@
 
   function toggleSystemHealth() {
     systemHealthCollapsed = !systemHealthCollapsed;
+    console.log(`🔧 System health panel toggled: ${systemHealthCollapsed ? 'collapsed' : 'expanded'}`);
   }
 
   function getHealthColor(value) {
@@ -413,7 +414,9 @@
                   class="nav-item {activeView === key ? 'active' : ''} {config.featured ? 'featured' : ''}"
                   data-testid="nav-item-{key}"
                   on:click={() => {
+                    console.log(`🧭 Navigation clicked: ${key} -> ${config.title}`);
                     activeView = key;
+                    console.log(`🧭 Active view updated to: ${activeView}`);
                   }}
                   title={config.description}
                 >

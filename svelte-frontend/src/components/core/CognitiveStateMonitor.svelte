@@ -400,7 +400,7 @@
         </h4>
         
         <div class="agents-grid">
-          {#each $activeAgents as agent (agent.id)}
+          {#each $activeAgents as agent, index (agent.id || `agent-${index}-${agent.type || 'unknown'}`)}
             <div class="agent-card" in:fly={{ x: -20, duration: 300 }}>
               <div class="agent-header">
                 <div class="agent-info">
