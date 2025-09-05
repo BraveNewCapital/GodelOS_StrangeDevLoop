@@ -27,15 +27,22 @@
       return (value && typeof value === 'string' && value !== 'undefined') ? value : fallback;
     };
     
+    // Extract from actual backend data structure
+    const backendFocus = $cognitiveState?.attention_focus?.[0]; // Get first attention focus item
+    const attentionData = $attentionFocus || backendFocus;
+    
     currentFocus = {
-      topic: safeString($attentionFocus?.topic || $cognitiveState?.attention_focus?.topic, 'System Initialization'),
-      context: safeString($attentionFocus?.context || $cognitiveState?.attention_focus?.context, 'Cognitive processing'),
-      intensity: safeNumber($attentionFocus?.intensity || $cognitiveState?.attention_focus?.intensity, 0.5),
-      mode: safeString($attentionFocus?.mode || $cognitiveState?.attention_focus?.mode, 'Active'),
-      depth: 'surface', // Force surface for now since backend doesn't provide depth
+      topic: safeString(attentionData?.description || attentionData?.topic, 'System Initialization'),
+      context: safeString(attentionData?.item_type || attentionData?.context, 'Cognitive processing'),
+      intensity: safeNumber(attentionData?.salience || attentionData?.intensity, 0.5),
+      mode: safeString(attentionData?.item_type === 'linguistic_input' ? 'Processing Query' : attentionData?.mode, 'Active'),
+      depth: attentionData?.salience > 0.7 ? 'deep' : 'surface',
       timestamp: Date.now()
     };
   }
+  
+  // Get processing load from backend - use working_memory_utilization as proxy
+  $: processingLoadValue = safeNumber($cognitiveState?.working_memory_utilization || $processingLoad, 0);
   
   // Safe number formatting functions
   function safePercentage(value, fallback = 0) {
@@ -90,9 +97,9 @@
   }
   
   // Track processing load over time
-  $: if ($processingLoad !== undefined) {
+  $: if (processingLoadValue !== undefined) {
     loadHistory = [
-      { load: $processingLoad, timestamp: Date.now() },
+      { load: processingLoadValue, timestamp: Date.now() },
       ...loadHistory.slice(0, maxHistoryLength - 1)
     ];
   }
@@ -277,15 +284,15 @@
               <span class="card-icon">⚡</span>
               Processing Load
             </h4>
-            <div class="load-badge load-{getLoadIntensity(safeNumber($processingLoad, 0))}">
-              {getLoadIntensity(safeNumber($processingLoad, 0)).toUpperCase()}
+            <div class="load-badge load-{getLoadIntensity(processingLoadValue)}">
+              {getLoadIntensity(processingLoadValue).toUpperCase()}
             </div>
           </div>
           
           <div class="load-display">
-            <div class="load-value">{safePercentage($processingLoad)}%</div>
+            <div class="load-value">{safePercentage(processingLoadValue)}%</div>
             <div class="load-meter">
-              <div class="load-fill load-{getLoadIntensity(safeNumber($processingLoad, 0))}" style="width: {safePercentage($processingLoad)}%"></div>
+              <div class="load-fill load-{getLoadIntensity(processingLoadValue)}" style="width: {safePercentage(processingLoadValue)}%"></div>
             </div>
           </div>
           
@@ -312,7 +319,7 @@
               Working Memory
             </h4>
             <div class="memory-count">
-              {safeLength($cognitiveState?.working_memory?.items || $cognitiveState?.manifestConsciousness?.workingMemory)}/{safeNumber($cognitiveState?.working_memory?.capacity, 10)}
+              {safeLength($cognitiveState?.working_memory?.active_items)}/{safeNumber($cognitiveState?.working_memory?.capacity, 7)}
             </div>
           </div>
           
@@ -320,28 +327,28 @@
             <div class="capacity-bar">
               <div 
                 class="capacity-fill"
-                style="width: {Math.min(100, (($cognitiveState?.working_memory?.utilization || safeLength($cognitiveState?.working_memory?.items || $cognitiveState?.manifestConsciousness?.workingMemory) / safeNumber($cognitiveState?.working_memory?.capacity, 10)) * 100))}%"
+                style="width: {Math.min(100, (safeLength($cognitiveState?.working_memory?.active_items) / safeNumber($cognitiveState?.working_memory?.capacity, 7)) * 100)}%"
               ></div>
             </div>
             <span class="capacity-text">
-              {Math.round(($cognitiveState?.working_memory?.utilization || safeLength($cognitiveState?.working_memory?.items || $cognitiveState?.manifestConsciousness?.workingMemory) / safeNumber($cognitiveState?.working_memory?.capacity, 10)) * 100)}% utilized
+              {Math.round((safeLength($cognitiveState?.working_memory?.active_items) / safeNumber($cognitiveState?.working_memory?.capacity, 7)) * 100)}% utilized
             </span>
           </div>
           
-          {#if safeLength($cognitiveState.working_memory?.items || $cognitiveState.manifestConsciousness?.workingMemory) > 0}
+          {#if safeLength($cognitiveState.working_memory?.active_items) > 0}
             <div class="memory-items">
-              {#each ($cognitiveState.working_memory?.items || $cognitiveState.manifestConsciousness?.workingMemory || []).slice(0, 3) as item}
+              {#each ($cognitiveState.working_memory?.active_items || []).slice(0, 3) as item}
                 <div class="memory-item" in:fly={{ y: 20, duration: 300 }}>
                   <div class="item-header">
                     <span class="item-type item-{item?.type || 'process'}">{item?.type || 'process'}</span>
-                    <span class="item-relevance">{safePercentage(item?.priority || item?.relevance)}%</span>
+                    <span class="item-relevance">{safePercentage(item?.activation_level)}%</span>
                   </div>
                   <div class="item-content">{item?.content || 'No content'}</div>
                 </div>
               {/each}
-              {#if safeLength($cognitiveState.working_memory?.items || $cognitiveState.manifestConsciousness?.workingMemory) > 3}
+              {#if safeLength($cognitiveState.working_memory?.active_items) > 3}
                 <div class="more-items">
-                  +{safeLength($cognitiveState.working_memory?.items || $cognitiveState.manifestConsciousness?.workingMemory) - 3} more items
+                  +{safeLength($cognitiveState.working_memory?.active_items) - 3} more items
                 </div>
               {/if}
             </div>
