@@ -361,8 +361,8 @@ else:
 
 logger.info(f"🔗 CORS configured for {ENVIRONMENT} mode")
 
-# Include cognitive transparency routes
-app.include_router(cognitive_transparency_api.router)
+# Include cognitive transparency routes - TEMPORARILY DISABLED for testing transparency_endpoints fixes
+# app.include_router(cognitive_transparency_api.router)
 app.include_router(enhanced_cognitive_router, prefix="/api/enhanced-cognitive", tags=["Enhanced Cognitive API"])
 app.include_router(transparency_router)
 
