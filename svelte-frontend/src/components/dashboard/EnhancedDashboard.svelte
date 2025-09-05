@@ -33,8 +33,35 @@
     };
   });
 
-  $: systemHealthScore = Object.values($cognitiveState.systemHealth).reduce((sum, val) => sum + val, 0) / Object.values($cognitiveState.systemHealth).length;
-  $: overallCapabilities = Object.values($cognitiveState.capabilities).reduce((sum, val) => sum + val, 0) / Object.values($cognitiveState.capabilities).length;
+  // Safe calculation functions
+  function safePercentage(value, fallback = 0) {
+    if (typeof value === 'number' && !isNaN(value) && isFinite(value)) {
+      return Math.round(Math.max(0, Math.min(100, value * 100)));
+    }
+    return fallback;
+  }
+  
+  function safeNumber(value, fallback = 0) {
+    if (typeof value === 'number' && !isNaN(value) && isFinite(value)) {
+      return value;
+    }
+    return fallback;
+  }
+  
+  function safeLength(arr, fallback = 0) {
+    if (Array.isArray(arr)) {
+      return arr.length;
+    }
+    return fallback;
+  }
+
+  function safeAverage(values) {
+    const validValues = values.filter(val => typeof val === 'number' && !isNaN(val) && isFinite(val));
+    return validValues.length > 0 ? validValues.reduce((sum, val) => sum + val, 0) / validValues.length : 0;
+  }
+
+  $: systemHealthScore = safeAverage(Object.values($cognitiveState.systemHealth));
+  $: overallCapabilities = safeAverage(Object.values($cognitiveState.capabilities));
 </script>
 
 <div class="enhanced-dashboard">
@@ -76,7 +103,7 @@
               <span class="stat-icon">🧠</span>
               <span class="stat-title">System Health</span>
             </div>
-            <div class="stat-value">{Math.round(systemHealthScore * 100)}%</div>
+            <div class="stat-value">{safePercentage(systemHealthScore)}%</div>
             <div class="stat-trend positive">↗ +2.3%</div>
           </div>
           
@@ -103,7 +130,7 @@
               <span class="stat-icon">⚡</span>
               <span class="stat-title">Processing</span>
             </div>
-            <div class="stat-value">{Math.round($cognitiveState.manifestConsciousness.processingLoad * 100)}%</div>
+            <div class="stat-value">{safePercentage($cognitiveState.manifestConsciousness?.processingLoad)}%</div>
             <div class="stat-subtitle">Load</div>
           </div>
         </div>
@@ -188,9 +215,9 @@
               <div class="health-item">
                 <span class="module-name">{module}</span>
                 <div class="health-bar">
-                  <div class="health-fill" style="width: {health * 100}%"></div>
+                  <div class="health-fill" style="width: {safePercentage(health)}%"></div>
                 </div>
-                <span class="health-percentage">{Math.round(health * 100)}%</span>
+                <span class="health-percentage">{safePercentage(health)}%</span>
               </div>
             {/each}
           </div>
@@ -226,8 +253,8 @@
           <div class="perf-card">
             <h4>Processing Load</h4>
             <div class="perf-gauge">
-              <div class="gauge-fill" style="transform: rotate({$cognitiveState.manifestConsciousness.processingLoad * 180}deg)"></div>
-              <div class="gauge-value">{Math.round($cognitiveState.manifestConsciousness.processingLoad * 100)}%</div>
+              <div class="gauge-fill" style="transform: rotate({safeNumber($cognitiveState.manifestConsciousness?.processingLoad, 0) * 180}deg)"></div>
+              <div class="gauge-value">{safePercentage($cognitiveState.manifestConsciousness?.processingLoad)}%</div>
             </div>
           </div>
           
@@ -239,9 +266,9 @@
           <div class="perf-card">
             <h4>Memory Usage</h4>
             <div class="memory-bar">
-              <div class="memory-fill" style="width: {($cognitiveState.manifestConsciousness.workingMemory.length / 12) * 100}%"></div>
+              <div class="memory-fill" style="width: {Math.min(100, (safeLength($cognitiveState.manifestConsciousness?.workingMemory) / 12) * 100)}%"></div>
             </div>
-            <div class="memory-text">{$cognitiveState.manifestConsciousness.workingMemory.length}/12</div>
+            <div class="memory-text">{safeLength($cognitiveState.manifestConsciousness?.workingMemory)}/12</div>
           </div>
         </div>
       </div>

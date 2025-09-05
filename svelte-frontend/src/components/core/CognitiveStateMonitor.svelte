@@ -22,6 +22,28 @@
     timestamp: Date.now()
   };
   
+  // Safe number formatting functions
+  function safePercentage(value, fallback = 0) {
+    if (typeof value === 'number' && !isNaN(value) && isFinite(value)) {
+      return Math.round(Math.max(0, Math.min(100, value * 100)));
+    }
+    return fallback;
+  }
+  
+  function safeNumber(value, fallback = 0) {
+    if (typeof value === 'number' && !isNaN(value) && isFinite(value)) {
+      return value;
+    }
+    return fallback;
+  }
+  
+  function safeLength(arr, fallback = 0) {
+    if (Array.isArray(arr)) {
+      return arr.length;
+    }
+    return fallback;
+  }
+  
   // Mock realistic focus history for demonstration
   let enhancedFocusHistory = [
     { topic: 'Knowledge Graph Analysis', context: 'User interaction with network visualization', intensity: 0.85, depth: 'deep', timestamp: Date.now() - 1000 },
@@ -156,17 +178,17 @@
         </h3>
         <div class="monitor-stats">
           <div class="stat-item">
-            <span class="stat-number">{Math.round($systemHealthScore * 100)}%</span>
+            <span class="stat-number">{safePercentage($systemHealthScore)}%</span>
             <span class="stat-text">health</span>
           </div>
           <div class="stat-divider"></div>
           <div class="stat-item">
-            <span class="stat-number">{$activeAgents.length}</span>
+            <span class="stat-number">{safeLength($activeAgents)}</span>
             <span class="stat-text">agents</span>
           </div>
           <div class="stat-divider"></div>
           <div class="stat-item">
-            <span class="stat-number">{Math.round($processingLoad * 100)}%</span>
+            <span class="stat-number">{safePercentage($processingLoad)}%</span>
             <span class="stat-text">load</span>
           </div>
         </div>
@@ -176,7 +198,7 @@
     <div class="header-actions">
       <div class="health-indicator" style="--health-color: {getHealthColor($systemHealthScore)}">
         <div class="health-icon">💚</div>
-        <span class="health-text">{Math.round($systemHealthScore * 100)}%</span>
+        <span class="health-text">{safePercentage($systemHealthScore)}%</span>
       </div>
     </div>
   </header>
@@ -192,8 +214,8 @@
               <span class="card-icon">🎯</span>
               Attention Focus
             </h4>
-            <div class="focus-intensity-badge" style="--intensity-color: {getIntensityColor(currentFocus.intensity)}">
-              {Math.round(currentFocus.intensity * 100)}%
+            <div class="focus-intensity-badge" style="--intensity-color: {getIntensityColor(safeNumber(currentFocus?.intensity, 0))}">
+              {safePercentage(currentFocus?.intensity)}%
             </div>
           </div>
           
@@ -222,7 +244,7 @@
               </div>
               
               <div class="intensity-bar">
-                <div class="intensity-fill" style="width: {currentFocus.intensity * 100}%; background: {getIntensityColor(currentFocus.intensity)}"></div>
+                <div class="intensity-fill" style="width: {Math.min(100, safePercentage(currentFocus?.intensity))}%; background: {getIntensityColor(safeNumber(currentFocus?.intensity, 0))}"></div>
               </div>
             </div>
           {:else}
@@ -240,15 +262,15 @@
               <span class="card-icon">⚡</span>
               Processing Load
             </h4>
-            <div class="load-badge load-{getLoadIntensity($processingLoad)}">
-              {getLoadIntensity($processingLoad).toUpperCase()}
+            <div class="load-badge load-{getLoadIntensity(safeNumber($processingLoad, 0))}">
+              {getLoadIntensity(safeNumber($processingLoad, 0)).toUpperCase()}
             </div>
           </div>
           
           <div class="load-display">
-            <div class="load-value">{Math.round($processingLoad * 100)}%</div>
+            <div class="load-value">{safePercentage($processingLoad)}%</div>
             <div class="load-meter">
-              <div class="load-fill load-{getLoadIntensity($processingLoad)}" style="width: {$processingLoad * 100}%"></div>
+              <div class="load-fill load-{getLoadIntensity(safeNumber($processingLoad, 0))}" style="width: {safePercentage($processingLoad)}%"></div>
             </div>
           </div>
           
@@ -275,7 +297,7 @@
               Working Memory
             </h4>
             <div class="memory-count">
-              {$cognitiveState.manifestConsciousness.workingMemory.length}/10
+              {safeLength($cognitiveState.manifestConsciousness?.workingMemory)}/10
             </div>
           </div>
           
@@ -283,28 +305,28 @@
             <div class="capacity-bar">
               <div 
                 class="capacity-fill"
-                style="width: {($cognitiveState.manifestConsciousness.workingMemory.length / 10) * 100}%"
+                style="width: {Math.min(100, (safeLength($cognitiveState.manifestConsciousness?.workingMemory) / 10) * 100)}%"
               ></div>
             </div>
             <span class="capacity-text">
-              {Math.round(($cognitiveState.manifestConsciousness.workingMemory.length / 10) * 100)}% utilized
+              {Math.round((safeLength($cognitiveState.manifestConsciousness?.workingMemory) / 10) * 100)}% utilized
             </span>
           </div>
           
-          {#if $cognitiveState.manifestConsciousness.workingMemory.length > 0}
+          {#if safeLength($cognitiveState.manifestConsciousness?.workingMemory) > 0}
             <div class="memory-items">
-              {#each $cognitiveState.manifestConsciousness.workingMemory.slice(0, 3) as item}
+              {#each ($cognitiveState.manifestConsciousness?.workingMemory || []).slice(0, 3) as item}
                 <div class="memory-item" in:fly={{ y: 20, duration: 300 }}>
                   <div class="item-header">
-                    <span class="item-type item-{item.type}">{item.type}</span>
-                    <span class="item-relevance">{Math.round(item.relevance * 100)}%</span>
+                    <span class="item-type item-{item?.type || 'unknown'}">{item?.type || 'unknown'}</span>
+                    <span class="item-relevance">{safePercentage(item?.relevance)}%</span>
                   </div>
-                  <div class="item-content">{item.content}</div>
+                  <div class="item-content">{item?.content || 'No content'}</div>
                 </div>
               {/each}
-              {#if $cognitiveState.manifestConsciousness.workingMemory.length > 3}
+              {#if safeLength($cognitiveState.manifestConsciousness?.workingMemory) > 3}
                 <div class="more-items">
-                  +{$cognitiveState.manifestConsciousness.workingMemory.length - 3} more items
+                  +{safeLength($cognitiveState.manifestConsciousness?.workingMemory) - 3} more items
                 </div>
               {/if}
             </div>
@@ -336,9 +358,9 @@
               <div class="query-text">"{$cognitiveState.manifestConsciousness.currentQuery}"</div>
               <div class="query-progress">
                 <div class="progress-bar">
-                  <div class="progress-fill" style="width: {$processingLoad * 100}%"></div>
+                  <div class="progress-fill" style="width: {safePercentage($processingLoad)}%"></div>
                 </div>
-                <span class="progress-text">{Math.round($processingLoad * 100)}%</span>
+                <span class="progress-text">{safePercentage($processingLoad)}%</span>
               </div>
             </div>
           {:else}

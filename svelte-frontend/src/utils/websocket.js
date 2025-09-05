@@ -54,32 +54,47 @@ async function loadInitialData() {
   console.log('✅ Initial data loaded');
 }
 
+// Utility function to safely convert a value to a valid number between 0 and 1
+function safeNumber(value, defaultValue = 0, min = 0, max = 1) {
+  if (typeof value === 'number' && !isNaN(value) && isFinite(value)) {
+    return Math.max(min, Math.min(max, value));
+  }
+  return defaultValue;
+}
+
+// Utility function to safely convert to array
+function safeArray(value, defaultValue = []) {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === 'object') return Object.values(value);
+  return defaultValue;
+}
+
 // Update cognitive state from API response
 function updateCognitiveStateFromAPI(data) {
   cognitiveState.update(state => ({
     ...state,
     manifestConsciousness: {
-      attention: data.attention_focus || [],
-      workingMemory: data.working_memory || {},
-      processingLoad: data.manifest_consciousness?.awareness_level || 0,
+      attention: safeArray(data.attention_focus, []),
+      workingMemory: safeArray(data.working_memory, []),
+      processingLoad: safeNumber(data.manifest_consciousness?.awareness_level, 0.0),
       currentQuery: data.manifest_consciousness?.current_focus || null,
       focusDepth: 'surface'
     },
-    agenticProcesses: data.agentic_processes || [],
-    daemonThreads: data.daemon_threads || [],
+    agenticProcesses: safeArray(data.agentic_processes, []),
+    daemonThreads: safeArray(data.daemon_threads, []),
     systemHealth: {
-      inferenceEngine: Math.random() * 0.2 + 0.8, // Will be updated via WebSocket
-      knowledgeStore: Math.random() * 0.2 + 0.8,
-      reflectionEngine: Math.random() * 0.2 + 0.8,
-      learningModules: Math.random() * 0.2 + 0.8,
+      inferenceEngine: safeNumber(data.system_health?.inference_engine, Math.random() * 0.2 + 0.8),
+      knowledgeStore: safeNumber(data.system_health?.knowledge_store, Math.random() * 0.2 + 0.8),
+      reflectionEngine: safeNumber(data.system_health?.reflection_engine, Math.random() * 0.2 + 0.8),
+      learningModules: safeNumber(data.system_health?.learning_modules, Math.random() * 0.2 + 0.8),
       websocketConnection: 1.0
     },
     capabilities: {
-      reasoning: data.manifest_consciousness?.coherence_level || 0.8,
-      knowledge: data.manifest_consciousness?.integration_level || 0.8,
-      creativity: Math.random() * 0.3 + 0.7,
-      reflection: Math.random() * 0.3 + 0.7,
-      learning: Math.random() * 0.3 + 0.7
+      reasoning: safeNumber(data.manifest_consciousness?.coherence_level, 0.8),
+      knowledge: safeNumber(data.manifest_consciousness?.integration_level, 0.8),
+      creativity: safeNumber(data.capabilities?.creativity, Math.random() * 0.3 + 0.7),
+      reflection: safeNumber(data.capabilities?.reflection, Math.random() * 0.3 + 0.7),
+      learning: safeNumber(data.capabilities?.learning, Math.random() * 0.3 + 0.7)
     },
     lastUpdate: Date.now()
   }));
@@ -87,8 +102,8 @@ function updateCognitiveStateFromAPI(data) {
 
 // Update knowledge state from API response
 function updateKnowledgeStateFromAPI(data) {
-  const nodes = data.graph_data?.nodes || [];
-  const edges = data.graph_data?.edges || [];
+  const nodes = safeArray(data.graph_data?.nodes, []);
+  const edges = safeArray(data.graph_data?.edges, []);
   
   knowledgeState.update(state => ({
     ...state,
@@ -116,12 +131,15 @@ function updateKnowledgeStateFromAPI(data) {
 
 // Update system health from API response
 function updateSystemHealthFromAPI(data) {
-  if (data.status === 'healthy') {
+  if (data && typeof data === 'object') {
     cognitiveState.update(state => ({
       ...state,
       systemHealth: {
-        ...state.systemHealth,
-        websocketConnection: 1.0
+        inferenceEngine: safeNumber(data.inference_engine, state.systemHealth.inferenceEngine),
+        knowledgeStore: safeNumber(data.knowledge_store, state.systemHealth.knowledgeStore),
+        reflectionEngine: safeNumber(data.reflection_engine, state.systemHealth.reflectionEngine),
+        learningModules: safeNumber(data.learning_modules, state.systemHealth.learningModules),
+        websocketConnection: data.status === 'healthy' ? 1.0 : state.systemHealth.websocketConnection
       }
     }));
   }

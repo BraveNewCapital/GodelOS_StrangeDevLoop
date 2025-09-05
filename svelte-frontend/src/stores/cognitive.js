@@ -155,15 +155,18 @@ export const processingLoad = derived(
 
 export const activeAgents = derived(
   cognitiveState,
-  $state => $state.agenticProcesses.filter(agent => agent.status === 'active')
+  $state => {
+    if (!Array.isArray($state.agenticProcesses)) return [];
+    return $state.agenticProcesses.filter(agent => agent && agent.status === 'active');
+  }
 );
 
 export const systemHealthOverall = derived(
   cognitiveState,
   $state => {
     const health = $state.systemHealth;
-    const values = Object.values(health);
-    return values.reduce((sum, val) => sum + val, 0) / values.length;
+    const values = Object.values(health).filter(val => typeof val === 'number' && !isNaN(val) && isFinite(val));
+    return values.length > 0 ? values.reduce((sum, val) => sum + val, 0) / values.length : 0.0;
   }
 );
 
@@ -171,8 +174,8 @@ export const systemHealthScore = derived(
   cognitiveState,
   $state => {
     const health = $state.systemHealth;
-    const values = Object.values(health);
-    return values.reduce((sum, val) => sum + val, 0) / values.length;
+    const values = Object.values(health).filter(val => typeof val === 'number' && !isNaN(val) && isFinite(val));
+    return values.length > 0 ? values.reduce((sum, val) => sum + val, 0) / values.length : 0.0;
   }
 );
 
