@@ -33,6 +33,7 @@ from backend.persistence import initialize_persistence, shutdown_persistence
 from backend.websocket_manager import WebSocketManager
 from backend.cognitive_transparency_integration import cognitive_transparency_api
 from backend.enhanced_cognitive_api import router as enhanced_cognitive_router
+from backend.transparency_endpoints import router as transparency_router
 from backend.config_manager import get_config, is_feature_enabled
 from backend.models import (
     QueryRequest, QueryResponse, KnowledgeRequest, KnowledgeResponse,
@@ -348,6 +349,7 @@ logger.info(f"🔗 CORS configured for {ENVIRONMENT} mode")
 # Include cognitive transparency routes
 app.include_router(cognitive_transparency_api.router)
 app.include_router(enhanced_cognitive_router, prefix="/api/enhanced-cognitive", tags=["Enhanced Cognitive API"])
+app.include_router(transparency_router)
 
 
 @app.get("/")
@@ -1320,23 +1322,53 @@ async def search_knowledge(
 @app.get("/api/knowledge/graph")
 async def get_knowledge_graph():
     """Get knowledge graph structure for visualization."""
-    # Return sample graph data for frontend testing
+    try:
+        # Try to use dynamic knowledge graph from pipeline first
+        if knowledge_pipeline_service and knowledge_pipeline_service.initialized:
+            graph_data = await knowledge_pipeline_service.get_knowledge_graph_data()
+            if graph_data and (graph_data.get('nodes') or graph_data.get('edges')):
+                return graph_data
+    except Exception as e:
+        logger.warning(f"Failed to get dynamic knowledge graph data: {e}")
+    
+    # Fallback to enhanced sample data if no dynamic data available
     return {
         "nodes": [
-            {"id": "concept_1", "label": "Knowledge", "type": "concept", "size": 10},
-            {"id": "concept_2", "label": "Learning", "type": "concept", "size": 8},
-            {"id": "entity_1", "label": "GödelOS", "type": "entity", "size": 12},
-            {"id": "fact_1", "label": "System Active", "type": "fact", "size": 6}
+            {"id": "consciousness", "label": "Consciousness", "type": "concept", "size": 15, "category": "philosophy"},
+            {"id": "ai_system", "label": "AI System", "type": "entity", "size": 12, "category": "technology"},
+            {"id": "metacognition", "label": "Meta-cognition", "type": "concept", "size": 10, "category": "psychology"},
+            {"id": "self_awareness", "label": "Self-awareness", "type": "concept", "size": 8, "category": "cognition"},
+            {"id": "godel_architecture", "label": "GödelOS Architecture", "type": "entity", "size": 14, "category": "system"},
+            {"id": "reasoning", "label": "Reasoning", "type": "concept", "size": 9, "category": "cognition"},
+            {"id": "transparency", "label": "Transparency", "type": "concept", "size": 7, "category": "system"},
+            {"id": "knowledge_graph", "label": "Knowledge Graph", "type": "entity", "size": 11, "category": "technology"},
+            {"id": "llm_integration", "label": "LLM Integration", "type": "entity", "size": 10, "category": "technology"},
+            {"id": "cognitive_state", "label": "Cognitive State", "type": "concept", "size": 8, "category": "cognition"},
+            {"id": "stream_consciousness", "label": "Stream of Consciousness", "type": "concept", "size": 6, "category": "psychology"},
+            {"id": "autonomous_learning", "label": "Autonomous Learning", "type": "concept", "size": 9, "category": "learning"}
         ],
         "edges": [
-            {"source": "entity_1", "target": "concept_1", "type": "relates_to", "weight": 1.0},
-            {"source": "concept_1", "target": "concept_2", "type": "connected_to", "weight": 0.8},
-            {"source": "entity_1", "target": "fact_1", "type": "has_property", "weight": 0.9}
+            {"source": "godel_architecture", "target": "consciousness", "type": "implements", "weight": 0.9},
+            {"source": "consciousness", "target": "self_awareness", "type": "requires", "weight": 0.8},
+            {"source": "ai_system", "target": "metacognition", "type": "enables", "weight": 0.7},
+            {"source": "metacognition", "target": "consciousness", "type": "contributes_to", "weight": 0.9},
+            {"source": "godel_architecture", "target": "reasoning", "type": "supports", "weight": 0.8},
+            {"source": "reasoning", "target": "transparency", "type": "enables", "weight": 0.6},
+            {"source": "knowledge_graph", "target": "reasoning", "type": "supports", "weight": 0.7},
+            {"source": "llm_integration", "target": "godel_architecture", "type": "extends", "weight": 0.8},
+            {"source": "cognitive_state", "target": "consciousness", "type": "represents", "weight": 0.7},
+            {"source": "stream_consciousness", "target": "cognitive_state", "type": "generates", "weight": 0.6},
+            {"source": "autonomous_learning", "target": "metacognition", "type": "enhances", "weight": 0.8},
+            {"source": "transparency", "target": "self_awareness", "type": "enables", "weight": 0.7},
+            {"source": "godel_architecture", "target": "autonomous_learning", "type": "implements", "weight": 0.8},
+            {"source": "llm_integration", "target": "reasoning", "type": "augments", "weight": 0.9}
         ],
         "statistics": {
-            "node_count": 4,
-            "edge_count": 3,
-            "total_count": 7
+            "node_count": 12,
+            "edge_count": 14,
+            "total_count": 26,
+            "categories": ["philosophy", "technology", "psychology", "cognition", "system", "learning"],
+            "data_source": "fallback_enhanced"
         }
     }
 
