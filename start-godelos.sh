@@ -66,6 +66,7 @@ show_help() {
     echo "  --debug                Debug mode with verbose logging"
     echo "  --setup                Install dependencies first"
     echo "  --check                Check system requirements only"
+    echo "  --test-ml              Test ML/NLP dependencies (transformers.pipeline)"
     echo "  --stop                 Stop any running GödelOS processes"
     echo "  --status               Show status of running processes"
     echo "  --logs                 Show recent logs"
@@ -248,27 +249,50 @@ install_dependencies() {
     # Detect frontend first
     detect_frontend
     
-    # Backend dependencies - try both requirements files
+    # Backend dependencies - create/use godelos_venv as mentioned by user
+    local venv_path="$SCRIPT_DIR/godelos_venv"
+    if [ ! -d "$venv_path" ] && [ -z "$VIRTUAL_ENV" ]; then
+        log_step "Creating godelos_venv Python virtual environment..."
+        cd "$SCRIPT_DIR"
+        python3 -m venv godelos_venv
+        source godelos_venv/bin/activate
+        pip install --upgrade pip setuptools wheel
+        log_success "godelos_venv Python virtual environment created"
+    elif [ -d "$venv_path" ] && [ -z "$VIRTUAL_ENV" ]; then
+        log_step "Activating existing godelos_venv..."
+        source "$venv_path/bin/activate"
+        log_success "godelos_venv activated"
+    fi
+    
+    # Also create backend/venv for backward compatibility
     if [ ! -d "$BACKEND_DIR/venv" ] && [ -z "$VIRTUAL_ENV" ]; then
-        log_step "Creating Python virtual environment..."
+        log_step "Creating backend Python virtual environment for compatibility..."
         cd "$BACKEND_DIR"
         python3 -m venv venv
-        source venv/bin/activate
-        pip install --upgrade pip setuptools wheel
-        log_success "Python virtual environment created"
+        # Don't activate this one if we're already using godelos_venv
+        if [ -z "$VIRTUAL_ENV" ]; then
+            source venv/bin/activate
+            pip install --upgrade pip setuptools wheel
+        fi
+        log_success "Backend Python virtual environment created"
     fi
     
     # Install Python dependencies - try both locations
     local requirements_installed=false
     
-    if [ -d "$BACKEND_DIR/venv" ] && [ -z "$VIRTUAL_ENV" ]; then
+    # Ensure we're using the right virtual environment
+    local venv_path="$SCRIPT_DIR/godelos_venv"
+    if [ -d "$venv_path" ] && [ -z "$VIRTUAL_ENV" ]; then
+        log_step "Activating godelos_venv for dependency installation..."
+        source "$venv_path/bin/activate"
+    elif [ -d "$BACKEND_DIR/venv" ] && [ -z "$VIRTUAL_ENV" ]; then
         source "$BACKEND_DIR/venv/bin/activate"
     fi
     
     # Try backend-specific requirements first
     if [ -f "$BACKEND_DIR/requirements.txt" ]; then
         log_step "Installing backend-specific Python dependencies..."
-        pip install -r "$BACKEND_DIR/requirements.txt" --no-deps --disable-pip-version-check || true
+        pip install -r "$BACKEND_DIR/requirements.txt" --disable-pip-version-check || true
         requirements_installed=true
         log_success "Backend requirements installed"
     fi
@@ -288,11 +312,29 @@ install_dependencies() {
     
     # Install additional critical dependencies that are commonly missing
     log_step "Installing additional critical dependencies..."
-    pip install --upgrade --quiet \
+    
+    # Fix NumPy compatibility issue for ML libraries - force 1.x version
+    log_step "Ensuring NumPy 1.x compatibility for ML libraries..."
+    pip install "numpy>=1.24.0,<2.0" --upgrade --force-reinstall --no-cache-dir
+    
+    # Install/repair scipy specifically with NumPy compatibility
+    log_step "Installing scipy with NumPy 1.x compatibility..."
+    pip install scipy --upgrade --force-reinstall --no-cache-dir
+    
+    # Reinstall scikit-learn for NumPy compatibility
+    log_step "Installing scikit-learn with NumPy 1.x compatibility..."
+    pip install scikit-learn --upgrade --force-reinstall --no-cache-dir
+    
+    # Install transformers and related dependencies
+    log_step "Installing transformers ecosystem..."
+    pip install transformers sentence-transformers tokenizers --upgrade
+    
+    # Install other critical dependencies
+    pip install --upgrade \
         httpx requests beautifulsoup4 lxml \
-        numpy scipy networkx transformers \
-        openai python-docx PyPDF2 \
-        psutil typing-extensions || true
+        networkx openai python-docx PyPDF2 \
+        psutil typing-extensions filelock huggingface-hub \
+        packaging regex safetensors tqdm click || true
     
     # Frontend dependencies
     if [ "$DETECTED_FRONTEND_TYPE" = "svelte" ]; then
@@ -313,7 +355,7 @@ install_dependencies() {
         fi
     fi
     
-    # Verify critical Python dependencies
+    # Verify critical Python dependencies including ML/NLP components
     log_step "Verifying critical dependencies..."
     python3 -c "
 import sys
@@ -330,8 +372,17 @@ required_modules = {
     'requests': 'HTTP requests'
 }
 
+ml_modules = {
+    'scipy': 'Scientific computing',
+    'scipy.stats': 'Statistical functions',
+    'sklearn': 'Machine learning',
+    'transformers': 'Transformers library',
+    'networkx': 'Graph analysis'
+}
+
 missing = []
 optional_missing = []
+ml_missing = []
 
 for module, desc in required_modules.items():
     spec = importlib.util.find_spec(module)
@@ -341,6 +392,33 @@ for module, desc in required_modules.items():
         else:
             missing.append(f'{module} ({desc})')
 
+# Check ML/NLP dependencies
+for module, desc in ml_modules.items():
+    spec = importlib.util.find_spec(module)
+    if spec is None:
+        ml_missing.append(f'{module} ({desc})')
+
+# Test transformers.pipeline specifically
+try:
+    from transformers import pipeline
+    print('✅ transformers.pipeline import successful')
+except Exception as e:
+    print(f'⚠️  transformers.pipeline import failed: {e}')
+    ml_missing.append('transformers.pipeline (ML pipeline support)')
+
+# Test numpy version compatibility
+try:
+    import numpy as np
+    numpy_version = np.__version__
+    major_version = int(numpy_version.split('.')[0])
+    if major_version >= 2:
+        print(f'ℹ️  NumPy {numpy_version} detected - modern version works with current transformers')
+        print('✅ NumPy compatibility confirmed with transformers')
+    else:
+        print(f'✅ NumPy {numpy_version} - compatible with ML libraries')
+except ImportError:
+    ml_missing.append('numpy (numerical computing)')
+
 if missing:
     print(f'❌ Missing critical dependencies: {missing}')
     print('🔧 Run with --setup to install missing dependencies')
@@ -348,7 +426,10 @@ if missing:
     
 if optional_missing:
     print(f'⚠️  Missing optional dependencies: {optional_missing}')
-    print('🔧 Some features may not work correctly')
+    
+if ml_missing:
+    print(f'⚠️  Missing ML/NLP dependencies: {ml_missing}')
+    print('🔧 Some ML/NLP features may not work correctly')
 
 print('✅ All critical dependencies available')
 print('🚀 System ready to start')
@@ -398,9 +479,28 @@ start_backend() {
     
     cd "$BACKEND_DIR"
     
-    # Activate virtual environment if it exists
-    if [ -d "venv" ] && [ -z "$VIRTUAL_ENV" ]; then
+    # Activate virtual environment if it exists (prefer godelos_venv)
+    local venv_path="$SCRIPT_DIR/godelos_venv"
+    if [ -d "$venv_path" ] && [ -z "$VIRTUAL_ENV" ]; then
+        log_step "Using godelos_venv for backend startup..."
+        source "$venv_path/bin/activate"
+    elif [ -d "venv" ] && [ -z "$VIRTUAL_ENV" ]; then
         source venv/bin/activate
+    fi
+    
+    # Verify transformers.pipeline works before starting
+    if ! python3 -c "from transformers import pipeline; print('✅ transformers.pipeline ready')" 2>/dev/null; then
+        log_warning "transformers.pipeline not working - attempting dependency fix..."
+        # Quick fix attempt
+        pip install "numpy>=1.24.0,<2.0" --force-reinstall --quiet --no-cache-dir || true
+        pip install scipy scikit-learn --force-reinstall --quiet --no-cache-dir || true
+        
+        # Test again
+        if ! python3 -c "from transformers import pipeline; print('✅ transformers.pipeline fixed')" 2>/dev/null; then
+            log_error "transformers.pipeline still not working - ML features may be limited"
+        else:
+            log_success "transformers.pipeline dependency fixed"
+        fi
     fi
     
     # Prepare startup command
@@ -617,6 +717,7 @@ main() {
     DEBUG_MODE=false
     DEV_MODE=false
     CHECK_ONLY=false
+    TEST_ML_ONLY=false
     STOP_ONLY=false
     STATUS_ONLY=false
     LOGS_ONLY=false
@@ -647,6 +748,9 @@ main() {
                 ;;
             --check)
                 CHECK_ONLY=true
+                ;;
+            --test-ml)
+                TEST_ML_ONLY=true
                 ;;
             --stop)
                 STOP_ONLY=true
@@ -681,6 +785,31 @@ main() {
     
     if [ "$LOGS_ONLY" = "true" ]; then
         show_logs
+        exit 0
+    fi
+    
+    if [ "$TEST_ML_ONLY" = "true" ]; then
+        log_step "Running ML/NLP dependency tests..."
+        # If --setup was also specified, install dependencies first
+        if [ "$SETUP_FLAG" = "true" ]; then
+            setup_directories
+            install_dependencies
+        fi
+        
+        if [ -f "$SCRIPT_DIR/test_transformers_fix.py" ]; then
+            # Ensure we use the right virtual environment for testing
+            local venv_path="$SCRIPT_DIR/godelos_venv"
+            if [ -d "$venv_path" ]; then
+                source "$venv_path/bin/activate"
+            elif [ -d "$BACKEND_DIR/venv" ]; then
+                source "$BACKEND_DIR/venv/bin/activate" 
+            fi
+            
+            python3 "$SCRIPT_DIR/test_transformers_fix.py"
+        else
+            log_error "Test script not found: test_transformers_fix.py"
+            exit 1
+        fi
         exit 0
     fi
     
