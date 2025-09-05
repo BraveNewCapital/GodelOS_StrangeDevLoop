@@ -12,15 +12,26 @@
   let isExpanded = true;
   const maxHistoryLength = 50;
   
-  // Enhanced attention focus data structure
   let currentFocus = {
-    topic: 'Knowledge Graph Analysis',
-    context: 'User interaction with network visualization',
-    intensity: 0.85,
-    mode: 'Interactive',
-    depth: 'deep',
+    topic: 'System Initialization',
+    context: 'Cognitive processing',
+    intensity: 0.5,
+    mode: 'Active',
+    depth: 'surface',
     timestamp: Date.now()
   };
+
+  // Enhanced attention focus data structure - made reactive to store
+  $: {
+    currentFocus = {
+      topic: $attentionFocus?.topic || $cognitiveState?.attention_focus?.topic || 'System Initialization',
+      context: $attentionFocus?.context || $cognitiveState?.attention_focus?.context || 'Cognitive processing',
+      intensity: $attentionFocus?.intensity || $cognitiveState?.attention_focus?.intensity || 0.5,
+      mode: $attentionFocus?.mode || $cognitiveState?.attention_focus?.mode || 'Active',
+      depth: 'surface', // Force surface for now since backend doesn't provide depth
+      timestamp: Date.now()
+    };
+  }
   
   // Safe number formatting functions
   function safePercentage(value, fallback = 0) {
@@ -297,7 +308,7 @@
               Working Memory
             </h4>
             <div class="memory-count">
-              {safeLength($cognitiveState.manifestConsciousness?.workingMemory)}/10
+              {safeLength($cognitiveState.working_memory?.items || $cognitiveState.manifestConsciousness?.workingMemory)}/{$cognitiveState.working_memory?.capacity || 10}
             </div>
           </div>
           
@@ -305,28 +316,28 @@
             <div class="capacity-bar">
               <div 
                 class="capacity-fill"
-                style="width: {Math.min(100, (safeLength($cognitiveState.manifestConsciousness?.workingMemory) / 10) * 100)}%"
+                style="width: {Math.min(100, (($cognitiveState.working_memory?.utilization || safeLength($cognitiveState.working_memory?.items || $cognitiveState.manifestConsciousness?.workingMemory) / ($cognitiveState.working_memory?.capacity || 10)) * 100))}%"
               ></div>
             </div>
             <span class="capacity-text">
-              {Math.round((safeLength($cognitiveState.manifestConsciousness?.workingMemory) / 10) * 100)}% utilized
+              {Math.round(($cognitiveState.working_memory?.utilization || safeLength($cognitiveState.working_memory?.items || $cognitiveState.manifestConsciousness?.workingMemory) / ($cognitiveState.working_memory?.capacity || 10)) * 100)}% utilized
             </span>
           </div>
           
-          {#if safeLength($cognitiveState.manifestConsciousness?.workingMemory) > 0}
+          {#if safeLength($cognitiveState.working_memory?.items || $cognitiveState.manifestConsciousness?.workingMemory) > 0}
             <div class="memory-items">
-              {#each ($cognitiveState.manifestConsciousness?.workingMemory || []).slice(0, 3) as item}
+              {#each ($cognitiveState.working_memory?.items || $cognitiveState.manifestConsciousness?.workingMemory || []).slice(0, 3) as item}
                 <div class="memory-item" in:fly={{ y: 20, duration: 300 }}>
                   <div class="item-header">
-                    <span class="item-type item-{item?.type || 'unknown'}">{item?.type || 'unknown'}</span>
-                    <span class="item-relevance">{safePercentage(item?.relevance)}%</span>
+                    <span class="item-type item-{item?.type || 'process'}">{item?.type || 'process'}</span>
+                    <span class="item-relevance">{safePercentage(item?.priority || item?.relevance)}%</span>
                   </div>
                   <div class="item-content">{item?.content || 'No content'}</div>
                 </div>
               {/each}
-              {#if safeLength($cognitiveState.manifestConsciousness?.workingMemory) > 3}
+              {#if safeLength($cognitiveState.working_memory?.items || $cognitiveState.manifestConsciousness?.workingMemory) > 3}
                 <div class="more-items">
-                  +{safeLength($cognitiveState.manifestConsciousness?.workingMemory) - 3} more items
+                  +{safeLength($cognitiveState.working_memory?.items || $cognitiveState.manifestConsciousness?.workingMemory) - 3} more items
                 </div>
               {/if}
             </div>
@@ -474,12 +485,12 @@
       </h4>
       
       <div class="health-grid">
-        {#each Object.entries($cognitiveState.systemHealth) as [module, health]}
+        {#each Object.entries($cognitiveState.systemHealth?.components || {}) as [module, health]}
           <div class="health-card">
             <div class="health-header">
               <span class="health-module">{module}</span>
-              <span class="health-value" style="color: {getHealthColor(health)}">
-                {Math.round(health * 100)}%
+              <span class="health-value" style="color: {getHealthColor(safeNumber(health, 0))}">
+                {safePercentage(health)}%
               </span>
             </div>
             <div class="health-meter">

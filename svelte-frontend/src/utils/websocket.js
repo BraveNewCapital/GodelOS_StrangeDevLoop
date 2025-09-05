@@ -69,33 +69,65 @@ function safeArray(value, defaultValue = []) {
   return defaultValue;
 }
 
-// Update cognitive state from API response
+// Update cognitive state from API response  
 function updateCognitiveStateFromAPI(data) {
+  // Handle nested cognitive_state structure from backend
+  const cogState = data.cognitive_state || data;
+  
   cognitiveState.update(state => ({
     ...state,
     manifestConsciousness: {
-      attention: safeArray(data.attention_focus, []),
-      workingMemory: safeArray(data.working_memory, []),
-      processingLoad: safeNumber(data.manifest_consciousness?.awareness_level, 0.0),
-      currentQuery: data.manifest_consciousness?.current_focus || null,
+      attention: cogState.attention_focus || null,
+      workingMemory: cogState.working_memory?.items || [],
+      processingLoad: safeNumber(cogState.processing_load, 0.0),
+      currentQuery: cogState.current_query || null,
       focusDepth: 'surface'
     },
-    agenticProcesses: safeArray(data.agentic_processes, []),
-    daemonThreads: safeArray(data.daemon_threads, []),
+    agenticProcesses: safeArray(cogState.agentic_processes, []),
+    daemonThreads: safeArray(cogState.daemon_threads, []),
     systemHealth: {
-      inferenceEngine: safeNumber(data.system_health?.inference_engine, Math.random() * 0.2 + 0.8),
-      knowledgeStore: safeNumber(data.system_health?.knowledge_store, Math.random() * 0.2 + 0.8),
-      reflectionEngine: safeNumber(data.system_health?.reflection_engine, Math.random() * 0.2 + 0.8),
-      learningModules: safeNumber(data.system_health?.learning_modules, Math.random() * 0.2 + 0.8),
+      inferenceEngine: safeNumber(cogState.system_health?.components?.inference_engine, 0.94),
+      knowledgeStore: safeNumber(cogState.system_health?.components?.knowledge_store, 0.89),
+      reflectionEngine: safeNumber(cogState.system_health?.components?.reflection_engine || cogState.system_health?.components?.attention_manager, 0.95),
+      learningModules: safeNumber(cogState.system_health?.components?.memory_manager, 0.88),
       websocketConnection: 1.0
     },
     capabilities: {
-      reasoning: safeNumber(data.manifest_consciousness?.coherence_level, 0.8),
-      knowledge: safeNumber(data.manifest_consciousness?.integration_level, 0.8),
-      creativity: safeNumber(data.capabilities?.creativity, Math.random() * 0.3 + 0.7),
-      reflection: safeNumber(data.capabilities?.reflection, Math.random() * 0.3 + 0.7),
-      learning: safeNumber(data.capabilities?.learning, Math.random() * 0.3 + 0.7)
+      reasoning: safeNumber(cogState.system_health?.overall, 0.8),
+      knowledge: safeNumber(cogState.system_health?.overall, 0.8),
+      creativity: safeNumber(cogState.capabilities?.creativity, 0.7),
+      reflection: safeNumber(cogState.capabilities?.reflection, 0.7),
+      learning: safeNumber(cogState.capabilities?.learning, 0.7)
     },
+    // Store backend data directly for derived stores
+    attention_focus: cogState.attention_focus,
+    processing_load: safeNumber(cogState.processing_load, 0.0),
+    working_memory: cogState.working_memory,
+    system_health: cogState.system_health,
+    active_agents: safeNumber(cogState.active_agents, 0),
+    cognitive_events: safeArray(cogState.cognitive_events, []),
+    lastUpdate: Date.now()
+  }));
+}
+
+// Update cognitive state from backend data structure
+function updateCognitiveStateFromBackend(data) {
+  cognitiveState.update(state => ({
+    ...state,
+    // Direct backend data structure mapping
+    attention_focus: data.attention_focus || state.attention_focus,
+    processing_load: safeNumber(data.processing_load, state.processing_load),
+    working_memory: data.working_memory || state.working_memory,
+    system_health: {
+      ...state.system_health,
+      ...(data.system_health || {}),
+      components: {
+        ...state.system_health?.components,
+        ...(data.system_health?.components || {})
+      }
+    },
+    active_agents: safeNumber(data.active_agents, state.active_agents),
+    cognitive_events: safeArray(data.cognitive_events, state.cognitive_events),
     lastUpdate: Date.now()
   }));
 }
@@ -203,6 +235,22 @@ export async function setupWebSocket() {
 // Handle incoming cognitive updates
 function handleCognitiveUpdate(message) {
   switch (message.type) {
+    case 'initial_state':
+    case 'state_update':
+    case 'cognitive_update':
+      // Handle the backend's cognitive state structure
+      console.log('🔍 Processing message:', message.type, message);
+      if (message.cognitive_state) {
+        updateCognitiveStateFromBackend(message.cognitive_state);
+      } else if (message.processing_load !== undefined || message.attention_focus) {
+        // Handle partial updates
+        updateCognitiveStateFromBackend(message);
+      } else {
+        // Handle messages with direct data
+        updateCognitiveStateFromBackend(message);
+      }
+      break;
+      
     case 'cognitive_state_update':
       updateCognitiveState(message.data);
       break;

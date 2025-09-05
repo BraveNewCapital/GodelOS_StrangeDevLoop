@@ -145,19 +145,24 @@ export const uiState = writable({
 // Derived stores for specific UI components
 export const attentionFocus = derived(
   cognitiveState,
-  $state => $state.manifestConsciousness.attention
+  $state => $state.attention_focus || $state.manifestConsciousness?.attention || null
 );
 
 export const processingLoad = derived(
   cognitiveState,
-  $state => $state.manifestConsciousness.processingLoad
+  $state => $state.processing_load ?? $state.manifestConsciousness?.processingLoad ?? 0
 );
 
 export const activeAgents = derived(
   cognitiveState,
   $state => {
-    if (!Array.isArray($state.agenticProcesses)) return [];
-    return $state.agenticProcesses.filter(agent => agent && agent.status === 'active');
+    // Use direct active_agents count from backend if available
+    if (typeof $state.active_agents === 'number' && !isNaN($state.active_agents)) {
+      return $state.active_agents;
+    }
+    // Fallback to counting active agentic processes
+    if (!Array.isArray($state.agenticProcesses)) return 0;
+    return $state.agenticProcesses.filter(agent => agent && agent.status === 'active').length;
   }
 );
 
