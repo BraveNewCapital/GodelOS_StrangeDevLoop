@@ -91,11 +91,167 @@ class DynamicKnowledgeProcessor:
             # TODO: Implement concept_extractor component
             # if "concept_extractor" not in self.nlp.pipe_names:
             #     self.nlp.add_pipe("concept_extractor", last=True, config={})
+            
+            # Populate with initial knowledge from system components
+            await self._populate_initial_knowledge()
                 
             logger.info("✅ Dynamic Knowledge Processor initialized successfully")
         except OSError:
             logger.warning(f"SpaCy model {self.model_name} not found, using fallback processing")
             self.nlp = None
+            # Still populate initial knowledge even without NLP
+            await self._populate_initial_knowledge()
+    
+    async def _populate_initial_knowledge(self):
+        """Populate the knowledge store with initial system knowledge."""
+        logger.info("🔄 Populating initial knowledge base...")
+        
+        # Define core system concepts
+        core_concepts = [
+            {
+                "name": "Consciousness",
+                "type": "meta",
+                "level": 3,
+                "description": "Higher-order awareness and subjective experience in cognitive systems",
+                "examples": ["self-awareness", "subjective experience", "qualia"],
+                "metadata": {"concept_category": "philosophy", "domain": "consciousness_studies"}
+            },
+            {
+                "name": "Cognitive Architecture",
+                "type": "aggregated", 
+                "level": 2,
+                "description": "Structural framework for cognitive processing and reasoning",
+                "examples": ["working memory", "attention mechanisms", "reasoning engines"],
+                "metadata": {"concept_category": "technology", "domain": "artificial_intelligence"}
+            },
+            {
+                "name": "Meta-cognition",
+                "type": "aggregated",
+                "level": 2, 
+                "description": "Thinking about thinking processes and self-reflective analysis",
+                "examples": ["self-monitoring", "cognitive reflection", "metacognitive awareness"],
+                "metadata": {"concept_category": "psychology", "domain": "cognitive_science"}
+            },
+            {
+                "name": "Working Memory",
+                "type": "atomic",
+                "level": 1,
+                "description": "Active maintenance and manipulation of information during cognitive tasks",
+                "examples": ["temporary storage", "information processing", "cognitive buffer"],
+                "metadata": {"concept_category": "cognition", "domain": "memory_systems"}
+            },
+            {
+                "name": "Attention Focus", 
+                "type": "atomic",
+                "level": 1,
+                "description": "Selective concentration on specific aspects of information processing",
+                "examples": ["selective attention", "focus control", "attentional filtering"],
+                "metadata": {"concept_category": "cognition", "domain": "attention_systems"}
+            },
+            {
+                "name": "Knowledge Graph",
+                "type": "aggregated",
+                "level": 2,
+                "description": "Structured representation of knowledge entities and their relationships", 
+                "examples": ["semantic networks", "entity relationships", "knowledge representation"],
+                "metadata": {"concept_category": "technology", "domain": "knowledge_management"}
+            },
+            {
+                "name": "Reasoning Process",
+                "type": "aggregated",
+                "level": 2,
+                "description": "Logical inference and deductive cognitive processing mechanisms",
+                "examples": ["logical inference", "deductive reasoning", "cognitive reasoning"],
+                "metadata": {"concept_category": "cognition", "domain": "reasoning_systems"}
+            },
+            {
+                "name": "Transparency",
+                "type": "aggregated",
+                "level": 2,
+                "description": "System introspection and cognitive process visibility for analysis",
+                "examples": ["cognitive monitoring", "process visibility", "introspective analysis"],
+                "metadata": {"concept_category": "system", "domain": "system_architecture"}
+            },
+            {
+                "name": "Autonomous Learning",
+                "type": "aggregated",
+                "level": 2, 
+                "description": "Self-directed learning and knowledge acquisition mechanisms",
+                "examples": ["self-improvement", "knowledge acquisition", "adaptive learning"],
+                "metadata": {"concept_category": "learning", "domain": "machine_learning"}
+            },
+            {
+                "name": "LLM Integration",
+                "type": "aggregated",
+                "level": 2,
+                "description": "Integration layer for large language model cognitive processing",
+                "examples": ["language processing", "neural integration", "cognitive enhancement"],
+                "metadata": {"concept_category": "technology", "domain": "artificial_intelligence"}
+            }
+        ]
+        
+        # Create concept nodes
+        for concept_data in core_concepts:
+            concept_id = f"concept_{concept_data['name'].lower().replace(' ', '_').replace('-', '_')}"
+            
+            concept = ConceptNode(
+                id=concept_id,
+                name=concept_data["name"],
+                type=concept_data["type"],
+                level=concept_data["level"],
+                description=concept_data["description"],
+                examples=concept_data["examples"],
+                relations=[],
+                confidence=0.95,  # High confidence for core concepts
+                source_documents=["system_initialization"],
+                extraction_method="core_knowledge",
+                metadata=concept_data["metadata"]
+            )
+            
+            self.concept_store[concept_id] = concept
+        
+        # Define relationships between concepts
+        relationships = [
+            ("concept_consciousness", "concept_meta_cognition", "includes", 0.9),
+            ("concept_consciousness", "concept_working_memory", "utilizes", 0.8),
+            ("concept_cognitive_architecture", "concept_working_memory", "implements", 0.9),
+            ("concept_cognitive_architecture", "concept_attention_focus", "implements", 0.9),
+            ("concept_cognitive_architecture", "concept_reasoning_process", "supports", 0.8),
+            ("concept_meta_cognition", "concept_reasoning_process", "enhances", 0.8),
+            ("concept_knowledge_graph", "concept_reasoning_process", "supports", 0.7),
+            ("concept_transparency", "concept_consciousness", "enables", 0.7),
+            ("concept_autonomous_learning", "concept_meta_cognition", "requires", 0.8),
+            ("concept_llm_integration", "concept_cognitive_architecture", "extends", 0.8),
+            ("concept_llm_integration", "concept_reasoning_process", "augments", 0.9),
+            ("concept_working_memory", "concept_attention_focus", "coordinates_with", 0.7),
+            ("concept_transparency", "concept_reasoning_process", "monitors", 0.8),
+            ("concept_autonomous_learning", "concept_knowledge_graph", "updates", 0.7)
+        ]
+        
+        # Create relationship objects
+        for source_id, target_id, relation_type, strength in relationships:
+            if source_id in self.concept_store and target_id in self.concept_store:
+                relation_id = f"rel_{source_id}_{target_id}_{relation_type}"
+                
+                relation = ConceptRelation(
+                    id=relation_id,
+                    source_id=source_id,
+                    target_id=target_id,
+                    relation_type=relation_type,
+                    strength=strength,
+                    evidence=["system_architecture_analysis"],
+                    source_sentences=[f"{self.concept_store[source_id].name} {relation_type.replace('_', ' ')} {self.concept_store[target_id].name}"],
+                    confidence=strength
+                )
+                
+                self.relation_store[relation_id] = relation
+                
+                # Update concept relations
+                self.concept_store[source_id].relations.append(target_id)
+                if target_id not in self.concept_store[target_id].relations:
+                    self.concept_store[target_id].relations.append(source_id)
+        
+        logger.info(f"✅ Populated knowledge base with {len(self.concept_store)} concepts and {len(self.relation_store)} relationships")
     
     async def process_document(self, content: str, title: str = None, metadata: Dict = None) -> DocumentProcessingResult:
         """

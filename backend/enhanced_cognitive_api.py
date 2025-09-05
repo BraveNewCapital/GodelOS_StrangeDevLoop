@@ -79,6 +79,63 @@ def get_websocket_manager():
     return websocket_manager
 
 
+@router.get("/status")
+async def get_enhanced_cognitive_status():
+    """Get the current status of enhanced cognitive systems."""
+    try:
+        # Check WebSocket manager
+        ws_connected = websocket_manager is not None
+        active_connections = 0
+        if ws_connected and hasattr(websocket_manager, 'connections'):
+            active_connections = len(websocket_manager.connections)
+        
+        # Check enhanced metacognition
+        metacognition_active = enhanced_metacognition_manager is not None
+        metacognition_status = "disabled"
+        if metacognition_active:
+            try:
+                # Try to get status from manager
+                if hasattr(enhanced_metacognition_manager, 'get_status'):
+                    status_info = await enhanced_metacognition_manager.get_status()
+                    metacognition_status = status_info.get('status', 'active')
+                else:
+                    metacognition_status = "active"
+            except Exception:
+                metacognition_status = "error"
+        
+        return {
+            "websocket_connected": ws_connected,
+            "active_connections": active_connections,
+            "enhanced_metacognition_active": metacognition_active,
+            "metacognition_status": metacognition_status,
+            "api_status": "operational",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "features": {
+                "cognitive_streaming": ws_connected,
+                "autonomous_learning": metacognition_active,
+                "knowledge_acquisition": metacognition_active,
+                "stream_of_consciousness": True
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting enhanced cognitive status: {e}")
+        return {
+            "websocket_connected": False,
+            "active_connections": 0,
+            "enhanced_metacognition_active": False,
+            "metacognition_status": "error",
+            "api_status": "degraded",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "error": str(e),
+            "features": {
+                "cognitive_streaming": False,
+                "autonomous_learning": False,
+                "knowledge_acquisition": False,
+                "stream_of_consciousness": False
+            }
+        }
+
 async def initialize_enhanced_cognitive(ws_manager, godelos_integration=None):
     """Initialize the enhanced cognitive API with required dependencies."""
     global enhanced_metacognition_manager, websocket_manager, config
