@@ -334,6 +334,11 @@ class LiveReasoningTracker:
             })
         return sessions
     
+    async def get_recent_sessions(self, limit: int = 10) -> List[ReasoningSession]:
+        """Get recent completed sessions."""
+        # Return most recent completed sessions up to limit
+        return list(self.completed_sessions)[-limit:] if self.completed_sessions else []
+    
     async def get_session_details(self, session_id: str) -> Optional[Dict[str, Any]]:
         """Get detailed information about a specific reasoning session."""
         # Check active sessions first

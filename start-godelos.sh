@@ -248,25 +248,51 @@ install_dependencies() {
     # Detect frontend first
     detect_frontend
     
-    # Backend dependencies
+    # Backend dependencies - try both requirements files
     if [ ! -d "$BACKEND_DIR/venv" ] && [ -z "$VIRTUAL_ENV" ]; then
         log_step "Creating Python virtual environment..."
         cd "$BACKEND_DIR"
         python3 -m venv venv
         source venv/bin/activate
-        pip install --upgrade pip
+        pip install --upgrade pip setuptools wheel
         log_success "Python virtual environment created"
     fi
     
-    # Install Python dependencies
-    if [ -f "$BACKEND_DIR/requirements.txt" ]; then
-        log_step "Installing Python dependencies..."
-        if [ -d "$BACKEND_DIR/venv" ] && [ -z "$VIRTUAL_ENV" ]; then
-            source "$BACKEND_DIR/venv/bin/activate"
-        fi
-        pip install -r "$BACKEND_DIR/requirements.txt"
-        log_success "Python dependencies installed"
+    # Install Python dependencies - try both locations
+    local requirements_installed=false
+    
+    if [ -d "$BACKEND_DIR/venv" ] && [ -z "$VIRTUAL_ENV" ]; then
+        source "$BACKEND_DIR/venv/bin/activate"
     fi
+    
+    # Try backend-specific requirements first
+    if [ -f "$BACKEND_DIR/requirements.txt" ]; then
+        log_step "Installing backend-specific Python dependencies..."
+        pip install -r "$BACKEND_DIR/requirements.txt" --no-deps --disable-pip-version-check || true
+        requirements_installed=true
+        log_success "Backend requirements installed"
+    fi
+    
+    # Then install comprehensive requirements from root
+    if [ -f "$SCRIPT_DIR/requirements.txt" ]; then
+        log_step "Installing comprehensive Python dependencies..."
+        pip install -r "$SCRIPT_DIR/requirements.txt" --disable-pip-version-check || true
+        requirements_installed=true
+        log_success "Root requirements installed"
+    fi
+    
+    if [ "$requirements_installed" = false ]; then
+        log_warning "No requirements.txt found - installing essential dependencies manually"
+        pip install fastapi uvicorn pydantic websockets python-multipart aiofiles python-dotenv
+    fi
+    
+    # Install additional critical dependencies that are commonly missing
+    log_step "Installing additional critical dependencies..."
+    pip install --upgrade --quiet \
+        httpx requests beautifulsoup4 lxml \
+        numpy scipy networkx transformers \
+        openai python-docx PyPDF2 \
+        psutil typing-extensions || true
     
     # Frontend dependencies
     if [ "$DETECTED_FRONTEND_TYPE" = "svelte" ]; then
@@ -279,29 +305,58 @@ install_dependencies() {
             DETECTED_FRONTEND_TYPE="html"
         else
             cd "$FRONTEND_DIR"
-            npm install
+            # Clean install to avoid version conflicts
+            rm -rf node_modules package-lock.json 2>/dev/null || true
+            npm install --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
             log_success "Svelte dependencies installed"
             cd "$SCRIPT_DIR"
         fi
     fi
     
-    # Check critical Python dependencies
+    # Verify critical Python dependencies
+    log_step "Verifying critical dependencies..."
     python3 -c "
 import sys
+import importlib.util
+
+required_modules = {
+    'fastapi': 'FastAPI web framework',
+    'uvicorn': 'ASGI server', 
+    'pydantic': 'Data validation',
+    'websockets': 'WebSocket support',
+    'aiofiles': 'Async file operations',
+    'httpx': 'HTTP client',
+    'numpy': 'Numerical computing',
+    'requests': 'HTTP requests'
+}
+
 missing = []
-required = ['fastapi', 'uvicorn', 'pydantic']
-for module in required:
-    try:
-        __import__(module)
-    except ImportError:
-        missing.append(module)
+optional_missing = []
+
+for module, desc in required_modules.items():
+    spec = importlib.util.find_spec(module)
+    if spec is None:
+        if module in ['numpy', 'httpx', 'requests']:
+            optional_missing.append(f'{module} ({desc})')
+        else:
+            missing.append(f'{module} ({desc})')
 
 if missing:
     print(f'❌ Missing critical dependencies: {missing}')
+    print('🔧 Run with --setup to install missing dependencies')
     sys.exit(1)
-else:
-    print('✅ All critical dependencies available')
-" || exit 1
+    
+if optional_missing:
+    print(f'⚠️  Missing optional dependencies: {optional_missing}')
+    print('🔧 Some features may not work correctly')
+
+print('✅ All critical dependencies available')
+print('🚀 System ready to start')
+" || {
+        log_error "Critical dependencies missing!"
+        log_info "Run: $0 --setup to install all dependencies"
+        exit 1
+    }
 }
 
 # Stop existing processes

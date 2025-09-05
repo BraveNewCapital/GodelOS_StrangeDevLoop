@@ -8,6 +8,7 @@ reasoning sessions, dynamic knowledge graphs, and provenance tracking.
 import asyncio
 import secrets
 import uuid
+import logging
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from typing import Dict, List, Optional, Any
 import time
@@ -16,6 +17,8 @@ from pydantic import BaseModel
 
 from .live_reasoning_tracker import live_reasoning_tracker, ReasoningStepType
 from .dynamic_knowledge_processor import dynamic_knowledge_processor
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/transparency", tags=["Transparency"])
 
@@ -123,7 +126,7 @@ async def configure_transparency(config: TransparencyConfig):
 @router.post("/session/start")
 async def start_reasoning_session(session: ReasoningSession):
     """Start a new reasoning session with live reasoning tracking."""
-    # Start session with live reasoning tracker
+    # Start session with live reasoning tracker - this is the primary session system
     session_id = await live_reasoning_tracker.start_reasoning_session(
         query=session.query,
         metadata={
@@ -133,18 +136,8 @@ async def start_reasoning_session(session: ReasoningSession):
         }
     )
     
-    session_data = {
-        "id": session_id,
-        "query": session.query,
-        "transparency_level": session.transparency_level,
-        "start_time": time.time(),
-        "status": "active",
-        "include_provenance": session.include_provenance,
-        "track_cognitive_load": session.track_cognitive_load
-    }
-    
-    async with _state_lock:
-        active_sessions[session_id] = session_data
+    # The live_reasoning_tracker is now the source of truth for sessions
+    # We no longer maintain a separate active_sessions dict - just use the tracker
     
     # Broadcast session start
     await broadcast_transparency_update({
@@ -501,31 +494,26 @@ async def get_active_sessions():
     
     # Convert sessions to expected format
     formatted_sessions = []
-    for session in active_sessions_data:
+    for session_dict in active_sessions_data:
         formatted_sessions.append({
-            "session_id": session.id,
-            "start_time": session.start_time,
-            "end_time": session.end_time,
-            "status": session.status,
-            "transparency_level": session.provenance_data.get("reasoning_mode", "detailed"),
-            "query": session.query,
-            "context": session.provenance_data,
-            "duration_ms": (time.time() - session.start_time) * 1000 if not session.end_time else (session.end_time - session.start_time) * 1000,
+            "session_id": session_dict["id"],
+            "start_time": session_dict.get("start_time"),
+            "end_time": session_dict.get("end_time"),
+            "status": session_dict.get("status", "active"),
+            "transparency_level": "detailed",  # Default transparency level
+            "query": session_dict.get("query", ""),
+            "context": session_dict.get("cognitive_metrics", {}),
+            "duration_ms": session_dict.get("duration_seconds", 0) * 1000,
             "trace": {
-                "session_id": session.id,
-                "steps": [
-                    {
-                        "id": step.id,
-                        "type": step.step_type.value,
-                        "description": step.description,
-                        "timestamp": step.timestamp,
-                        "confidence": step.confidence
-                    } for step in session.steps
-                ],
+                "session_id": session_dict["id"],
+                "steps": [],  # Will be populated when session details are requested
                 "decision_points": [],
-                "summary": session.final_response,
-                "metadata": session.cognitive_metrics
-            }
+                "summary": None,
+                "metadata": session_dict.get("cognitive_metrics", {})
+            },
+            "steps_count": session_dict.get("steps_count", 0),
+            "current_step": session_dict.get("current_step", "initializing"),
+            "confidence_score": session_dict.get("confidence_score", 0.0)
         })
     
     return {
