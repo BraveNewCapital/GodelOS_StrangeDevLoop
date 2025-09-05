@@ -33,7 +33,9 @@ from backend.persistence import initialize_persistence, shutdown_persistence
 from backend.websocket_manager import WebSocketManager
 from backend.cognitive_transparency_integration import cognitive_transparency_api
 from backend.enhanced_cognitive_api import router as enhanced_cognitive_router
-from backend.transparency_endpoints import router as transparency_router
+from backend.transparency_endpoints import router as transparency_router, initialize_transparency_system
+from backend.dynamic_knowledge_processor import dynamic_knowledge_processor
+from backend.live_reasoning_tracker import live_reasoning_tracker, ReasoningStepType
 from backend.config_manager import get_config, is_feature_enabled
 from backend.models import (
     QueryRequest, QueryResponse, KnowledgeRequest, KnowledgeResponse,
@@ -190,7 +192,7 @@ async def continuous_cognitive_streaming():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
-    global godelos_integration, cognitive_streaming_task
+    global godelos_integration, cognitive_streaming_task, llm_cognitive_driver
 
     # Startup
     startup_services()
@@ -229,6 +231,20 @@ async def lifespan(app: FastAPI):
         await knowledge_pipeline_service.initialize(websocket_manager)
         logger.info("✅ BACKEND DIAGNOSTIC: Knowledge pipeline service initialized successfully")
         
+        # Initialize dynamic knowledge processor and live reasoning tracker
+        logger.info("🔍 BACKEND DIAGNOSTIC: Initializing dynamic knowledge processor...")
+        await dynamic_knowledge_processor.initialize()
+        logger.info("✅ BACKEND DIAGNOSTIC: Dynamic knowledge processor initialized successfully")
+        
+        logger.info("🔍 BACKEND DIAGNOSTIC: Initializing live reasoning tracker...")
+        await live_reasoning_tracker.initialize(websocket_manager, llm_cognitive_driver, godelos_integration)
+        logger.info("✅ BACKEND DIAGNOSTIC: Live reasoning tracker initialized successfully")
+        
+        # Initialize transparency system
+        logger.info("🔍 BACKEND DIAGNOSTIC: Initializing transparency system...")
+        await initialize_transparency_system()
+        logger.info("✅ BACKEND DIAGNOSTIC: Transparency system initialized successfully")
+        
         # Initialize enhanced cognitive API
         logger.info("🔍 BACKEND DIAGNOSTIC: Initializing enhanced cognitive API...")
         from backend.enhanced_cognitive_api import initialize_enhanced_cognitive
@@ -237,7 +253,6 @@ async def lifespan(app: FastAPI):
         
         # Initialize LLM cognitive driver
         logger.info("🔍 BACKEND DIAGNOSTIC: Initializing LLM cognitive driver...")
-        global llm_cognitive_driver
         llm_cognitive_driver = await get_llm_cognitive_driver(godelos_integration)
         logger.info("✅ BACKEND DIAGNOSTIC: LLM cognitive driver initialized successfully")
         
@@ -396,18 +411,44 @@ async def api_health_check():
 
 @app.post("/api/query")
 async def process_query(request: QueryRequest):
-    """Process a natural language query using advanced semantic search."""
+    """Process a natural language query using advanced semantic search with live reasoning tracking."""
     if not godelos_integration:
         raise HTTPException(status_code=503, detail="GödelOS system not initialized")
     
     try:
         logger.info(f"Processing query: {request.query}")
         
+        # Start reasoning session for transparency
+        session_id = await live_reasoning_tracker.start_reasoning_session(
+            query=request.query,
+            metadata={
+                "include_reasoning": request.include_reasoning,
+                "context": request.context or {}
+            }
+        )
+        
+        # Add query analysis step
+        await live_reasoning_tracker.add_reasoning_step(
+            session_id=session_id,
+            step_type=ReasoningStepType.QUERY_ANALYSIS,
+            description="Analyzing input query structure and intent",
+            confidence=0.9,
+            cognitive_load=0.3
+        )
+        
         # First try semantic search if pipeline is available
         semantic_results = None
         if knowledge_pipeline_service.initialized:
             try:
                 logger.info("🔍 Using advanced semantic search")
+                await live_reasoning_tracker.add_reasoning_step(
+                    session_id=session_id,
+                    step_type=ReasoningStepType.KNOWLEDGE_RETRIEVAL,
+                    description="Performing semantic knowledge retrieval",
+                    confidence=0.85,
+                    cognitive_load=0.6
+                )
+                
                 semantic_results = await knowledge_pipeline_service.semantic_query(
                     request.query, 
                     k=5
@@ -420,6 +461,15 @@ async def process_query(request: QueryRequest):
         if semantic_results and semantic_results.get('success'):
             context['semantic_results'] = semantic_results['results']
             context['semantic_search_used'] = True
+        
+        # Add inference step
+        await live_reasoning_tracker.add_reasoning_step(
+            session_id=session_id,
+            step_type=ReasoningStepType.INFERENCE,
+            description="Applying cognitive reasoning and inference processes",
+            confidence=0.8,
+            cognitive_load=0.7
+        )
             
         # Special handling for EC005 context switching test
         if "switch" in request.query.lower() and "between" in request.query.lower():
@@ -441,6 +491,23 @@ async def process_query(request: QueryRequest):
                 # Enhance the context with LLM consciousness assessment
                 context['llm_consciousness_assessment'] = llm_result.get('consciousness_assessment', {})
                 context['llm_directed_processing'] = True
+                
+                await live_reasoning_tracker.add_reasoning_step(
+                    session_id=session_id,
+                    step_type=ReasoningStepType.META_REFLECTION,
+                    description="LLM-directed consciousness assessment and meta-cognitive processing",
+                    confidence=0.9,
+                    cognitive_load=0.8
+                )
+        
+        # Add synthesis step
+        await live_reasoning_tracker.add_reasoning_step(
+            session_id=session_id,
+            step_type=ReasoningStepType.SYNTHESIS,
+            description="Synthesizing response from processed information",
+            confidence=0.85,
+            cognitive_load=0.5
+        )
         
         result = await godelos_integration.process_natural_language_query(
             request.query,
@@ -553,16 +620,35 @@ async def process_query(request: QueryRequest):
             result['semantic_results'] = semantic_results['results']
             result['semantic_search_time'] = semantic_results.get('query_time_seconds', 0)
         
+        # Complete reasoning session
+        final_confidence = result.get("confidence", 1.0)
+        meta_insights = []
+        if result.get("self_reference_depth", 0) > 2:
+            meta_insights.append("Deep meta-cognitive reflection detected")
+        if result.get("domains_integrated", 0) > 1:
+            meta_insights.append("Cross-domain knowledge integration achieved")
+        if semantic_results and semantic_results.get('success'):
+            meta_insights.append("Semantic search enhanced reasoning process")
+            
+        await live_reasoning_tracker.complete_reasoning_session(
+            session_id=session_id,
+            final_response=result["response"],
+            confidence_score=final_confidence,
+            meta_insights=meta_insights
+        )
+        
         # Broadcast cognitive events if WebSocket clients are connected
         if websocket_manager.has_connections():
             cognitive_event = {
                 "type": "query_processed",
                 "timestamp": time.time(),
+                "session_id": session_id,
                 "query": request.query,
                 "response": result["response"],
                 "reasoning_steps": result.get("reasoning_steps", []),
                 "inference_time_ms": result.get("inference_time_ms", 0),
-                "semantic_search_used": semantic_results is not None and semantic_results.get('success', False)
+                "semantic_search_used": semantic_results is not None and semantic_results.get('success', False),
+                "live_reasoning_tracked": True
             }
             await websocket_manager.broadcast(cognitive_event)
         
@@ -1321,55 +1407,124 @@ async def search_knowledge(
 
 @app.get("/api/knowledge/graph")
 async def get_knowledge_graph():
-    """Get knowledge graph structure for visualization."""
+    """Get knowledge graph structure for visualization using dynamic processing."""
     try:
-        # Try to use dynamic knowledge graph from pipeline first
+        # Try to use dynamic knowledge graph from processor first
+        if hasattr(dynamic_knowledge_processor, 'concept_store') and dynamic_knowledge_processor.concept_store:
+            # Build graph from stored concepts
+            nodes = []
+            edges = []
+            
+            for concept in dynamic_knowledge_processor.concept_store.values():
+                nodes.append({
+                    "id": concept.id,
+                    "label": concept.name,
+                    "type": concept.type,
+                    "level": concept.level,
+                    "category": concept.metadata.get("concept_category", concept.type),
+                    "confidence": concept.confidence,
+                    "size": 8 + concept.level * 2,
+                    "description": concept.description
+                })
+            
+            for relation in dynamic_knowledge_processor.relation_store.values():
+                edges.append({
+                    "source": relation.source_id,
+                    "target": relation.target_id,
+                    "type": relation.relation_type,
+                    "weight": relation.strength,
+                    "confidence": relation.confidence,
+                    "label": relation.relation_type.replace("_", " ").title()
+                })
+            
+            return {
+                "nodes": nodes,
+                "edges": edges,
+                "statistics": {
+                    "node_count": len(nodes),
+                    "edge_count": len(edges),
+                    "atomic_concepts": len([n for n in nodes if n["level"] == 0]),
+                    "aggregated_concepts": len([n for n in nodes if n["level"] == 1]),
+                    "meta_concepts": len([n for n in nodes if n["level"] == 2]),
+                    "categories": list(set(n["category"] for n in nodes)),
+                    "data_source": "dynamic_processing",
+                    "total_count": len(nodes) + len(edges)
+                },
+                "dynamic_graph": True,
+                "timestamp": time.time()
+            }
+        
+        # Try to use dynamic knowledge graph from pipeline
         if knowledge_pipeline_service and knowledge_pipeline_service.initialized:
-            graph_data = await knowledge_pipeline_service.get_knowledge_graph_data()
-            if graph_data and (graph_data.get('nodes') or graph_data.get('edges')):
-                return graph_data
+            try:
+                graph_data = await knowledge_pipeline_service.get_knowledge_graph_data()
+                if graph_data and (graph_data.get('nodes') or graph_data.get('edges')):
+                    # Enhance the pipeline data with additional metadata
+                    graph_data["dynamic_graph"] = True
+                    graph_data["timestamp"] = time.time()
+                    return graph_data
+            except Exception as e:
+                logger.warning(f"Failed to get dynamic knowledge graph data from pipeline: {e}")
+        
     except Exception as e:
         logger.warning(f"Failed to get dynamic knowledge graph data: {e}")
     
-    # Fallback to enhanced sample data if no dynamic data available
+    # Enhanced fallback with more sophisticated graph structure
     return {
         "nodes": [
-            {"id": "consciousness", "label": "Consciousness", "type": "concept", "size": 15, "category": "philosophy"},
-            {"id": "ai_system", "label": "AI System", "type": "entity", "size": 12, "category": "technology"},
-            {"id": "metacognition", "label": "Meta-cognition", "type": "concept", "size": 10, "category": "psychology"},
-            {"id": "self_awareness", "label": "Self-awareness", "type": "concept", "size": 8, "category": "cognition"},
-            {"id": "godel_architecture", "label": "GödelOS Architecture", "type": "entity", "size": 14, "category": "system"},
-            {"id": "reasoning", "label": "Reasoning", "type": "concept", "size": 9, "category": "cognition"},
-            {"id": "transparency", "label": "Transparency", "type": "concept", "size": 7, "category": "system"},
-            {"id": "knowledge_graph", "label": "Knowledge Graph", "type": "entity", "size": 11, "category": "technology"},
-            {"id": "llm_integration", "label": "LLM Integration", "type": "entity", "size": 10, "category": "technology"},
-            {"id": "cognitive_state", "label": "Cognitive State", "type": "concept", "size": 8, "category": "cognition"},
-            {"id": "stream_consciousness", "label": "Stream of Consciousness", "type": "concept", "size": 6, "category": "psychology"},
-            {"id": "autonomous_learning", "label": "Autonomous Learning", "type": "concept", "size": 9, "category": "learning"}
+            {"id": "consciousness", "label": "Consciousness", "type": "meta", "level": 2, "size": 15, "category": "philosophy", 
+             "confidence": 0.9, "description": "Higher-order awareness and subjective experience"},
+            {"id": "ai_system", "label": "AI System", "type": "aggregated", "level": 1, "size": 12, "category": "technology",
+             "confidence": 0.95, "description": "Artificial intelligence computational framework"},
+            {"id": "metacognition", "label": "Meta-cognition", "type": "aggregated", "level": 1, "size": 10, "category": "psychology",
+             "confidence": 0.85, "description": "Thinking about thinking processes"},
+            {"id": "self_awareness", "label": "Self-awareness", "type": "atomic", "level": 0, "size": 8, "category": "cognition",
+             "confidence": 0.8, "description": "Awareness of one's own existence and mental states"},
+            {"id": "godel_architecture", "label": "GödelOS Architecture", "type": "meta", "level": 2, "size": 14, "category": "system",
+             "confidence": 0.9, "description": "Cognitive operating system architecture"},
+            {"id": "reasoning", "label": "Reasoning", "type": "aggregated", "level": 1, "size": 9, "category": "cognition",
+             "confidence": 0.9, "description": "Logical inference and deductive processes"},
+            {"id": "transparency", "label": "Transparency", "type": "aggregated", "level": 1, "size": 7, "category": "system",
+             "confidence": 0.85, "description": "System introspection and cognitive visibility"},
+            {"id": "knowledge_graph", "label": "Knowledge Graph", "type": "atomic", "level": 0, "size": 11, "category": "technology",
+             "confidence": 0.95, "description": "Structured representation of knowledge relationships"},
+            {"id": "llm_integration", "label": "LLM Integration", "type": "aggregated", "level": 1, "size": 10, "category": "technology",
+             "confidence": 0.8, "description": "Large language model integration layer"},
+            {"id": "cognitive_state", "label": "Cognitive State", "type": "atomic", "level": 0, "size": 8, "category": "cognition",
+             "confidence": 0.8, "description": "Current state of cognitive processes"},
+            {"id": "stream_consciousness", "label": "Stream of Consciousness", "type": "atomic", "level": 0, "size": 6, "category": "psychology",
+             "confidence": 0.7, "description": "Continuous flow of thoughts and experiences"},
+            {"id": "autonomous_learning", "label": "Autonomous Learning", "type": "aggregated", "level": 1, "size": 9, "category": "learning",
+             "confidence": 0.85, "description": "Self-directed learning and improvement mechanisms"}
         ],
         "edges": [
-            {"source": "godel_architecture", "target": "consciousness", "type": "implements", "weight": 0.9},
-            {"source": "consciousness", "target": "self_awareness", "type": "requires", "weight": 0.8},
-            {"source": "ai_system", "target": "metacognition", "type": "enables", "weight": 0.7},
-            {"source": "metacognition", "target": "consciousness", "type": "contributes_to", "weight": 0.9},
-            {"source": "godel_architecture", "target": "reasoning", "type": "supports", "weight": 0.8},
-            {"source": "reasoning", "target": "transparency", "type": "enables", "weight": 0.6},
-            {"source": "knowledge_graph", "target": "reasoning", "type": "supports", "weight": 0.7},
-            {"source": "llm_integration", "target": "godel_architecture", "type": "extends", "weight": 0.8},
-            {"source": "cognitive_state", "target": "consciousness", "type": "represents", "weight": 0.7},
-            {"source": "stream_consciousness", "target": "cognitive_state", "type": "generates", "weight": 0.6},
-            {"source": "autonomous_learning", "target": "metacognition", "type": "enhances", "weight": 0.8},
-            {"source": "transparency", "target": "self_awareness", "type": "enables", "weight": 0.7},
-            {"source": "godel_architecture", "target": "autonomous_learning", "type": "implements", "weight": 0.8},
-            {"source": "llm_integration", "target": "reasoning", "type": "augments", "weight": 0.9}
+            {"source": "godel_architecture", "target": "consciousness", "type": "implements", "weight": 0.9, "confidence": 0.85, "label": "Implements"},
+            {"source": "consciousness", "target": "self_awareness", "type": "requires", "weight": 0.8, "confidence": 0.9, "label": "Requires"},
+            {"source": "ai_system", "target": "metacognition", "type": "enables", "weight": 0.7, "confidence": 0.8, "label": "Enables"},
+            {"source": "metacognition", "target": "consciousness", "type": "contributes_to", "weight": 0.9, "confidence": 0.85, "label": "Contributes To"},
+            {"source": "godel_architecture", "target": "reasoning", "type": "supports", "weight": 0.8, "confidence": 0.9, "label": "Supports"},
+            {"source": "reasoning", "target": "transparency", "type": "enables", "weight": 0.6, "confidence": 0.75, "label": "Enables"},
+            {"source": "knowledge_graph", "target": "reasoning", "type": "supports", "weight": 0.7, "confidence": 0.85, "label": "Supports"},
+            {"source": "llm_integration", "target": "godel_architecture", "type": "extends", "weight": 0.8, "confidence": 0.8, "label": "Extends"},
+            {"source": "cognitive_state", "target": "consciousness", "type": "represents", "weight": 0.7, "confidence": 0.8, "label": "Represents"},
+            {"source": "stream_consciousness", "target": "cognitive_state", "type": "generates", "weight": 0.6, "confidence": 0.7, "label": "Generates"},
+            {"source": "autonomous_learning", "target": "metacognition", "type": "enhances", "weight": 0.8, "confidence": 0.8, "label": "Enhances"},
+            {"source": "transparency", "target": "self_awareness", "type": "enables", "weight": 0.7, "confidence": 0.75, "label": "Enables"},
+            {"source": "godel_architecture", "target": "autonomous_learning", "type": "implements", "weight": 0.8, "confidence": 0.85, "label": "Implements"},
+            {"source": "llm_integration", "target": "reasoning", "type": "augments", "weight": 0.9, "confidence": 0.85, "label": "Augments"}
         ],
         "statistics": {
             "node_count": 12,
             "edge_count": 14,
             "total_count": 26,
+            "atomic_concepts": 4,
+            "aggregated_concepts": 6,
+            "meta_concepts": 2,
             "categories": ["philosophy", "technology", "psychology", "cognition", "system", "learning"],
-            "data_source": "fallback_enhanced"
-        }
+            "data_source": "enhanced_fallback"
+        },
+        "dynamic_graph": False,
+        "timestamp": time.time()
     }
 
 
