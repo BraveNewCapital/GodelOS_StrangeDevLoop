@@ -106,16 +106,40 @@ export class GödelOSAPI {
 
   static async queryKnowledge(query) {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/knowledge/query`, {
+      const response = await fetch(`${API_BASE_URL}/api/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query })
+        body: JSON.stringify({ 
+          query, 
+          context: { source: 'user_interface' },
+          stream: false
+        })
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return await response.json();
     } catch (error) {
       console.error('Failed to query knowledge:', error);
       throw error;
+    }
+  }
+
+  // Enhanced cognitive query with better reasoning and processing
+  static async enhancedQuery(query, context = 'user_interface') {
+    try {
+      console.log('🧠 Making enhanced cognitive query:', query);
+      const response = await fetch(`${API_BASE_URL}/api/enhanced-cognitive/query`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, context })
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const result = await response.json();
+      console.log('✅ Enhanced cognitive response:', result);
+      return result;
+    } catch (error) {
+      console.error('⚠️ Enhanced query failed, falling back to knowledge query:', error);
+      // Fallback to regular knowledge query
+      return await this.queryKnowledge(query);
     }
   }
 

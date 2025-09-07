@@ -1,34 +1,34 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { cognitiveState, knowledgeState, evolutionState, uiState } from './stores/cognitive.js';
+  import { cognitiveState, knowledgeState, evolutionState, uiState, apiHelpers } from './stores/cognitive.js';
   import { enhancedCognitiveState, autonomousLearningState, streamState, enhancedCognitive } from './stores/enhanced-cognitive.js';
   import { setupWebSocket, connectToCognitiveStream } from './utils/websocket.js';
   import { GödelOSAPI } from './utils/api.js';
   import { initializeMobileEnhancements } from './utils/mobile.js';
   
-  // Core UI Components
-  import CognitiveStateMonitor from './components/core/CognitiveStateMonitor.svelte';
+  // Core UI Components (keeping lightweight ones loaded immediately)
+  // import CognitiveStateMonitor from './components/core/CognitiveStateMonitor.svelte'; // LAZY LOADED - 1,442 lines
   import QueryInterface from './components/core/QueryInterface.svelte';
   import ResponseDisplay from './components/core/ResponseDisplay.svelte';
   import HumanInteractionPanel from './components/core/HumanInteractionPanel.svelte';
   
   // Enhanced Metacognition Components
-  import StreamOfConsciousnessMonitor from './components/core/StreamOfConsciousnessMonitor.svelte';
-  import AutonomousLearningMonitor from './components/core/AutonomousLearningMonitor.svelte';
+  // import StreamOfConsciousnessMonitor from './components/core/StreamOfConsciousnessMonitor.svelte'; // LAZY LOADED - 1,062 lines
+  // import AutonomousLearningMonitor from './components/core/AutonomousLearningMonitor.svelte'; // LAZY LOADED - 1,447 lines
   import EnhancedCognitiveDashboard from './components/dashboard/EnhancedCognitiveDashboard.svelte';
   
-  // Transparency Components
+  // Transparency Components (keeping lightweight ones loaded immediately)
   import ReflectionVisualization from './components/transparency/ReflectionVisualization.svelte';
   import ResourceAllocation from './components/transparency/ResourceAllocation.svelte';
   import ProcessInsight from './components/transparency/ProcessInsight.svelte';
-  import TransparencyDashboard from './components/transparency/TransparencyDashboard.svelte';
+  // import TransparencyDashboard from './components/transparency/TransparencyDashboard.svelte'; // LAZY LOADED - 2,011 lines
   import ReasoningSessionViewer from './components/transparency/ReasoningSessionViewer.svelte';
   import ProvenanceTracker from './components/transparency/ProvenanceTracker.svelte';
   
-  // Knowledge Management
-  import KnowledgeGraph from './components/knowledge/KnowledgeGraph.svelte';
+  // Knowledge Management - LAZY LOADED to improve startup performance
+  // import KnowledgeGraph from './components/knowledge/KnowledgeGraph.svelte'; // LAZY LOADED - 3,632 lines
   import ConceptEvolution from './components/knowledge/ConceptEvolution.svelte';
-  import SmartImport from './components/knowledge/SmartImport.svelte';
+  // import SmartImport from './components/knowledge/SmartImport.svelte'; // LAZY LOADED - 2,468 lines
   
   // Evolution Tracking
   import CapabilityDashboard from './components/evolution/CapabilityDashboard.svelte';
@@ -69,6 +69,12 @@
   let showCapabilityDashboardModal = false;
   let showArchitectureTimelineModal = false;
   
+  // New modal variables for lazy-loaded heavy components
+  let showCognitiveStateModal = false;
+  let showStreamMonitorModal = false;
+  let showAutonomousLearningModal = false;
+  let showTransparencyModal = false;
+  
   onMount(async () => {
     try {
       console.log('🚀 Initializing GödelOS cognitive interface...');
@@ -98,12 +104,27 @@
         websocketConnected = false;
       }
       
-      // Start real-time data polling as fallback
+      // Start real-time data polling as fallback with less aggressive interval
       try {
-        pollInterval = await GödelOSAPI.pollForUpdates(handleDataUpdate, 5000);
+        pollInterval = await GödelOSAPI.pollForUpdates(handleDataUpdate, 30000); // Reduced from 5s to 30s
         console.log('✅ Background data polling started');
       } catch (error) {
         console.log('⚠️ Background polling unavailable');
+      }
+
+      // Initialize knowledge state from backend
+      try {
+        await apiHelpers.updateKnowledgeFromBackend();
+        console.log('✅ Knowledge stats loaded from backend');
+        
+        // Set up periodic knowledge stats updates
+        setInterval(() => {
+          apiHelpers.updateKnowledgeFromBackend().catch(err => 
+            console.warn('Knowledge stats update failed:', err)
+          );
+        }, 60000); // Update every minute
+      } catch (error) {
+        console.log('⚠️ Knowledge stats initialization failed:', error);
       }
       
       console.log('✅ GödelOS cognitive interface initialized');
@@ -130,23 +151,19 @@
   });
 
   function handleDataUpdate(data) {
-    if (data.health) {
-      cognitiveState.update(state => ({
-        ...state,
-        systemHealth: data.health
-      }));
-    }
-    if (data.cognitive) {
-      cognitiveState.update(state => ({
-        ...state,
-        ...data.cognitive
-      }));
-    }
-    if (data.concepts) {
-      knowledgeState.update(state => ({
-        ...state,
-        concepts: data.concepts
-      }));
+    try {
+      // Handle real-time data updates from WebSocket
+      if (data.type === 'system_health') {
+        systemHealth = data.data;
+      } else if (data.type === 'cognitive_state') {
+        // Update enhanced cognitive state if available
+        if (typeof enhancedCognitive !== 'undefined') {
+          enhancedCognitive.updateFromWebSocket(data.data);
+        }
+      }
+      console.log('🔄 Data update processed:', data.type);
+    } catch (error) {
+      console.error('Error handling data update:', error, 'Data:', data);
     }
   }
   
@@ -178,13 +195,13 @@
           icon: '🧠',
           title: 'Cognitive State',
           description: 'Real-time cognitive processing monitor',
-          component: CognitiveStateMonitor
+          modal: 'cognitive' // Use modal trigger instead of direct component
         },
         knowledge: {
           icon: '🕸️',
           title: 'Knowledge Graph',
           description: 'Interactive knowledge visualization',
-          component: KnowledgeGraph
+          modal: 'knowledge' // Use modal trigger instead of direct component
         },
         query: {
           icon: '💬',
@@ -217,14 +234,14 @@
           icon: '🌊',
           title: 'Stream of Consciousness',
           description: 'Real-time cognitive event streaming',
-          component: StreamOfConsciousnessMonitor,
+          modal: 'stream', // Use modal trigger instead of direct component
           featured: true
         },
         autonomous: {
           icon: '🤖',
           title: 'Autonomous Learning',
           description: 'Self-directed knowledge acquisition',
-          component: AutonomousLearningMonitor,
+          modal: 'autonomous', // Use modal trigger instead of direct component
           featured: true
         }
       }
@@ -237,7 +254,7 @@
           icon: '🔍',
           title: 'Transparency',
           description: 'Cognitive transparency and reasoning insights',
-          component: TransparencyDashboard
+          modal: 'transparency' // Use modal trigger instead of direct component
         },
         reasoning: {
           icon: '🎯',
@@ -267,7 +284,7 @@
           icon: '📥',
           title: 'Knowledge Import',
           description: 'Import and process documents',
-          component: SmartImport
+          modal: 'import' // Use modal trigger instead of direct component
         },
         capabilities: {
           icon: '📈',
@@ -323,21 +340,13 @@
       // Use the enhanced cognitive store initialization
       await enhancedCognitive.initializeEnhancedSystems();
       
-      // Set up enhanced state subscriptions for better integration
-      enhancedCognitive.subscribe(enhancedState => {
-        // Update connection indicators
-        websocketConnected = enhancedState.connectionStatus === 'connected';
-        
-        // Sync enhanced state with basic cognitive state if needed
-        if (enhancedState.manifestConsciousness) {
-          cognitiveState.update(state => ({
-            ...state,
-            manifestConsciousness: {
-              ...state.manifestConsciousness,
-              attention: enhancedState.manifestConsciousness.currentFocus,
-              processingLoad: enhancedState.manifestConsciousness.cognitiveLoad
-            }
-          }));
+      // Subscribe to enhanced cognitive state updates
+      enhancedCognitive.subscribe(state => {
+        if (state.systemHealth) {
+          console.log('🧠 Enhanced cognitive system health updated');
+        }
+        if (state.autonomousLearning) {
+          console.log('🧠 Autonomous learning state updated');
         }
       });
       
@@ -530,7 +539,18 @@
           
           <div class="dashboard-middle">
             <div class="cognitive-panel">
-              <CognitiveStateMonitor />
+              <div class="cognitive-placeholder">
+                <h3>Cognitive State Monitor</h3>
+                <button 
+                  class="btn btn-primary"
+                  on:click={() => showCognitiveStateModal = true}
+                >
+                  Open Cognitive Monitor
+                </button>
+                <p class="text-sm text-gray-600 mt-2">
+                  Lazy-loaded for optimal performance
+                </p>
+              </div>
             </div>
             <div class="interaction-panel">
               <HumanInteractionPanel compactMode={true} />
@@ -592,6 +612,34 @@
           </div>
         </div>
         
+      {:else if viewConfig[activeView]?.modal}
+        <!-- Modal-based Views -->
+        <div class="expanded-view" data-testid="{activeView}-view">
+          <div class="view-header">
+            <h2>{viewConfig[activeView].title}</h2>
+            <p class="view-description">{viewConfig[activeView].description}</p>
+          </div>
+          <div class="component-container">
+            <button class="btn btn-primary" on:click={() => {
+              if (viewConfig[activeView].modal === 'knowledge') {
+                showKnowledgeGraphModal = true;
+              } else if (viewConfig[activeView].modal === 'cognitive') {
+                showCognitiveStateModal = true;
+              } else if (viewConfig[activeView].modal === 'stream') {
+                showStreamMonitorModal = true;
+              } else if (viewConfig[activeView].modal === 'autonomous') {
+                showAutonomousLearningModal = true;
+              } else if (viewConfig[activeView].modal === 'transparency') {
+                showTransparencyModal = true;
+              } else if (viewConfig[activeView].modal === 'import') {
+                showSmartImportModal = true;
+              }
+            }}>
+              {viewConfig[activeView].icon} Open {viewConfig[activeView].title}
+            </button>
+          </div>
+        </div>
+        
       {:else if viewConfig[activeView]?.component && typeof viewConfig[activeView].component !== 'string'}
         <!-- Standard Component Views -->
         <div class="expanded-view" data-testid="{activeView}-view">
@@ -650,7 +698,20 @@
     size="fullscreen"
     on:close={() => showKnowledgeGraphModal = false}
   >
-    <KnowledgeGraph />
+    {#if showKnowledgeGraphModal}
+      {#await import('./components/knowledge/KnowledgeGraph.svelte')}
+        <div class="loading-container">
+          <div class="loading-spinner"></div>
+          <p>Loading Knowledge Graph...</p>
+        </div>
+      {:then module}
+        <svelte:component this={module.default} />
+      {:catch error}
+        <div class="error-container">
+          <p>Failed to load Knowledge Graph: {error.message}</p>
+        </div>
+      {/await}
+    {/if}
   </Modal>
 
   <Modal 
@@ -659,7 +720,109 @@
     size="large"
     on:close={() => showSmartImportModal = false}
   >
-    <SmartImport />
+    {#if showSmartImportModal}
+      {#await import('./components/knowledge/SmartImport.svelte')}
+        <div class="loading-container">
+          <div class="loading-spinner"></div>
+          <p>Loading Smart Import...</p>
+        </div>
+      {:then module}
+        <svelte:component this={module.default} />
+      {:catch error}
+        <div class="error-container">
+          <p>Failed to load Smart Import: {error.message}</p>
+        </div>
+      {/await}
+    {/if}
+  </Modal>
+
+  <!-- New Lazy-loaded Modals -->
+  <Modal 
+    bind:show={showCognitiveStateModal} 
+    title="Cognitive State Monitor"
+    size="large"
+    on:close={() => showCognitiveStateModal = false}
+  >
+    {#if showCognitiveStateModal}
+      {#await import('./components/core/CognitiveStateMonitor.svelte')}
+        <div class="loading-container">
+          <div class="loading-spinner"></div>
+          <p>Loading Cognitive State Monitor...</p>
+        </div>
+      {:then module}
+        <svelte:component this={module.default} />
+      {:catch error}
+        <div class="error-container">
+          <p>Failed to load Cognitive State Monitor: {error.message}</p>
+        </div>
+      {/await}
+    {/if}
+  </Modal>
+
+  <Modal 
+    bind:show={showStreamMonitorModal} 
+    title="Stream of Consciousness Monitor"
+    size="large"
+    on:close={() => showStreamMonitorModal = false}
+  >
+    {#if showStreamMonitorModal}
+      {#await import('./components/core/StreamOfConsciousnessMonitor.svelte')}
+        <div class="loading-container">
+          <div class="loading-spinner"></div>
+          <p>Loading Stream Monitor...</p>
+        </div>
+      {:then module}
+        <svelte:component this={module.default} />
+      {:catch error}
+        <div class="error-container">
+          <p>Failed to load Stream Monitor: {error.message}</p>
+        </div>
+      {/await}
+    {/if}
+  </Modal>
+
+  <Modal 
+    bind:show={showAutonomousLearningModal} 
+    title="Autonomous Learning Monitor"
+    size="large"
+    on:close={() => showAutonomousLearningModal = false}
+  >
+    {#if showAutonomousLearningModal}
+      {#await import('./components/core/AutonomousLearningMonitor.svelte')}
+        <div class="loading-container">
+          <div class="loading-spinner"></div>
+          <p>Loading Autonomous Learning Monitor...</p>
+        </div>
+      {:then module}
+        <svelte:component this={module.default} />
+      {:catch error}
+        <div class="error-container">
+          <p>Failed to load Autonomous Learning Monitor: {error.message}</p>
+        </div>
+      {/await}
+    {/if}
+  </Modal>
+
+  <Modal 
+    bind:show={showTransparencyModal} 
+    title="Transparency Dashboard"
+    size="fullscreen"
+    on:close={() => showTransparencyModal = false}
+  >
+    {#if showTransparencyModal}
+      {#await import('./components/transparency/TransparencyDashboard.svelte')}
+        <div class="loading-container">
+          <div class="loading-spinner"></div>
+          <p>Loading Transparency Dashboard...</p>
+        </div>
+      {:then module}
+        <svelte:component this={module.default} />
+      {:catch error}
+        <div class="error-container">
+          <p>Failed to load Transparency Dashboard: {error.message}</p>
+        </div>
+      {/await}
+    {/if}
   </Modal>
 
   <Modal 
@@ -2054,5 +2217,40 @@
     .enhanced-module {
       font-size: 0.8rem;
     }
+  }
+
+  /* Loading states for lazy-loaded components */
+  .loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    min-height: 200px;
+    color: var(--text-primary);
+  }
+
+  .loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid var(--border-color);
+    border-top: 4px solid var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-bottom: 1rem;
+  }
+
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  .error-container {
+    padding: 2rem;
+    text-align: center;
+    color: var(--error-color, #ff6b6b);
+    background: rgba(255, 107, 107, 0.1);
+    border-radius: 8px;
+    margin: 1rem;
   }
 </style>

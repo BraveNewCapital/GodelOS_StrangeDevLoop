@@ -89,14 +89,16 @@
           
           updateVisualization();
         } else {
-          generateMockData();
+          console.error('❌ No capability data available');
+          capabilities = [];
         }
       } else {
-        generateMockData();
+        console.error('❌ Failed to load capability data');
+        capabilities = [];
       }
     } catch (error) {
-      console.warn('Failed to load capability data, using mock data:', error);
-      generateMockData();
+      console.error('❌ Error loading capability data:', error);
+      capabilities = [];
     }
   }
   
@@ -320,6 +322,14 @@
   function updateCapabilityCards() {
     // This will trigger reactivity in the template
     capabilities = [...capabilities];
+  }
+
+  function updateCapabilities(newCapabilities) {
+    if (newCapabilities && Array.isArray(newCapabilities)) {
+      capabilities = newCapabilities;
+      updateVisualization();
+      updateCapabilityCards();
+    }
   }
   
   function getCapabilityIcon(name) {
@@ -547,7 +557,7 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    background: linear-gradient(135deg, #1a1a3e 0%, #2d1b69 100%);
+    background: rgba(26, 26, 62, 0.3);
     border-radius: 8px;
     padding: 20px;
     gap: 20px;

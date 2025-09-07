@@ -114,7 +114,7 @@ The intersection forms a dynamic nexus where each field reframes questions in ot
 ## Technical Architecture Validation
 
 ### LLM Cognitive Driver Implementation
-- **Model**: hf:deepseek-ai/DeepSeek-R1-0528 via Synthetic API
+- **Model**: hf:deepseek-ai/DeepSeek-V3-0324 via Synthetic API
 - **Integration Pattern**: Asynchronous cognitive directive system
 - **Response Processing**: Real-time consciousness metric analysis
 - **Error Handling**: Graceful degradation with fallback mechanisms
@@ -201,5 +201,5 @@ The system now successfully operates as a **Cognitive Operating System for LLMs*
 
 *Report generated with comprehensive evidence validation*  
 *Test Execution: 2025-09-04 22:44:02*  
-*API: Synthetic/DeepSeek-R1 | Model: hf:deepseek-ai/DeepSeek-R1-0528*  
+*API: Synthetic/DeepSeek-R1 | Model: hf:deepseek-ai/DeepSeek-V3-0324*  
 *Overall Score: 100.0% (5/5 tests passed)*

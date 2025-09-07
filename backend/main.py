@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 GödelOS Backend API
 
@@ -56,6 +57,7 @@ from backend.knowledge_pipeline_service import (
     knowledge_pipeline_service as default_knowledge_pipeline_service,
 )
 from backend.llm_cognitive_driver import get_llm_cognitive_driver
+from backend.llm_tool_integration import ToolBasedLLMIntegration, GödelOSToolProvider
 
 # Configure logging
 logging.basicConfig(
@@ -116,6 +118,7 @@ def create_app(
 godelos_integration: Optional[GödelOSIntegration] = None
 cognitive_streaming_task: Optional[asyncio.Task] = None
 llm_cognitive_driver = None
+tool_based_llm: Optional[ToolBasedLLMIntegration] = None
 
 
 async def continuous_cognitive_streaming():
@@ -192,7 +195,7 @@ async def continuous_cognitive_streaming():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
-    global godelos_integration, cognitive_streaming_task, llm_cognitive_driver
+    global godelos_integration, cognitive_streaming_task, llm_cognitive_driver, tool_based_llm
 
     # Startup
     startup_services()
@@ -255,6 +258,21 @@ async def lifespan(app: FastAPI):
         logger.info("🔍 BACKEND DIAGNOSTIC: Initializing LLM cognitive driver...")
         llm_cognitive_driver = await get_llm_cognitive_driver(godelos_integration)
         logger.info("✅ BACKEND DIAGNOSTIC: LLM cognitive driver initialized successfully")
+        
+        # Initialize tool-based LLM integration
+        logger.info("🔍 BACKEND DIAGNOSTIC: Initializing tool-based LLM integration...")
+        try:
+            global tool_based_llm
+            tool_based_llm = ToolBasedLLMIntegration(godelos_integration)
+            # Test the integration to ensure it's working
+            test_result = await tool_based_llm.test_integration()
+            if test_result.get("test_successful", False):
+                logger.info(f"✅ BACKEND DIAGNOSTIC: Tool-based LLM integration initialized successfully - {test_result['tool_calls']} tools available")
+            else:
+                logger.warning(f"⚠️ BACKEND DIAGNOSTIC: Tool-based LLM integration test failed, but continuing with basic setup")
+        except Exception as e:
+            logger.error(f"❌ BACKEND DIAGNOSTIC: Tool-based LLM integration failed: {e}")
+            logger.warning("🔄 BACKEND DIAGNOSTIC: Continuing without tool-based LLM - using fallback cognitive driver")
         
         # Start continuous cognitive streaming
         logger.info("🔍 BACKEND DIAGNOSTIC: Starting cognitive streaming task...")
@@ -475,7 +493,52 @@ async def process_query(request: QueryRequest):
         if "switch" in request.query.lower() and "between" in request.query.lower():
             context['context_switching_test'] = True
         
-        # If LLM cognitive driver is available, let it direct the processing
+        # Try tool-based LLM integration first (most advanced)
+        if tool_based_llm:
+            try:
+                logger.info("🧠 Using tool-based LLM integration for query processing")
+                await live_reasoning_tracker.add_reasoning_step(
+                    session_id=session_id,
+                    step_type=ReasoningStepType.INFERENCE,
+                    description="Processing query through tool-based LLM with cognitive architecture integration",
+                    confidence=0.95,
+                    cognitive_load=0.9
+                )
+                
+                # Process the query with tool-based LLM
+                tool_result = await tool_based_llm.process_query(request.query)
+                
+                if tool_result.get("cognitive_grounding", False):
+                    # Tool-based LLM succeeded - use its response
+                    result = {
+                        "response": tool_result["response"],
+                        "confidence": 0.95,
+                        "reasoning_trace": [
+                            f"Used {tool_result['tool_calls_made']} cognitive tools",
+                            f"Tools accessed: {', '.join(tool_result['tools_used'])}",
+                            "Response grounded in actual cognitive architecture state"
+                        ] if request.include_reasoning else None,
+                        "llm_integration": "tool_based",
+                        "tools_used": tool_result['tools_used'],
+                        "tool_calls_made": tool_result['tool_calls_made'],
+                        "cognitive_grounding": True,
+                        "processing_time": time.time(),
+                        "session_id": session_id
+                    }
+                    
+                    await live_reasoning_tracker.complete_reasoning_session(
+                        session_id=session_id,
+                        result="success",
+                        confidence=0.95
+                    )
+                    
+                    return QueryResponse(**result)
+                else:
+                    logger.warning("🔄 Tool-based LLM failed, falling back to cognitive driver")
+            except Exception as e:
+                logger.warning(f"🔄 Tool-based LLM processing failed: {e}, falling back to cognitive driver")
+        
+        # Fallback to LLM cognitive driver if tool-based LLM is unavailable
         if llm_cognitive_driver:
             # Get current cognitive state
             current_state = await godelos_integration.get_cognitive_state()
@@ -706,6 +769,149 @@ async def process_query(request: QueryRequest):
     except Exception as e:
         logger.error(f"Error processing query: {e}")
         raise HTTPException(status_code=500, detail=f"Query processing failed: {str(e)}")
+
+
+# Tool-Based LLM Integration Endpoints
+
+@app.post("/api/llm-tools/query")
+async def process_tool_based_query(request: QueryRequest):
+    """Process a query specifically using the tool-based LLM integration with cognitive architecture tools."""
+    if not tool_based_llm:
+        raise HTTPException(status_code=503, detail="Tool-based LLM integration not available")
+    
+    try:
+        logger.info(f"Processing tool-based LLM query: {request.query}")
+        
+        # Process with tool-based LLM
+        result = await tool_based_llm.process_query(request.query)
+        
+        if not result.get("cognitive_grounding", False):
+            raise HTTPException(status_code=500, detail="Tool-based LLM failed to provide cognitive grounding")
+        
+        # Broadcast cognitive event if WebSocket clients are connected
+        if websocket_manager.has_connections():
+            cognitive_event = {
+                "type": "tool_based_llm_query",
+                "timestamp": time.time(),
+                "query": request.query,
+                "response": result["response"],
+                "tools_used": result["tools_used"],
+                "tool_calls_made": result["tool_calls_made"],
+                "cognitive_grounding": True
+            }
+            await websocket_manager.broadcast(cognitive_event)
+        
+        return {
+            "response": result["response"],
+            "confidence": 0.95,  # High confidence due to tool-based grounding
+            "llm_integration": "tool_based",
+            "tools_used": result["tools_used"],
+            "tool_calls_made": result["tool_calls_made"],
+            "cognitive_grounding": result["cognitive_grounding"],
+            "reasoning_steps": [
+                f"Used {result['tool_calls_made']} cognitive tools",
+                f"Tools accessed: {', '.join(result['tools_used'])}",
+                "Response grounded in actual cognitive architecture state"
+            ] if request.include_reasoning else None,
+            "timestamp": result["timestamp"]
+        }
+        
+    except Exception as e:
+        logger.error(f"Tool-based LLM query processing failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Tool-based LLM processing failed: {str(e)}")
+
+
+@app.get("/api/llm-tools/test")
+async def test_tool_integration():
+    """Test the tool-based LLM integration to verify it's working correctly."""
+    if not tool_based_llm:
+        raise HTTPException(status_code=503, detail="Tool-based LLM integration not available")
+    
+    try:
+        test_result = await tool_based_llm.test_integration()
+        return {
+            "integration_status": "available",
+            "test_successful": test_result.get("test_successful", False),
+            "tools_available": len(tool_based_llm.tool_provider.tools),
+            "tools_tested": test_result.get("tool_calls", 0),
+            "test_details": test_result
+        }
+    except Exception as e:
+        logger.error(f"Tool integration test failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Tool integration test failed: {str(e)}")
+
+
+@app.get("/api/llm-tools/available")
+async def get_available_tools():
+    """Get list of all available cognitive tools for LLM integration."""
+    if not tool_based_llm:
+        raise HTTPException(status_code=503, detail="Tool-based LLM integration not available")
+    
+    try:
+        tools = tool_based_llm.tool_provider.tools
+        
+        # Organize tools by category
+        categorized_tools = {
+            "cognitive_state": [],
+            "memory": [],
+            "knowledge": [],
+            "reasoning": [],
+            "meta_cognitive": [],
+            "system_health": []
+        }
+        
+        for tool_name, tool_def in tools.items():
+            func_def = tool_def.get("function", {})
+            description = func_def.get("description", "")
+            
+            # Categorize based on tool name and description
+            if "cognitive_state" in tool_name or "attention" in tool_name:
+                categorized_tools["cognitive_state"].append({
+                    "name": tool_name,
+                    "description": description,
+                    "parameters": func_def.get("parameters", {})
+                })
+            elif "memory" in tool_name:
+                categorized_tools["memory"].append({
+                    "name": tool_name,
+                    "description": description,
+                    "parameters": func_def.get("parameters", {})
+                })
+            elif "knowledge" in tool_name:
+                categorized_tools["knowledge"].append({
+                    "name": tool_name,
+                    "description": description,
+                    "parameters": func_def.get("parameters", {})
+                })
+            elif "reasoning" in tool_name or "analyze" in tool_name:
+                categorized_tools["reasoning"].append({
+                    "name": tool_name,
+                    "description": description,
+                    "parameters": func_def.get("parameters", {})
+                })
+            elif "reflect" in tool_name or "consciousness" in tool_name:
+                categorized_tools["meta_cognitive"].append({
+                    "name": tool_name,
+                    "description": description,
+                    "parameters": func_def.get("parameters", {})
+                })
+            else:
+                categorized_tools["system_health"].append({
+                    "name": tool_name,
+                    "description": description,
+                    "parameters": func_def.get("parameters", {})
+                })
+        
+        return {
+            "total_tools": len(tools),
+            "categories": categorized_tools,
+            "integration_status": "active",
+            "tool_provider_initialized": True
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get available tools: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get available tools: {str(e)}")
 
 
 # Knowledge API Routes
@@ -1397,6 +1603,40 @@ async def search_knowledge(
     except Exception as e:
         logger.error(f"Search error: {e}")
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+
+@app.post("/api/knowledge/query")
+async def query_knowledge(request: dict):
+    """Query the knowledge base with natural language."""
+    try:
+        query = request.get("query", "")
+        if not query:
+            raise HTTPException(status_code=400, detail="Query is required")
+        
+        # Use the same query processing as the main query endpoint
+        query_request = QueryRequest(
+            query=query,
+            context=request.get("context", {}),
+            include_reasoning=request.get("include_reasoning", False)
+        )
+        
+        # Process through the main query system
+        result = await process_query(query_request)
+        
+        # Format response for knowledge query expectations
+        return {
+            "query": query,
+            "response": result.response,
+            "confidence": result.confidence,
+            "knowledge_items": result.knowledge_used if hasattr(result, 'knowledge_used') else [],
+            "reasoning_steps": result.reasoning_steps if hasattr(result, 'reasoning_steps') else [],
+            "timestamp": time.time()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Knowledge query error: {e}")
+        raise HTTPException(status_code=500, detail=f"Knowledge query failed: {str(e)}")
 
 
 @app.get("/api/knowledge/graph")

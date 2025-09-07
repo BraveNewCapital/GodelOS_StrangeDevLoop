@@ -74,9 +74,9 @@
       }
     });
 
-    // Start real-time updates
+    // Start real-time updates (reduced frequency for performance)
     if (autoRefresh) {
-      updateInterval = setInterval(updateMetrics, 2000);
+      updateInterval = setInterval(updateMetrics, 10000); // Changed from 2s to 10s
     }
     
     // Initial metrics update

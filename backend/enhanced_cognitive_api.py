@@ -136,6 +136,70 @@ async def get_enhanced_cognitive_status():
             }
         }
 
+@router.get("/dashboard")
+async def get_enhanced_cognitive_dashboard():
+    """Get enhanced cognitive dashboard data for frontend display."""
+    try:
+        # Get status information
+        status = await get_enhanced_cognitive_status()
+        
+        # Get recent cognitive events
+        events = []
+        if enhanced_metacognition_manager and hasattr(enhanced_metacognition_manager, 'get_recent_events'):
+            try:
+                events = await enhanced_metacognition_manager.get_recent_events(limit=10)
+            except Exception:
+                events = []
+        
+        # Get stream status
+        stream_status = {
+            "active": status["websocket_connected"],
+            "connections": status["active_connections"],
+            "event_rate": 0,  # Could be calculated if tracking events
+            "last_event": None
+        }
+        
+        # Get autonomous learning metrics
+        autonomous_metrics = {
+            "enabled": status["metacognition_status"] == "active",
+            "gaps_detected": 0,
+            "acquisition_attempts": 0,
+            "success_rate": 0.0
+        }
+        
+        if enhanced_metacognition_manager:
+            try:
+                if hasattr(enhanced_metacognition_manager, 'get_gap_detection_metrics'):
+                    gap_metrics = await enhanced_metacognition_manager.get_gap_detection_metrics()
+                    autonomous_metrics.update(gap_metrics)
+            except Exception:
+                pass
+        
+        return {
+            "status": status,
+            "stream_status": stream_status,
+            "autonomous_metrics": autonomous_metrics,
+            "recent_events": events,
+            "dashboard_timestamp": datetime.now(timezone.utc).isoformat(),
+            "capabilities": {
+                "cognitive_streaming": status["features"]["cognitive_streaming"],
+                "autonomous_learning": status["features"]["autonomous_learning"],
+                "gap_detection": status["features"]["knowledge_acquisition"],
+                "real_time_monitoring": True
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting enhanced cognitive dashboard: {e}")
+        return {
+            "status": {"api_status": "error"},
+            "stream_status": {"active": False, "connections": 0},
+            "autonomous_metrics": {"enabled": False},
+            "recent_events": [],
+            "error": str(e),
+            "dashboard_timestamp": datetime.now(timezone.utc).isoformat()
+        }
+
 async def initialize_enhanced_cognitive(ws_manager, godelos_integration=None):
     """Initialize the enhanced cognitive API with required dependencies."""
     global enhanced_metacognition_manager, websocket_manager, config

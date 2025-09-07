@@ -1,0 +1,13 @@
+{
+  "import_id": "f8d10c90-f5fc-4edf-a929-5b5000f8136e",
+  "status": "completed",
+  "progress_percentage": 100.0,
+  "current_step": "Import completed successfully",
+  "total_steps": 6,
+  "completed_steps": 6,
+  "started_at": 1757109201.655926,
+  "estimated_completion": null,
+  "error_message": null,
+  "warnings": [],
+  "last_updated": 1757109202.2083368
+}

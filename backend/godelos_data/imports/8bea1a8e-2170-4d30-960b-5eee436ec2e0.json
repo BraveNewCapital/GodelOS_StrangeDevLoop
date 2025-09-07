@@ -1,0 +1,13 @@
+{
+  "import_id": "8bea1a8e-2170-4d30-960b-5eee436ec2e0",
+  "status": "processing",
+  "progress_percentage": 50.0,
+  "current_step": "Processing file content",
+  "total_steps": 6,
+  "completed_steps": 2,
+  "started_at": 1757182424.102684,
+  "estimated_completion": null,
+  "error_message": null,
+  "warnings": [],
+  "last_updated": 1757182427.94728
+}

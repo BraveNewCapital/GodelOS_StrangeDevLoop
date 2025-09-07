@@ -346,6 +346,11 @@ async def get_reasoning_trace(session_id: str):
     
     raise HTTPException(status_code=404, detail="Session not found")
 
+@router.get("/reasoning/trace/{session_id}")
+async def get_reasoning_trace_alias(session_id: str):
+    """Get the complete reasoning trace for a session (frontend compatibility alias)."""
+    return await get_reasoning_trace(session_id)
+
 @router.get("/consciousness-stream")
 async def get_consciousness_stream():
     """Get current stream of consciousness events."""
@@ -625,6 +630,75 @@ async def export_knowledge_graph():
             
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Knowledge graph export failed: {str(e)}")
+
+@router.get("/provenance")
+async def get_provenance_data():
+    """Get general provenance data including entries, lineage, and attribution chains."""
+    try:
+        # Get active reasoning sessions for provenance tracking
+        active_sessions = await live_reasoning_tracker.get_active_sessions()
+        
+        # Build provenance entries from active sessions and completed sessions
+        provenance_entries = []
+        for session_id, session_data in active_sessions.items():
+            provenance_entries.append({
+                "id": session_id,
+                "type": "reasoning_session",
+                "source": "live_reasoning_tracker",
+                "timestamp": session_data.get("start_time", time.time()),
+                "metadata": {
+                    "query": session_data.get("query", ""),
+                    "status": session_data.get("status", "active"),
+                    "steps": len(session_data.get("steps", []))
+                }
+            })
+        
+        # Get data lineage from knowledge processor
+        data_lineage = {}
+        if hasattr(dynamic_knowledge_processor, 'concept_store'):
+            for concept_id, concept_data in dynamic_knowledge_processor.concept_store.items():
+                data_lineage[concept_id] = {
+                    "sources": concept_data.get("sources", []),
+                    "created_at": concept_data.get("created_at", time.time()),
+                    "confidence": concept_data.get("confidence", 0.8)
+                }
+        
+        # Build attribution chains
+        attribution_chains = []
+        for entry in provenance_entries:
+            attribution_chains.append({
+                "target_id": entry["id"],
+                "chain": [
+                    {
+                        "source_id": entry["source"],
+                        "contribution": 1.0,
+                        "confidence": 0.9,
+                        "type": "primary_source"
+                    }
+                ]
+            })
+        
+        return {
+            "provenance_entries": provenance_entries,
+            "data_lineage": data_lineage,
+            "source_tracking": {
+                "active_sessions": len(active_sessions),
+                "total_concepts": len(data_lineage),
+                "tracking_enabled": True
+            },
+            "attribution_chains": attribution_chains,
+            "timestamp": time.time()
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get provenance data: {str(e)}")
+        return {
+            "provenance_entries": [],
+            "data_lineage": {},
+            "source_tracking": {},
+            "attribution_chains": []
+        }
+
 @router.post("/provenance/query")
 async def query_provenance(query: ProvenanceQuery):
     """Query provenance information for knowledge items."""

@@ -47,10 +47,13 @@ class KnowledgeGraphBuilder:
         entity_id_map = {}
         for entity_data in entities:
             fact = Fact(content=entity_data)
+            logger.info(f"🔍 DEBUG: About to store Fact for entity: {entity_data['text']}")
             await self.knowledge_store.store_knowledge(fact)
             entity_id_map[entity_data['text']] = fact.id
             created_items.append(fact)
             logger.info(f"Created Fact for entity: {entity_data['text']}")
+
+        logger.info(f"🔍 DEBUG: Finished creating {len(created_items)} facts, now creating relationships")
 
         # Create Relationship objects
         for rel_data in relationships:
@@ -64,8 +67,10 @@ class KnowledgeGraphBuilder:
                     relation_type=rel_data['relation'],
                     content={"sentence": rel_data['sentence']}
                 )
+                logger.info(f"🔍 DEBUG: About to store Relationship: {source_text} -> {rel_data['relation']} -> {target_text}")
                 await self.knowledge_store.store_knowledge(relationship)
                 created_items.append(relationship)
                 logger.info(f"Created Relationship: {source_text} -> {rel_data['relation']} -> {target_text}")
 
+        logger.info(f"🔍 DEBUG: Finished building graph with {len(created_items)} items")
         return created_items

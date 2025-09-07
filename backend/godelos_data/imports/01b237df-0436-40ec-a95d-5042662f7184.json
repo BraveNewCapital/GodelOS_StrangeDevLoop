@@ -1,0 +1,13 @@
+{
+  "import_id": "01b237df-0436-40ec-a95d-5042662f7184",
+  "status": "completed",
+  "progress_percentage": 100.0,
+  "current_step": "Import completed successfully",
+  "total_steps": 3,
+  "completed_steps": 3,
+  "started_at": 1757184179.7731662,
+  "estimated_completion": null,
+  "error_message": null,
+  "warnings": [],
+  "last_updated": 1757184179.920539
+}

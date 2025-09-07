@@ -1,0 +1,13 @@
+{
+  "import_id": "8d702aab-3409-4137-857a-1dba5cab90df",
+  "status": "completed",
+  "progress_percentage": 100.0,
+  "current_step": "Import completed successfully",
+  "total_steps": 6,
+  "completed_steps": 6,
+  "started_at": 1757109198.787356,
+  "estimated_completion": null,
+  "error_message": null,
+  "warnings": [],
+  "last_updated": 1757109199.9135182
+}

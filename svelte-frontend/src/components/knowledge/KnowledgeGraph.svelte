@@ -441,9 +441,10 @@
         
         console.log(`✅ Loaded real knowledge graph: ${processedNodes.length} nodes, ${processedLinks.length} total links (${processedLinks.filter(l => l.generated).length} generated)`);
       } else {
-        // Fallback to sample data
-        console.log('⚠️ No backend data available or empty, using sample data');
-        generateSampleData();
+        // No backend data available
+        console.error('❌ No knowledge graph data available from backend');
+        graphData = { nodes: [], links: [] };
+        error = 'No knowledge data available';
       }
       
       updateGraph();
@@ -452,7 +453,7 @@
     } catch (err) {
       console.error('❌ Error loading knowledge graph:', err);
       error = err.message;
-      generateSampleData();
+      graphData = { nodes: [], links: [] };
       updateGraph();
       loading = false;
     } finally {
@@ -529,85 +530,6 @@
     
     console.log(`🔗 Generated ${inferredLinks.length} inferred relationships`);
     return inferredLinks;
-  }
-
-  function generateSampleData() {
-    try {
-      // Create enhanced sample data
-      const sampleNodes = [
-        { id: 'ai', label: 'Artificial Intelligence', category: 'concept', importance: 0.9, confidence: 0.95 },
-        { id: 'ml', label: 'Machine Learning', category: 'concept', importance: 0.8, confidence: 0.9 },
-        { id: 'nn', label: 'Neural Networks', category: 'concept', importance: 0.7, confidence: 0.85 },
-        { id: 'dl', label: 'Deep Learning', category: 'concept', importance: 0.75, confidence: 0.8 },
-        { id: 'nlp', label: 'Natural Language Processing', category: 'concept', importance: 0.7, confidence: 0.75 },
-        { id: 'cv', label: 'Computer Vision', category: 'concept', importance: 0.6, confidence: 0.7 },
-        { id: 'bert', label: 'BERT', category: 'entity', importance: 0.5, confidence: 0.9 },
-        { id: 'gpt', label: 'GPT', category: 'entity', importance: 0.6, confidence: 0.95 },
-        { id: 'transformer', label: 'Transformer', category: 'concept', importance: 0.7, confidence: 0.9 },
-        { id: 'attention', label: 'Attention Mechanism', category: 'concept', importance: 0.6, confidence: 0.85 },
-        { id: 'paper1', label: 'Attention Is All You Need', category: 'document', importance: 0.8, confidence: 0.95 },
-        { id: 'paper2', label: 'BERT Paper', category: 'document', importance: 0.7, confidence: 0.9 }
-      ];
-      
-      // Add timestamp for recency
-      sampleNodes.forEach((node, i) => {
-        node.timestamp = Date.now() - (i * 86400000); // Spread over days
-        node.recency = 1 - (i / sampleNodes.length);
-      });
-      
-      // Create sample links
-      const sampleLinks = [
-        { source: 'ai', target: 'ml', strength: 0.9, type: 'contains' },
-        { source: 'ml', target: 'nn', strength: 0.8, type: 'uses' },
-        { source: 'ml', target: 'dl', strength: 0.7, type: 'includes' },
-        { source: 'nn', target: 'dl', strength: 0.9, type: 'foundation' },
-        { source: 'ai', target: 'nlp', strength: 0.6, type: 'branch' },
-        { source: 'ai', target: 'cv', strength: 0.6, type: 'branch' },
-        { source: 'nlp', target: 'bert', strength: 0.8, type: 'uses' },
-        { source: 'nlp', target: 'gpt', strength: 0.8, type: 'uses' },
-        { source: 'bert', target: 'transformer', strength: 0.9, type: 'based_on' },
-        { source: 'gpt', target: 'transformer', strength: 0.9, type: 'based_on' },
-        { source: 'transformer', target: 'attention', strength: 0.95, type: 'uses' },
-        { source: 'paper1', target: 'transformer', strength: 0.95, type: 'introduces' },
-        { source: 'paper2', target: 'bert', strength: 0.95, type: 'introduces' },
-        { source: 'paper1', target: 'attention', strength: 0.9, type: 'describes' }
-      ];
-      
-      // Filter nodes based on search query
-      if (searchQuery.trim()) {
-        const filtered = sampleNodes.filter(node =>
-          node.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          node.category.toLowerCase().includes(searchQuery.toLowerCase())
-        );
-        
-        const filteredIds = new Set(filtered.map(n => n.id));
-        const filteredLinks = sampleLinks.filter(link =>
-          filteredIds.has(link.source) && filteredIds.has(link.target)
-        );
-        
-        graphData = { nodes: filtered, links: filteredLinks };
-        console.log(`✅ Generated filtered sample data: ${filtered.length} nodes, ${filteredLinks.length} links`);
-      } else {
-        graphData = { nodes: sampleNodes, links: sampleLinks };
-        console.log(`✅ Generated sample data: ${sampleNodes.length} nodes, ${sampleLinks.length} links`);
-      }
-      
-    } catch (error) {
-      console.error('❌ Error generating sample data:', error);
-      // Ultimate fallback - minimal but valid data
-      graphData = {
-        nodes: [
-          { id: 'node1', label: 'Sample Node 1', category: 'concept', importance: 0.5, confidence: 0.5, timestamp: Date.now(), recency: 1.0 },
-          { id: 'node2', label: 'Sample Node 2', category: 'entity', importance: 0.6, confidence: 0.6, timestamp: Date.now(), recency: 0.8 },
-          { id: 'node3', label: 'Sample Node 3', category: 'topic', importance: 0.7, confidence: 0.7, timestamp: Date.now(), recency: 0.6 }
-        ],
-        links: [
-          { source: 'node1', target: 'node2', strength: 0.8, type: 'related' },
-          { source: 'node2', target: 'node3', strength: 0.6, type: 'connected' }
-        ]
-      };
-      console.log('✅ Used minimal fallback data');
-    }
   }
 
   function initializeGraph() {

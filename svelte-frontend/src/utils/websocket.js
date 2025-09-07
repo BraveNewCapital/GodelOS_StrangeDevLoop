@@ -1,5 +1,6 @@
 // WebSocket integration for real-time cognitive state updates
 import { cognitiveState, knowledgeState, evolutionState } from '../stores/cognitive.js';
+import { importProgressState } from '../stores/importProgress.js';
 import { get } from 'svelte/store';
 
 let ws = null;
@@ -71,8 +72,9 @@ function safeArray(value, defaultValue = []) {
 
 // Update cognitive state from API response  
 function updateCognitiveStateFromAPI(data) {
-  // Handle nested cognitive_state structure from backend
-  const cogState = data.cognitive_state || data;
+  // Temporarily disable cognitive state updates to prevent store corruption
+  console.log('🔧 Cognitive state updates disabled to prevent stability issues');
+  return;
   
   cognitiveState.update(state => ({
     ...state,
@@ -286,7 +288,18 @@ function handleCognitiveUpdate(message) {
     case 'performance_metric':
       handlePerformanceMetric(message.data);
       break;
-      
+
+    case 'import_progress':
+      // Update import progress store
+      importProgressState.update(state => ({
+        ...state,
+        [message.import_id || message.data?.import_id || 'unknown']: {
+          ...message,
+          ...(message.data || {})
+        }
+      }));
+      break;
+
     default:
       console.log('Unknown message type:', message.type);
   }
@@ -553,59 +566,4 @@ export function getConnectionStatus() {
   return ws ? ws.readyState : WebSocket.CLOSED;
 }
 
-// Mock data simulator for development (when backend not available)
-export function startMockCognitiveUpdates() {
-  console.log('Starting mock cognitive updates for development');
-  
-  // Simulate cognitive state changes
-  setInterval(() => {
-    const mockUpdate = {
-      type: 'cognitive_state_update',
-      data: {
-        manifestConsciousness: {
-          processingLoad: Math.random() * 0.3 + 0.4,
-          attention: Math.random() > 0.7 ? `Concept_${Math.floor(Math.random() * 100)}` : null
-        },
-        systemHealth: {
-          inferenceEngine: Math.random() * 0.2 + 0.8,
-          knowledgeStore: Math.random() * 0.1 + 0.9,
-          reflectionEngine: Math.random() * 0.3 + 0.6,
-          learningModules: Math.random() * 0.2 + 0.7
-        }
-      }
-    };
-    
-    handleCognitiveUpdate(mockUpdate);
-  }, 2000);
-  
-  // Simulate daemon activity
-  setInterval(() => {
-    const mockDaemon = {
-      type: 'daemon_activity',
-      data: {
-        id: `daemon_${Math.floor(Math.random() * 5)}`,
-        name: ['PatternScanner', 'MemoryConsolidator', 'NoveltyDetector', 'ResourceOptimizer', 'BackgroundLearner'][Math.floor(Math.random() * 5)],
-        activity: ['scanning', 'consolidating', 'optimizing', 'learning'][Math.floor(Math.random() * 4)],
-        load: Math.random() * 0.5
-      }
-    };
-    
-    handleCognitiveUpdate(mockDaemon);
-  }, 5000);
-  
-  // Simulate occasional alerts
-  setInterval(() => {
-    if (Math.random() > 0.8) {
-      const mockAlert = {
-        type: 'system_alert',
-        data: {
-          severity: ['info', 'warning', 'error'][Math.floor(Math.random() * 3)],
-          title: 'System Event',
-          message: ['Processing load spike detected', 'New knowledge integration complete', 'Reflection depth increased'][Math.floor(Math.random() * 3)]
-        }
-      };
-      
-      handleCognitiveUpdate(mockAlert);
-    }
-  }, 10000);
-}
+// Mock data functions removed - using real backend data only

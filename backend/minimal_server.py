@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Minimal GödelOS Backend Server
 A streamlined version of the backend that provides essential API endpoints
@@ -14,18 +15,24 @@ from typing import Dict, List, Optional, Any
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from dotenv import load_dotenv
 
-# Import the new tool-based LLM integration
-try:
-    from llm_tool_integration import ToolBasedLLMIntegration, GödelOSToolProvider
-    LLM_INTEGRATION_AVAILABLE = True
-except ImportError as e:
-    logger.warning(f"LLM integration not available: {e}")
-    LLM_INTEGRATION_AVAILABLE = False
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Import the new tool-based LLM integration
+try:
+    import llm_tool_integration
+    from llm_tool_integration import ToolBasedLLMIntegration
+    LLM_INTEGRATION_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"LLM integration not available: {e}")
+    llm_tool_integration = None
+    LLM_INTEGRATION_AVAILABLE = False
 
 app = FastAPI(
     title="GödelOS Minimal Cognitive API",
@@ -804,6 +811,63 @@ async def websocket_cognitive_stream(websocket: WebSocket, granularity: str = Qu
                 
     finally:
         manager.disconnect(websocket)
+
+# LLM Chat Interface Models
+class ChatMessage(BaseModel):
+    message: str
+    include_cognitive_context: bool = True
+    mode: str = "normal"  # normal, enhanced, diagnostic
+
+class ChatResponse(BaseModel):
+    response: str
+    cognitive_analysis: Optional[Dict[str, Any]] = None
+    consciousness_reflection: Optional[Dict[str, Any]] = None
+    system_guidance: Optional[Dict[str, Any]] = None
+
+# LLM Chat Endpoint
+@app.post("/api/llm-chat/message", response_model=ChatResponse)
+async def send_chat_message(message: ChatMessage):
+    """Send a natural language message to the LLM and get conversational response with cognitive reflection."""
+    try:
+        if not LLM_INTEGRATION_AVAILABLE:
+            raise HTTPException(status_code=503, detail="LLM integration not available")
+        
+        # Process with tool-based LLM
+        integration = ToolBasedLLMIntegration()
+        result = await integration.process_query(message.message)
+        
+        # Structure the response
+        response = ChatResponse(
+            response=result.get("response", "I encountered an issue processing your message."),
+            cognitive_analysis={
+                "processing_approach": "Tool-based cognitive architecture integration",
+                "tools_used": result.get("tools_used", []),
+                "tool_calls_made": result.get("tool_calls_made", 0),
+                "cognitive_grounding": result.get("cognitive_grounding", False)
+            } if message.include_cognitive_context else None,
+            consciousness_reflection={
+                "current_awareness": "Engaging through comprehensive cognitive tool interface",
+                "experiential_quality": f"Processing with {result.get('tool_calls_made', 0)} cognitive tool interactions",
+                "learning_insights": "Each tool-based interaction enhances cognitive understanding"
+            } if message.include_cognitive_context and message.mode == "enhanced" else None
+        )
+        
+        # Broadcast cognitive event if there are WebSocket connections
+        if manager.active_connections:
+            await manager.broadcast(json.dumps({
+                "type": "llm_chat_interaction",
+                "message": message.message,
+                "response": response.response,
+                "tools_used": result.get("tools_used", []),
+                "cognitive_grounding": result.get("cognitive_grounding", False),
+                "timestamp": datetime.now().isoformat()
+            }))
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Chat processing failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Chat processing failed: {str(e)}")
 
 # Background task to simulate ongoing cognitive activity
 async def simulate_cognitive_activity():

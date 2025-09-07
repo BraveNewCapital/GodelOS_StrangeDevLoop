@@ -17,9 +17,11 @@ from datetime import datetime
 import openai
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
+import os
 
-# Load environment variables
-load_dotenv()
+# Load environment variables from the correct path
+dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
+load_dotenv(dotenv_path)
 
 logger = logging.getLogger(__name__)
 
@@ -602,18 +604,31 @@ class ToolBasedLLMIntegration:
     def __init__(self, godelos_integration=None):
         self.tool_provider = GödelOSToolProvider(godelos_integration)
         
-        # Initialize LLM client
-        api_key = os.getenv("SYNTHETIC_API_KEY") or os.getenv("OPENAI_API_KEY")
+        # Initialize LLM client - check for API key in proper order
+        api_key = os.getenv("OPENAI_API_KEY") or os.getenv("SYNTHETIC_API_KEY")
         if not api_key:
-            raise ValueError("No API key found. Set SYNTHETIC_API_KEY or OPENAI_API_KEY")
+            # Initialize in mock mode without API key
+            logger.warning("No API key found. Initializing LLM integration in mock mode.")
+            self.client = None
+            self.model = "mock-model"
+            self.mock_mode = True
+            self.tools = []
+            return
         
-        base_url = None
-        if os.getenv("SYNTHETIC_API_KEY"):
-            # Use Synthetic API
-            base_url = "https://api.synthetic-intelligence.com/v1"
-            self.model = "hf:deepseek-ai/DeepSeek-R1-0528"
+        # Check the API base to determine which service to use
+        base_url = os.getenv("OPENAI_API_BASE")
+        self.mock_mode = False
+        
+        if base_url and "synthetic" in base_url.lower():
+            # Use Synthetic API configuration
+            self.model = os.getenv("OPENAI_MODEL", "hf:deepseek-ai/DeepSeek-V3-0324")
+        elif base_url:
+            # Use custom base URL with provided model
+            self.model = os.getenv("OPENAI_MODEL", "gpt-4")
         else:
+            # Default OpenAI configuration
             self.model = "gpt-4"
+            base_url = None
         
         self.client = AsyncOpenAI(
             api_key=api_key,
@@ -625,6 +640,16 @@ class ToolBasedLLMIntegration:
         Process user query using tool-based LLM interaction.
         The LLM must use tools to gather information and provide responses.
         """
+        # Handle mock mode (no API key available)
+        if getattr(self, 'mock_mode', False):
+            return {
+                "response": f"I understand your query: '{user_query}'. I'm operating in demonstration mode since no LLM API key is configured. To enable full AI capabilities, please set OPENAI_API_KEY or SYNTHETIC_API_KEY environment variable.",
+                "confidence": 0.7,
+                "tool_calls": [],
+                "reasoning": ["Operating in mock mode", "No API key configured", "Basic response provided"],
+                "mock_mode": True
+            }
+        
         try:
             # Create tool definitions for OpenAI function calling
             tools = list(self.tool_provider.tools.values())

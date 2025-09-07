@@ -139,7 +139,7 @@ The **collapsible System Health panel** in the sidebar provides:
 ```
 🚀 Starting Comprehensive LLM Cognitive Architecture Tests...
 📝 API Key configured: True
-🤖 Model: hf:deepseek-ai/DeepSeek-R1-0528
+🤖 Model: hf:deepseek-ai/DeepSeek-V3-0324
 
 Overall Score: 100.0%
 Tests Passed: 5/5

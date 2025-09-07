@@ -18,7 +18,7 @@ NC='\033[0m' # No Color
 
 # Configuration
 BACKEND_PORT=${GODELOS_BACKEND_PORT:-8000}
-FRONTEND_PORT=${GODELOS_FRONTEND_PORT:-3000}
+FRONTEND_PORT=${GODELOS_FRONTEND_PORT:-3001}
 BACKEND_HOST=${GODELOS_BACKEND_HOST:-0.0.0.0}
 FRONTEND_HOST=${GODELOS_FRONTEND_HOST:-0.0.0.0}
 FRONTEND_TYPE=${GODELOS_FRONTEND_TYPE:-auto}
@@ -160,6 +160,33 @@ port_in_use() {
     else
         # Fallback: try to connect
         timeout 1 bash -c "</dev/tcp/localhost/$port" >/dev/null 2>&1
+    fi
+}
+
+# Check server endpoint health (with curl availability check)
+check_endpoint_health() {
+    local url=$1
+    local timeout=${2:-5}
+    
+    if command_exists curl; then
+        # Use curl with comprehensive options
+        curl -f -s -m "$timeout" --connect-timeout "$timeout" "$url" >/dev/null 2>&1
+    elif command_exists wget; then
+        # Fallback to wget
+        wget --quiet --timeout="$timeout" --tries=1 -O /dev/null "$url" >/dev/null 2>&1
+    else
+        # Python fallback for HTTP requests
+        python3 -c "
+import urllib.request
+import socket
+import sys
+try:
+    socket.setdefaulttimeout($timeout)
+    urllib.request.urlopen('$url')
+    sys.exit(0)
+except:
+    sys.exit(1)
+" 2>/dev/null
     fi
 }
 
@@ -317,24 +344,25 @@ install_dependencies() {
     log_step "Ensuring NumPy 1.x compatibility for ML libraries..."
     pip install "numpy>=1.24.0,<2.0" --upgrade --force-reinstall --no-cache-dir
     
-    # Install/repair scipy specifically with NumPy compatibility
+    # Install/repair scipy specifically with NumPy compatibility (prevent NumPy 2.x)
     log_step "Installing scipy with NumPy 1.x compatibility..."
-    pip install scipy --upgrade --force-reinstall --no-cache-dir
+    pip install scipy "numpy>=1.24.0,<2.0" --upgrade --force-reinstall --no-cache-dir
     
-    # Reinstall scikit-learn for NumPy compatibility
+    # Reinstall scikit-learn for NumPy compatibility (prevent NumPy 2.x)
     log_step "Installing scikit-learn with NumPy 1.x compatibility..."
-    pip install scikit-learn --upgrade --force-reinstall --no-cache-dir
+    pip install scikit-learn "numpy>=1.24.0,<2.0" --upgrade --force-reinstall --no-cache-dir
     
-    # Install transformers and related dependencies
+    # Install transformers and related dependencies with NumPy constraint
     log_step "Installing transformers ecosystem..."
-    pip install transformers sentence-transformers tokenizers --upgrade
+    pip install transformers sentence-transformers tokenizers "numpy>=1.24.0,<2.0" --upgrade
     
     # Install other critical dependencies
     pip install --upgrade \
         httpx requests beautifulsoup4 lxml \
         networkx openai python-docx PyPDF2 \
         psutil typing-extensions filelock huggingface-hub \
-        packaging regex safetensors tqdm click || true
+        packaging regex safetensors tqdm click \
+        "textract==1.6.4" || true
     
     # Frontend dependencies
     if [ "$DETECTED_FRONTEND_TYPE" = "svelte" ]; then
@@ -464,7 +492,7 @@ stop_processes() {
     fi
     
     # Kill by process name (fallback)
-    pkill -f "uvicorn.*main:app" 2>/dev/null && log_success "Stopped uvicorn processes"
+    pkill -f "uvicorn.*unified_server:app" 2>/dev/null && log_success "Stopped uvicorn processes"
     pkill -f "python.*http.server.*$FRONTEND_PORT" 2>/dev/null && log_success "Stopped frontend server"
     
     # Wait a moment for cleanup
@@ -503,8 +531,8 @@ start_backend() {
         fi
     fi
     
-    # Prepare startup command
-    local cmd="python3 -m uvicorn main:app --host $BACKEND_HOST --port $BACKEND_PORT"
+    # Prepare startup command - use unified server
+    local cmd="python3 -m uvicorn unified_server:app --host $BACKEND_HOST --port $BACKEND_PORT"
     
     if [ "$DEBUG_MODE" = "true" ]; then
         cmd="$cmd --reload --log-level debug"
@@ -518,25 +546,75 @@ start_backend() {
     
     cd "$SCRIPT_DIR"
     
-    # Wait for backend to start
+    # Wait for backend to start with sophisticated health checking
     log_step "Waiting for backend initialization..."
     local attempts=0
-    local max_attempts=50
+    local max_attempts=90  # Increased for ML model loading (transformers, spacy, etc.)
+    local health_checks=0
+    local required_health_checks=3  # Require 3 consecutive successful health checks
     
     while [ $attempts -lt $max_attempts ]; do
+        # First check if port is open
         if port_in_use $BACKEND_PORT; then
-            log_success "Backend server started (PID: $BACKEND_PID)"
-            return 0
+            # Then verify server is actually responding with health check
+            if check_endpoint_health "http://localhost:$BACKEND_PORT/api/health" 5; then
+                health_checks=$((health_checks + 1))
+                if [ $health_checks -ge $required_health_checks ]; then
+                    # Verify core endpoints are responding
+                    local endpoints_ready=0
+                    local total_endpoints=0
+                    
+                    # Test essential endpoints
+                    for endpoint in "/api/health" "/api/cognitive-state" "/api/knowledge/concepts"; do
+                        total_endpoints=$((total_endpoints + 1))
+                        if check_endpoint_health "http://localhost:$BACKEND_PORT$endpoint" 3; then
+                            endpoints_ready=$((endpoints_ready + 1))
+                        fi
+                    done
+                    
+                    if [ $endpoints_ready -eq $total_endpoints ]; then
+                        log_success "Backend server fully initialized (PID: $BACKEND_PID)"
+                        log_success "✅ All core endpoints responding"
+                        return 0
+                    else
+                        echo -ne "${YELLOW}  Backend starting... endpoints: ${endpoints_ready}/${total_endpoints} ready\r${NC}"
+                        health_checks=0  # Reset if not all endpoints ready
+                    fi
+                else
+                    echo -ne "${YELLOW}  Backend responding... health checks: ${health_checks}/${required_health_checks}\r${NC}"
+                fi
+            else
+                health_checks=0  # Reset health check count if request fails
+                echo -ne "${YELLOW}  Port open, waiting for server response... ${attempts}s\r${NC}"
+            fi
+        else
+            health_checks=0
+            if [ $((attempts % 10)) -eq 0 ] && [ $attempts -gt 0 ]; then
+                echo -ne "${YELLOW}  Starting backend server... ${attempts}s (ML models loading)\r${NC}"
+            fi
         fi
+        
         sleep 1
         attempts=$((attempts + 1))
-        if [ $((attempts % 5)) -eq 0 ]; then
-            echo -ne "${YELLOW}  Waiting... ${attempts}/${max_attempts}\r${NC}"
-        fi
     done
     
+    echo -ne "\n"  # Clear the progress line
     log_error "Backend failed to start within ${max_attempts} seconds"
     log_info "Check logs: tail -f $LOGS_DIR/backend.log"
+    
+    # Provide helpful debugging information
+    if port_in_use $BACKEND_PORT; then
+        log_warning "Port $BACKEND_PORT is open but server not responding to health checks"
+        log_info "This may indicate the server is still loading ML models"
+        log_info "Try: curl http://localhost:$BACKEND_PORT/api/health"
+    else
+        log_warning "Port $BACKEND_PORT is not open - server failed to start"
+        if [ -f "$LOGS_DIR/backend.log" ]; then
+            log_info "Last few log lines:"
+            tail -5 "$LOGS_DIR/backend.log" | sed 's/^/    /'
+        fi
+    fi
+    
     return 1
 }
 

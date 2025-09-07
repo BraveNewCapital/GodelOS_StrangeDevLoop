@@ -100,34 +100,20 @@
         };
       }
       
-      // Since /api/transparency/sessions/active doesn't exist, 
-      // we create demo sessions or check for recent sessions
-      activeSessions = [
-        {
-          id: 'demo-session-1',
-          query: 'System initialization and cognitive architecture setup',
-          status: 'completed',
-          start_time: Date.now() - 3600000, // 1 hour ago
-          progress: 100,
-          steps: [
-            { step: 'SYSTEM_INIT', description: 'Initializing cognitive systems', confidence: 0.95 },
-            { step: 'KNOWLEDGE_LOAD', description: 'Loading knowledge base', confidence: 0.88 },
-            { step: 'TRANSPARENCY_SETUP', description: 'Setting up transparency monitoring', confidence: 0.92 }
-          ]
-        },
-        {
-          id: 'demo-session-2', 
-          query: 'Knowledge graph generation and relationship analysis',
-          status: 'active',
-          start_time: Date.now() - 900000, // 15 minutes ago
-          progress: 75,
-          steps: [
-            { step: 'QUERY_ANALYSIS', description: 'Analyzing knowledge requirements', confidence: 0.91 },
-            { step: 'GRAPH_BUILD', description: 'Building knowledge graph structure', confidence: 0.83 },
-            { step: 'RELATIONSHIP_ANALYSIS', description: 'Processing concept relationships', confidence: 0.77 }
-          ]
+      // Get real session data from API
+      try {
+        const sessionsResponse = await fetch(`${API_BASE}/api/transparency/sessions/active`);
+        if (sessionsResponse.ok) {
+          const sessionsData = await sessionsResponse.json();
+          activeSessions = sessionsData.sessions || [];
+        } else {
+          console.error('Failed to load active sessions:', sessionsResponse.status);
+          activeSessions = [];
         }
-      ];
+      } catch (err) {
+        console.error('Error loading sessions:', err);
+        activeSessions = [];
+      }
       
       error = null;
       isLoading = false;
@@ -229,14 +215,14 @@
     }
   }
   
-  // Get real enhanced session data from API or fallback to mock
+  // Get real enhanced session data from API
   function getEnhancedSessionData(session) {
     if (realSessionData && realSessionData.trace) {
       return parseRealSessionData(realSessionData);
     }
     
-    // Fallback to improved mock data with better entity types
-    return generateImprovedMockData(session);
+    // No data available
+    return null;
   }
   
   function parseRealSessionData(sessionData) {
@@ -323,42 +309,6 @@
       'NORP': 'Group'
     };
     return labelMap[label] || 'Concept';
-  }
-  
-  function generateImprovedMockData(session) {
-    return {
-      semanticTokens: [
-        { type: 'person', value: 'Tim Cook', confidence: 0.97, category: 'Person' },
-        { type: 'org', value: 'Apple Inc.', confidence: 0.95, category: 'Organization' },
-        { type: 'gpe', value: 'Cupertino', confidence: 0.92, category: 'Location' },
-        { type: 'product', value: 'iPhone', confidence: 0.93, category: 'Product' },
-        { type: 'date', value: '1976', confidence: 0.85, category: 'Temporal' },
-        { type: 'event', value: 'Company Founding', confidence: 0.88, category: 'Event' },
-        { type: 'money', value: '$2.8 trillion', confidence: 0.91, category: 'Financial' }
-      ],
-      reasoningChain: [
-        { step: 1, operation: 'Named Entity Recognition', input: 'Raw text input', output: '14 entities identified', confidence: 0.91, metadata: { model: 'spaCy en_core_web_sm' } },
-        { step: 2, operation: 'Relationship Extraction', input: 'Entity pairs', output: '19 relationships mapped', confidence: 0.87, metadata: { method: 'dependency_parsing' } },
-        { step: 3, operation: 'Knowledge Graph Construction', input: 'Entities + Relationships', output: '33 knowledge items', confidence: 0.94, metadata: { graph_size: 33 } },
-        { step: 4, operation: 'Semantic Embedding', input: 'Text chunks', output: 'Vector representations', confidence: 0.82, metadata: { model: 'all-MiniLM-L6-v2' } }
-      ],
-      knowledgeGraph: {
-        nodes: [
-          { id: 'tim_cook', label: 'Tim Cook', type: 'person', centrality: 0.78, properties: { role: 'CEO', company: 'Apple Inc.', tenure: '2011-present' } },
-          { id: 'apple_inc', label: 'Apple Inc.', type: 'organization', centrality: 0.95, properties: { founded: '1976', industry: 'Technology', market_cap: '$2.8T' } },
-          { id: 'cupertino', label: 'Cupertino', type: 'location', centrality: 0.65, properties: { state: 'California', country: 'USA', type: 'city' } },
-          { id: 'iphone', label: 'iPhone', type: 'product', centrality: 0.84, properties: { category: 'Smartphone', first_released: '2007', manufacturer: 'Apple Inc.' } },
-          { id: 'steve_jobs', label: 'Steve Jobs', type: 'person', centrality: 0.89, properties: { role: 'Co-founder', company: 'Apple Inc.', years: '1976-2011' } }
-        ],
-        edges: [
-          { id: 'edge_1', source: 'tim_cook', target: 'apple_inc', relation: 'CEO_OF', weight: 0.89, properties: { since: '2011', type: 'leadership' } },
-          { id: 'edge_2', source: 'apple_inc', target: 'cupertino', relation: 'HEADQUARTERED_IN', weight: 0.76, properties: { since: '1976', address: 'Apple Park' } },
-          { id: 'edge_3', source: 'apple_inc', target: 'iphone', relation: 'PRODUCES', weight: 0.92, properties: { since: '2007', revenue_impact: 'high' } },
-          { id: 'edge_4', source: 'steve_jobs', target: 'apple_inc', relation: 'FOUNDED', weight: 0.95, properties: { year: '1976', with: 'Steve Wozniak' } }
-        ]
-      },
-      insights: generateDefaultInsights()
-    };
   }
   
   function generateDefaultInsights() {

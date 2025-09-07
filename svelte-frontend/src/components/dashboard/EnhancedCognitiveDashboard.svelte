@@ -1,10 +1,12 @@
 <script>
     import { onMount, onDestroy } from 'svelte';
-    import { enhancedCognitive } from '../../stores/enhanced-cognitive.js';
+    import { enhancedCognitiveState, autonomousLearningState, streamState, enhancedCognitive } from '../../stores/enhanced-cognitive.js';
+    
+    // Import monitoring components
     import StreamOfConsciousnessMonitor from '../core/StreamOfConsciousnessMonitor.svelte';
     import AutonomousLearningMonitor from '../core/AutonomousLearningMonitor.svelte';
     import CognitiveStateMonitor from '../core/CognitiveStateMonitor.svelte';
-
+    
     // Component props
     export let layout = 'grid'; // 'grid', 'tabs', 'accordion'
     export let compactMode = false;
@@ -21,44 +23,6 @@
 
     // Subscriptions
     let unsubscribe;
-
-    onMount(() => {
-        // Subscribe to cognitive state
-        unsubscribe = enhancedCognitive.subscribe(state => {
-            cognitiveState = state;
-            systemHealth = state.systemHealth;
-            isConnected = state.cognitiveStreaming?.connected || false;
-            lastUpdate = new Date();
-            isLoading = false;
-        });
-
-        // Initialize enhanced cognitive systems
-        enhancedCognitive.initializeEnhancedSystems();
-        
-        // Start automatic data fetching
-        startAutoRefresh();
-    });
-    
-    function startAutoRefresh() {
-        // Initial fetch
-        refreshAllSystems();
-        
-        // Set up automatic refresh every 5 seconds if enabled
-        if (autoRefresh) {
-            const interval = setInterval(() => {
-                if (autoRefresh) {
-                    refreshAllSystems();
-                }
-            }, 5000);
-            
-            // Store interval for cleanup
-            return () => clearInterval(interval);
-        }
-    }
-
-    onDestroy(() => {
-        if (unsubscribe) unsubscribe();
-    });
 
     function getHealthStatus() {
         if (!systemHealth) return { status: 'unknown', color: 'gray', score: 0 };
@@ -79,6 +43,46 @@
         if (healthy >= total * 0.5) return { status: 'degraded', color: 'orange', score };
         return { status: 'critical', color: 'red', score };
     }
+
+    onMount(() => {
+        // Subscribe to cognitive state
+        unsubscribe = enhancedCognitive.subscribe(state => {
+            cognitiveState = state;
+            systemHealth = state.systemHealth;
+            isConnected = state.cognitiveStreaming?.connected || false;
+            lastUpdate = new Date();
+            isLoading = false;
+        });
+
+        // Initialize enhanced cognitive systems - REMOVED to prevent duplicate initialization
+        // (App.svelte already handles initialization)
+        
+        // Start automatic data fetching
+        startAutoRefresh();
+    });
+    
+    function startAutoRefresh() {
+        console.log('� Dashboard auto-refresh enabled');
+        
+        // Initial fetch
+        refreshAllSystems();
+        
+        // Enable periodic refresh
+        if (autoRefresh) {
+            const interval = setInterval(() => {
+                if (autoRefresh) {
+                    refreshAllSystems();
+                }
+            }, 30000); // 30 second intervals
+            
+            // Store interval ID for cleanup
+            return () => clearInterval(interval);
+        }
+    }
+
+    onDestroy(() => {
+        if (unsubscribe) unsubscribe();
+    });
 
     function formatUptime(seconds) {
         if (!seconds) return 'Unknown';

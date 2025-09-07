@@ -5,10 +5,10 @@ export default defineConfig({
   plugins: [svelte()],
   server: {
     port: 3001,
-    // Ensure the watcher polls for changes, which can help in some environments
+    // Reduce aggressive polling that can cause performance issues
     watch: {
       usePolling: true,
-      interval: 100, // Poll every 100ms
+      interval: 1000, // Poll every 1000ms instead of 100ms
     },
     proxy: {
       '/api': {

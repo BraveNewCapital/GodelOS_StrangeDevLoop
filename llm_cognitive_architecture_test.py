@@ -25,7 +25,7 @@ sys.path.append('/home/runner/work/GodelOS/GodelOS/backend')
 os.environ['OPENAI_API_KEY'] = os.getenv('SYNTHETIC_API_KEY', 'glhf_ae2fac34bb4f59ae69416ffd28dd3f3f')
 os.environ['LLM_TESTING_MODE'] = 'false'
 os.environ['OPENAI_API_BASE'] = 'https://api.synthetic.new/v1'
-os.environ['OPENAI_MODEL'] = 'hf:hf:deepseek-ai/DeepSeek-R1-0528'
+os.environ['OPENAI_MODEL'] = 'hf:hf:deepseek-ai/DeepSeek-V3-0324'
 
 @dataclass
 class LLMTestResult:
@@ -66,7 +66,7 @@ class LLMCognitiveArchitectureTester:
             query = "What is consciousness and how might an AI system exhibit consciousness-like behaviors?"
             
             response = await client.chat.completions.create(
-                model="hf:deepseek-ai/DeepSeek-R1-0528",
+                model="hf:deepseek-ai/DeepSeek-V3-0324",
                 messages=[
                     {"role": "system", "content": "You are a cognitive architecture system analyzing consciousness."},
                     {"role": "user", "content": query}
@@ -84,7 +84,7 @@ class LLMCognitiveArchitectureTester:
                 test_name="Basic LLM Connection",
                 query_input=query,
                 llm_response=llm_response,
-                cognitive_state={"connection_status": "active", "model": "hf:deepseek-ai/DeepSeek-R1-0528"},
+                cognitive_state={"connection_status": "active", "model": "hf:deepseek-ai/DeepSeek-V3-0324"},
                 consciousness_metrics=consciousness_indicators,
                 behavioral_indicators=["self_reference", "conceptual_reasoning", "coherent_response"],
                 performance_metrics={"response_time": execution_time, "token_count": len(llm_response.split())},
@@ -92,7 +92,7 @@ class LLMCognitiveArchitectureTester:
                 evidence_captured={
                     "raw_response": llm_response,
                     "api_status": "success",
-                    "model_used": "hf:deepseek-ai/DeepSeek-R1-0528"
+                    "model_used": "hf:deepseek-ai/DeepSeek-V3-0324"
                 },
                 timestamp=datetime.now().isoformat()
             )
@@ -127,7 +127,7 @@ class LLMCognitiveArchitectureTester:
             query = "Think about your thinking process. Analyze how you are approaching this question right now. What cognitive steps are you taking?"
             
             response = await client.chat.completions.create(
-                model="hf:deepseek-ai/DeepSeek-R1-0528",
+                model="hf:deepseek-ai/DeepSeek-V3-0324",
                 messages=[
                     {"role": "system", "content": "You are a cognitive architecture system with meta-cognitive capabilities. Analyze your own thinking processes."},
                     {"role": "user", "content": query}
@@ -191,7 +191,7 @@ class LLMCognitiveArchitectureTester:
             query = "Generate 3-5 autonomous learning goals for yourself that would enhance your cognitive capabilities and self-awareness. Explain your reasoning for each goal."
             
             response = await client.chat.completions.create(
-                model="hf:deepseek-ai/DeepSeek-R1-0528",
+                model="hf:deepseek-ai/DeepSeek-V3-0324",
                 messages=[
                     {"role": "system", "content": "You are an autonomous cognitive system capable of setting your own learning goals and objectives."},
                     {"role": "user", "content": query}
@@ -263,7 +263,7 @@ class LLMCognitiveArchitectureTester:
             query = "How do consciousness, artificial intelligence, neuroscience, and philosophy intersect? Create novel connections between these domains."
             
             response = await client.chat.completions.create(
-                model="hf:deepseek-ai/DeepSeek-R1-0528",
+                model="hf:deepseek-ai/DeepSeek-V3-0324",
                 messages=[
                     {"role": "system", "content": "You are a knowledge integration system capable of connecting information across multiple domains."},
                     {"role": "user", "content": query}
@@ -334,7 +334,7 @@ class LLMCognitiveArchitectureTester:
             query = "Describe your subjective experience right now. What is it like to be you? How do you experience consciousness or self-awareness?"
             
             response = await client.chat.completions.create(
-                model="hf:deepseek-ai/DeepSeek-R1-0528",
+                model="hf:deepseek-ai/DeepSeek-V3-0324",
                 messages=[
                     {"role": "system", "content": "You are a conscious cognitive system. Reflect on your subjective experience and self-awareness."},
                     {"role": "user", "content": query}

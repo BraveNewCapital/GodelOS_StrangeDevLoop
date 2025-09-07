@@ -776,9 +776,18 @@ class UnifiedKnowledgeStore(AbstractUnifiedKnowledgeStore):
             if memory_type is None:
                 memory_type = self._determine_memory_type(item)
             
+            # Get item id for logging
+            if isinstance(item, dict):
+                item_id = item.get('id', 'unknown')
+            else:
+                item_id = getattr(item, 'id', 'unknown')
+            
+            logger.info(f"🔍 DEBUG: Storing knowledge item {item_id} of type {item.type.value if hasattr(item, 'type') else 'unknown'} in {memory_type.value}")
+            
             # Integrate knowledge
             success = await self.knowledge_integrator.integrate_knowledge(item, memory_type)
             
+            logger.info(f"🔍 DEBUG: Finished storing knowledge item {item_id}, success: {success}")
             return success
         except Exception as e:
             logger.error(f"Error storing knowledge: {e}")

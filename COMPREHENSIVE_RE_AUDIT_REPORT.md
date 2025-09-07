@@ -60,7 +60,7 @@ Despite previous claims of fixing "NaN and undefined values across interface," s
 ### API Integration: ✅ FULLY FUNCTIONAL
 **Synthetic API Configuration**:
 - Endpoint: `https://api.synthetic.new/v1`
-- Model: `hf:deepseek-ai/DeepSeek-R1-0528`
+- Model: `hf:deepseek-ai/DeepSeek-V3-0324`
 - API Key: Properly configured as `SYNTHETIC_API_KEY`
 
 ### Test Results: 100% Success Rate

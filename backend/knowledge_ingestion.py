@@ -12,6 +12,7 @@ import logging
 import os
 import tempfile
 import time
+import traceback
 import uuid
 from typing import Dict, List, Optional, Any, Tuple
 from pathlib import Path
@@ -48,6 +49,71 @@ knowledge_management_service = None
 from .knowledge_pipeline_service import knowledge_pipeline_service
 
 logger = logging.getLogger(__name__)
+
+
+async def extract_text_from_pdf(file_path: str) -> str:
+    """Extract text content from PDF file using PyPDF2."""
+    if not HAS_PDF:
+        raise ValueError("PDF processing not available - install PyPDF2")
+    
+    try:
+        text_content = []
+        with open(file_path, 'rb') as file:
+            pdf_reader = PyPDF2.PdfReader(file)
+            
+            # Extract text from each page
+            for page_num, page in enumerate(pdf_reader.pages):
+                try:
+                    page_text = page.extract_text()
+                    if page_text.strip():
+                        text_content.append(f"--- Page {page_num + 1} ---\n{page_text.strip()}")
+                except Exception as e:
+                    logger.warning(f"Could not extract text from page {page_num + 1}: {e}")
+                    text_content.append(f"--- Page {page_num + 1} ---\n[Text extraction failed]")
+        
+        if not text_content:
+            return "No readable text found in PDF"
+        
+        full_text = "\n\n".join(text_content)
+        logger.info(f"Successfully extracted {len(full_text)} characters from PDF with {len(pdf_reader.pages)} pages")
+        return full_text
+        
+    except Exception as e:
+        logger.error(f"Error extracting text from PDF {file_path}: {e}")
+        raise ValueError(f"Failed to extract text from PDF: {str(e)}")
+
+
+async def extract_text_from_docx(file_path: str) -> str:
+    """Extract text content from DOCX file using python-docx."""
+    if not HAS_DOCX:
+        raise ValueError("DOCX processing not available - install python-docx")
+    
+    try:
+        doc = Document(file_path)
+        text_content = []
+        
+        # Extract text from paragraphs
+        for paragraph in doc.paragraphs:
+            if paragraph.text.strip():
+                text_content.append(paragraph.text.strip())
+        
+        # Extract text from tables
+        for table in doc.tables:
+            for row in table.rows:
+                row_text = []
+                for cell in row.cells:
+                    if cell.text.strip():
+                        row_text.append(cell.text.strip())
+                if row_text:
+                    text_content.append(" | ".join(row_text))
+        
+        full_text = "\n\n".join(text_content)
+        logger.info(f"Successfully extracted {len(full_text)} characters from DOCX")
+        return full_text if full_text else "No readable text found in DOCX"
+        
+    except Exception as e:
+        logger.error(f"Error extracting text from DOCX {file_path}: {e}")
+        raise ValueError(f"Failed to extract text from DOCX: {str(e)}")
 
 
 class KnowledgeIngestionService:
@@ -346,18 +412,23 @@ class KnowledgeIngestionService:
     
     async def _process_import_queue(self):
         """Background task to process the import queue."""
+        logger.info("🔍 DEBUG: _process_import_queue started")
         while True:
             try:
+                logger.info(f"🔍 DEBUG: Waiting for import from queue, current size: {self.import_queue.qsize()}")
                 # Get next import from queue
                 import_data = await self.import_queue.get()
+                logger.info(f"🔍 DEBUG: Got import from queue: {import_data[0]}")
                 
                 # Process with semaphore to limit concurrent imports
                 async with self.semaphore:
                     await self._process_single_import(import_data)
                 
                 self.import_queue.task_done()
+                logger.info(f"🔍 DEBUG: Import processing completed for {import_data[0]}")
                 
             except asyncio.CancelledError:
+                logger.info("🔍 DEBUG: _process_import_queue cancelled")
                 break
             except Exception as e:
                 logger.error(f"Error in import queue processing: {e}")
@@ -429,16 +500,19 @@ class KnowledgeIngestionService:
     async def _process_content(self, content: str, title: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """Process raw content using advanced knowledge extraction pipeline."""
         try:
+            logger.info(f"🔍 DEBUG: _process_content called with title: {title}")
             # Use the advanced knowledge pipeline for processing
             if knowledge_pipeline_service.initialized:
                 logger.info("🔄 Using advanced knowledge extraction pipeline")
                 
                 # Process through the full pipeline
+                logger.info(f"🔍 DEBUG: Calling pipeline.process_text_document")
                 pipeline_result = await knowledge_pipeline_service.process_text_document(
                     content=content,
                     title=title,
                     metadata=metadata
                 )
+                logger.info(f"🔍 DEBUG: Pipeline completed, result keys: {list(pipeline_result.keys()) if pipeline_result else 'None'}")
                 
                 # Also do basic processing for backward compatibility
                 cleaned_content = content_processor.clean_text(content)
@@ -447,7 +521,7 @@ class KnowledgeIngestionService:
                 keywords = content_processor.extract_keywords(cleaned_content)
                 language = content_processor.detect_language(cleaned_content)
                 
-                return {
+                result = {
                     'title': title,
                     'content': cleaned_content,
                     'sentences': sentences,
@@ -462,6 +536,8 @@ class KnowledgeIngestionService:
                     'relationships_extracted': pipeline_result.get('relationships_extracted', 0),
                     'knowledge_items': pipeline_result.get('knowledge_items', [])
                 }
+                logger.info(f"🔍 DEBUG: _process_content returning with {len(result)} keys")
+                return result
             else:
                 logger.warning("⚠️ Knowledge pipeline not initialized, using basic processing")
                 # Fallback to basic processing
@@ -484,6 +560,7 @@ class KnowledgeIngestionService:
                 }
         except Exception as e:
             logger.error(f"❌ Error in content processing: {e}")
+            logger.error(f"🔍 DEBUG: Exception traceback: {traceback.format_exc()}")
             # Fallback to basic processing on error
             cleaned_content = content_processor.clean_text(content)
             return {
@@ -699,20 +776,35 @@ class KnowledgeIngestionService:
             # Broadcast progress update
             await self._broadcast_progress_update(import_id, progress)
             
-            # Read file content based on type
-            if request.file_type == "pdf" and not HAS_PDF:
-                raise ValueError("PDF processing not available - install PyPDF2")
-            elif request.file_type == "docx" and not HAS_DOCX:
-                raise ValueError("DOCX processing not available - install python-docx")
+            # Read file content based on type with proper extraction
+            content = ""
             
-            try:
-                async with aiofiles.open(file_path, 'r', encoding=request.encoding) as f:
-                    content = await f.read()
-            except UnicodeDecodeError:
-                # Try with different encoding for binary files
-                async with aiofiles.open(file_path, 'rb') as f:
-                    raw_content = await f.read()
-                    content = f"Binary file content: {len(raw_content)} bytes"
+            if request.file_type == "pdf":
+                if not HAS_PDF:
+                    raise ValueError("PDF processing not available - install PyPDF2")
+                logger.info(f"Extracting text from PDF: {file_path}")
+                content = await extract_text_from_pdf(file_path)
+                
+            elif request.file_type == "docx":
+                if not HAS_DOCX:
+                    raise ValueError("DOCX processing not available - install python-docx")
+                logger.info(f"Extracting text from DOCX: {file_path}")
+                content = await extract_text_from_docx(file_path)
+                
+            else:
+                # Handle text-based files
+                try:
+                    async with aiofiles.open(file_path, 'r', encoding=request.encoding) as f:
+                        content = await f.read()
+                except UnicodeDecodeError:
+                    # Try with different encoding for binary files
+                    try:
+                        async with aiofiles.open(file_path, 'r', encoding='latin-1') as f:
+                            content = await f.read()
+                    except Exception:
+                        async with aiofiles.open(file_path, 'rb') as f:
+                            raw_content = await f.read()
+                            content = f"Binary file content: {len(raw_content)} bytes - unable to extract text"
             
             progress.current_step = "Processing file content"
             progress.progress_percentage = 50.0
@@ -723,11 +815,13 @@ class KnowledgeIngestionService:
             
             title = request.filename
             
+            logger.info(f"🔍 DEBUG: About to call _process_content for file import {import_id}")
             processed_data = await self._process_content(
                 content=content,
                 title=title,
                 metadata=request.source.metadata
             )
+            logger.info(f"🔍 DEBUG: _process_content returned for file import {import_id}, keys: {list(processed_data.keys())}")
             
             progress.current_step = "Creating knowledge item"
             progress.progress_percentage = 75.0

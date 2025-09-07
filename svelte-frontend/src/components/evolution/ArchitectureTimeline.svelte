@@ -134,12 +134,19 @@
   
   async function loadTimelineData() {
     try {
-      // Since /api/transparency/architecture-timeline doesn't exist in backend,
-      // we'll generate meaningful mock data that represents actual system evolution
-      generateMockTimelineData();
+      // Try to get real timeline data from API
+      const response = await fetch(`${API_BASE}/api/evolution/timeline`);
+      if (response.ok) {
+        const data = await response.json();
+        timelineData = data.events || [];
+        console.log('✅ Loaded timeline data:', timelineData);
+      } else {
+        console.error('❌ No timeline data available from backend');
+        timelineData = [];
+      }
     } catch (error) {
-      console.warn('Timeline data loading error:', error);
-      generateMockTimelineData();
+      console.error('❌ Error loading timeline data:', error);
+      timelineData = [];
     }
   }
   

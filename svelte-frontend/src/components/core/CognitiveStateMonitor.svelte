@@ -160,10 +160,8 @@
   }
   
   onMount(() => {
-    // Periodic updates for smooth animations
-    updateInterval = setInterval(() => {
-      // Trigger reactivity updates
-    }, 1000);
+    // REMOVED: Useless 1-second interval that was causing performance issues
+    // Reactivity updates happen automatically when stores change
   });
   
   onDestroy(() => {

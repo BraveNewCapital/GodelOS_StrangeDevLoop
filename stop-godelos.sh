@@ -53,13 +53,13 @@ STOPPED_SERVICES=()
 
 # Stop by PID files first (graceful)
 if [ -f "$LOGS_DIR/backend.pid" ]; then
-    local backend_pid=$(cat "$LOGS_DIR/backend.pid")
+    backend_pid=$(cat "$LOGS_DIR/backend.pid")
     if kill -0 "$backend_pid" 2>/dev/null; then
         log_step "Stopping backend server (PID: $backend_pid)..."
         kill -TERM "$backend_pid" 2>/dev/null
         
         # Wait for graceful shutdown
-        local attempts=0
+        attempts=0
         while [ $attempts -lt 10 ] && kill -0 "$backend_pid" 2>/dev/null; do
             sleep 1
             attempts=$((attempts + 1))
@@ -80,13 +80,13 @@ if [ -f "$LOGS_DIR/backend.pid" ]; then
 fi
 
 if [ -f "$LOGS_DIR/frontend.pid" ]; then
-    local frontend_pid=$(cat "$LOGS_DIR/frontend.pid")
+    frontend_pid=$(cat "$LOGS_DIR/frontend.pid")
     if kill -0 "$frontend_pid" 2>/dev/null; then
         log_step "Stopping frontend server (PID: $frontend_pid)..."
         kill -TERM "$frontend_pid" 2>/dev/null
         
         # Wait for graceful shutdown
-        local attempts=0
+        attempts=0
         while [ $attempts -lt 5 ] && kill -0 "$frontend_pid" 2>/dev/null; do
             sleep 1
             attempts=$((attempts + 1))
