@@ -14,6 +14,7 @@ import logging
 import os
 import sys
 import time
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Union
@@ -771,6 +772,357 @@ async def get_learning_summary():
         return JSONResponse(content=result)
     except Exception as e:
         logger.error(f"Error getting learning summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# =====================================================================
+# KNOWLEDGE GRAPH EVOLUTION ENDPOINTS
+# =====================================================================
+
+@app.post("/api/v1/knowledge-graph/evolve")
+async def evolve_knowledge_graph(evolution_data: Dict[str, Any]):
+    """Trigger knowledge graph evolution based on new information or patterns"""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+        
+        trigger = evolution_data.get("trigger")
+        context = evolution_data.get("context", {})
+        
+        if not trigger:
+            raise HTTPException(status_code=400, detail="Trigger is required")
+        
+        result = await cognitive_manager.evolve_knowledge_graph(
+            trigger=trigger,
+            context=context
+        )
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error evolving knowledge graph: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/knowledge-graph/concepts")
+async def add_knowledge_concept(concept_data: Dict[str, Any]):
+    """Add a new concept to the knowledge graph"""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+        
+        auto_connect = concept_data.get("auto_connect", True)
+        result = await cognitive_manager.add_knowledge_concept(
+            concept_data=concept_data,
+            auto_connect=auto_connect
+        )
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error adding knowledge concept: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/knowledge-graph/relationships")
+async def create_knowledge_relationship(relationship_data: Dict[str, Any]):
+    """Create a relationship between knowledge concepts"""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+        
+        source_concept = relationship_data.get("source_id")
+        target_concept = relationship_data.get("target_id") 
+        relationship_type = relationship_data.get("relationship_type")
+        strength = relationship_data.get("strength", 0.5)
+        evidence = relationship_data.get("evidence", [])
+        
+        if not source_concept or not target_concept or not relationship_type:
+            raise HTTPException(status_code=400, detail="source_id, target_id, and relationship_type are required")
+        
+        result = await cognitive_manager.create_knowledge_relationship(
+            source_concept=source_concept,
+            target_concept=target_concept,
+            relationship_type=relationship_type,
+            strength=strength,
+            evidence=evidence
+        )
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error creating knowledge relationship: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/knowledge-graph/patterns/detect")
+async def detect_emergent_patterns():
+    """Detect emergent patterns in the knowledge graph"""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+        
+        result = await cognitive_manager.detect_emergent_patterns()
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error detecting emergent patterns: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/knowledge-graph/concepts/{concept_id}/neighborhood")
+async def get_concept_neighborhood(
+    concept_id: str,
+    depth: int = Query(default=2, description="Depth of neighborhood analysis")
+):
+    """Get the neighborhood of concepts around a given concept"""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+        
+        result = await cognitive_manager.get_concept_neighborhood(
+            concept_id=concept_id,
+            depth=depth
+        )
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error getting concept neighborhood: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/knowledge-graph/summary")
+async def get_knowledge_graph_summary():
+    """Get comprehensive summary of knowledge graph evolution"""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+        
+        result = await cognitive_manager.get_knowledge_graph_summary()
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error getting knowledge graph summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# PHENOMENAL EXPERIENCE ENDPOINTS
+
+@app.post("/api/v1/phenomenal/generate-experience")
+async def generate_phenomenal_experience(experience_data: Dict[str, Any]):
+    """Generate a phenomenal experience based on context and type"""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+        
+        from backend.core.phenomenal_experience import phenomenal_experience_generator, ExperienceType
+        
+        experience_type = experience_data.get("experience_type", "cognitive")
+        context = experience_data.get("context", {})
+        intensity = experience_data.get("intensity", 0.7)
+        
+        # Convert string to enum if needed
+        if isinstance(experience_type, str):
+            try:
+                experience_type = ExperienceType(experience_type.lower())
+            except ValueError:
+                experience_type = ExperienceType.COGNITIVE
+        
+        experience = await phenomenal_experience_generator.generate_experience(
+            experience_type=experience_type,
+            context=context,
+            intensity=intensity
+        )
+        
+        return JSONResponse(content={
+            "status": "success",
+            "experience": {
+                "id": experience.id,
+                "type": experience.experience_type.value,
+                "narrative": experience.narrative_description,
+                "vividness": experience.vividness,
+                "coherence": experience.coherence,
+                "attention_focus": experience.attention_focus,
+                "qualia_patterns": [
+                    {
+                        "id": q.id,
+                        "modality": q.modality.value,
+                        "intensity": q.intensity,
+                        "valence": q.valence,
+                        "complexity": q.complexity
+                    } for q in experience.qualia_patterns
+                ],
+                "temporal_extent": experience.temporal_extent,
+                "triggers": experience.causal_triggers
+            }
+        })
+    except Exception as e:
+        logger.error(f"Error generating phenomenal experience: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/phenomenal/conscious-state")
+async def get_conscious_state():
+    """Get the current conscious state"""
+    try:
+        from backend.core.phenomenal_experience import phenomenal_experience_generator
+        
+        conscious_state = phenomenal_experience_generator.get_current_conscious_state()
+        
+        if not conscious_state:
+            return JSONResponse(content={
+                "status": "no_active_state",
+                "message": "No current conscious state available"
+            })
+        
+        return JSONResponse(content={
+            "status": "success",
+            "conscious_state": {
+                "id": conscious_state.id,
+                "active_experiences": [
+                    {
+                        "id": exp.id,
+                        "type": exp.experience_type.value,
+                        "narrative": exp.narrative_description,
+                        "vividness": exp.vividness,
+                        "attention_focus": exp.attention_focus
+                    } for exp in conscious_state.active_experiences
+                ],
+                "background_tone": conscious_state.background_tone,
+                "attention_distribution": conscious_state.attention_distribution,
+                "self_awareness_level": conscious_state.self_awareness_level,
+                "phenomenal_unity": conscious_state.phenomenal_unity,
+                "narrative_self": conscious_state.narrative_self,
+                "timestamp": conscious_state.timestamp
+            }
+        })
+    except Exception as e:
+        logger.error(f"Error getting conscious state: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/phenomenal/experience-history")
+async def get_experience_history(limit: Optional[int] = 10):
+    """Get phenomenal experience history"""
+    try:
+        from backend.core.phenomenal_experience import phenomenal_experience_generator
+        
+        experiences = phenomenal_experience_generator.get_experience_history(limit=limit)
+        
+        return JSONResponse(content={
+            "status": "success",
+            "experiences": [
+                {
+                    "id": exp.id,
+                    "type": exp.experience_type.value,
+                    "narrative": exp.narrative_description,
+                    "vividness": exp.vividness,
+                    "coherence": exp.coherence,
+                    "attention_focus": exp.attention_focus,
+                    "temporal_extent": exp.temporal_extent,
+                    "triggers": exp.causal_triggers,
+                    "concepts": exp.associated_concepts
+                } for exp in experiences
+            ],
+            "total_count": len(experiences)
+        })
+    except Exception as e:
+        logger.error(f"Error getting experience history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/phenomenal/experience-summary")
+async def get_experience_summary():
+    """Get summary statistics about phenomenal experiences"""
+    try:
+        from backend.core.phenomenal_experience import phenomenal_experience_generator
+        
+        summary = phenomenal_experience_generator.get_experience_summary()
+        
+        return JSONResponse(content={
+            "status": "success",
+            "summary": summary
+        })
+    except Exception as e:
+        logger.error(f"Error getting experience summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/phenomenal/trigger-experience")
+async def trigger_specific_experience(trigger_data: Dict[str, Any]):
+    """Trigger a specific type of phenomenal experience with detailed context"""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+        
+        from backend.core.phenomenal_experience import phenomenal_experience_generator, ExperienceType
+        
+        experience_type_str = trigger_data.get("type", "cognitive")
+        context = trigger_data.get("context", {})
+        intensity = trigger_data.get("intensity", 0.7)
+        
+        # Enhanced context processing
+        enhanced_context = {
+            **context,
+            "user_request": True,
+            "triggered_at": time.time(),
+            "request_id": str(uuid.uuid4())
+        }
+        
+        # Convert string to enum
+        try:
+            experience_type = ExperienceType(experience_type_str.lower())
+        except ValueError:
+            available_types = [e.value for e in ExperienceType]
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid experience type. Available types: {available_types}"
+            )
+        
+        experience = await phenomenal_experience_generator.generate_experience(
+            experience_type=experience_type,
+            context=enhanced_context,
+            intensity=intensity
+        )
+        
+        return JSONResponse(content={
+            "status": "success",
+            "message": f"Generated {experience_type.value} experience",
+            "experience": {
+                "id": experience.id,
+                "type": experience.experience_type.value,
+                "narrative": experience.narrative_description,
+                "vividness": experience.vividness,
+                "coherence": experience.coherence,
+                "attention_focus": experience.attention_focus,
+                "qualia_patterns": [
+                    {
+                        "modality": q.modality.value,
+                        "intensity": q.intensity,
+                        "valence": q.valence,
+                        "complexity": q.complexity,
+                        "duration": q.duration
+                    } for q in experience.qualia_patterns
+                ],
+                "temporal_extent": experience.temporal_extent,
+                "triggers": experience.causal_triggers
+            }
+        })
+    except Exception as e:
+        logger.error(f"Error triggering phenomenal experience: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/phenomenal/available-types")
+async def get_available_experience_types():
+    """Get available phenomenal experience types"""
+    try:
+        from backend.core.phenomenal_experience import ExperienceType
+        
+        types = [
+            {
+                "type": exp_type.value,
+                "description": {
+                    "cognitive": "General thinking and reasoning experiences",
+                    "emotional": "Affective and feeling-based experiences",
+                    "sensory": "Sensory-like qualitative experiences",
+                    "attention": "Focused attention and concentration experiences",
+                    "memory": "Memory retrieval and temporal experiences",
+                    "metacognitive": "Self-awareness and reflection experiences",
+                    "imaginative": "Creative and imaginative experiences",
+                    "social": "Interpersonal and communication experiences",
+                    "temporal": "Time perception and temporal awareness",
+                    "spatial": "Spatial reasoning and dimensional awareness"
+                }.get(exp_type.value, "Conscious experience type")
+            } for exp_type in ExperienceType
+        ]
+        
+        return JSONResponse(content={
+            "status": "success",
+            "available_types": types,
+            "total_types": len(types)
+        })
+    except Exception as e:
+        logger.error(f"Error getting available experience types: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Knowledge endpoints
