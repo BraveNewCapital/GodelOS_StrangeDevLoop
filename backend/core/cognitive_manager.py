@@ -21,6 +21,7 @@ from .consciousness_engine import ConsciousnessEngine, ConsciousnessState
 from .cognitive_transparency import transparency_engine
 from .metacognitive_monitor import metacognitive_monitor
 from .autonomous_learning import autonomous_learning_system
+from .knowledge_graph_evolution import knowledge_graph_evolution
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,10 @@ class CognitiveManager:
         # Initialize autonomous learning system
         autonomous_learning_system.llm_driver = llm_driver
         logger.info("Autonomous learning system initialized with LLM driver")
+        
+        # Initialize knowledge graph evolution system
+        knowledge_graph_evolution.llm_driver = llm_driver
+        logger.info("Knowledge graph evolution system initialized with LLM driver")
         
         # Cognitive state management
         self.active_sessions: Dict[str, Dict[str, Any]] = {}
@@ -996,6 +1001,197 @@ class CognitiveManager:
             return await autonomous_learning_system.get_learning_summary()
         except Exception as e:
             logger.error(f"Error getting autonomous learning summary: {e}")
+            return {"error": str(e)}
+    
+    # Knowledge Graph Evolution Methods
+    
+    async def evolve_knowledge_graph(self, 
+                                   trigger: str,
+                                   context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Trigger knowledge graph evolution based on new information or patterns"""
+        try:
+            from .knowledge_graph_evolution import EvolutionTrigger
+            
+            # Convert string trigger to enum
+            trigger_enum = EvolutionTrigger(trigger.lower()) if isinstance(trigger, str) else trigger
+            
+            result = await knowledge_graph_evolution.evolve_knowledge_graph(
+                trigger=trigger_enum,
+                context=context or {}
+            )
+            
+            # Log transparency event
+            await transparency_engine.log_cognitive_event(
+                event_type="knowledge_graph_evolution",
+                content=f"Knowledge graph evolved due to {trigger}",
+                metadata={
+                    "trigger": trigger,
+                    "evolution_id": result.get("evolution_id"),
+                    "changes_count": len(result.get("changes_made", {})),
+                    "validation_score": result.get("validation_score", 0)
+                },
+                reasoning="Knowledge graph evolution triggered to adapt cognitive structure"
+            )
+            
+            return result
+        except Exception as e:
+            logger.error(f"Error evolving knowledge graph: {e}")
+            return {"error": str(e)}
+    
+    async def add_knowledge_concept(self, 
+                                  concept_data: Dict[str, Any],
+                                  auto_connect: bool = True) -> Dict[str, Any]:
+        """Add a new concept to the knowledge graph"""
+        try:
+            concept = await knowledge_graph_evolution.add_concept(
+                concept_data=concept_data,
+                auto_connect=auto_connect
+            )
+            
+            # Log transparency event
+            await transparency_engine.log_cognitive_event(
+                event_type="concept_addition",
+                content=f"New concept added: {concept.name}",
+                metadata={
+                    "concept_id": concept.id,
+                    "concept_type": concept.concept_type,
+                    "activation_strength": concept.activation_strength,
+                    "auto_connect": auto_connect
+                },
+                reasoning="New concept integrated into knowledge graph structure"
+            )
+            
+            return {
+                "concept_id": concept.id,
+                "concept_name": concept.name,
+                "concept_type": concept.concept_type,
+                "activation_strength": concept.activation_strength,
+                "status": concept.status.value,
+                "timestamp": datetime.now().isoformat()
+            }
+        except Exception as e:
+            logger.error(f"Error adding knowledge concept: {e}")
+            return {"error": str(e)}
+    
+    async def create_knowledge_relationship(self,
+                                          source_concept: str,
+                                          target_concept: str,
+                                          relationship_type: str,
+                                          strength: float = 0.5,
+                                          evidence: List[str] = None) -> Dict[str, Any]:
+        """Create a relationship between knowledge concepts"""
+        try:
+            from .knowledge_graph_evolution import RelationshipType
+            
+            # Convert string to enum
+            rel_type = RelationshipType(relationship_type.lower())
+            
+            relationship = await knowledge_graph_evolution.create_relationship(
+                source_id=source_concept,
+                target_id=target_concept,
+                relationship_type=rel_type,
+                strength=strength,
+                evidence=evidence or []
+            )
+            
+            # Log transparency event
+            await transparency_engine.log_cognitive_event(
+                event_type="relationship_creation",
+                content=f"Relationship created: {source_concept} -> {target_concept} ({relationship_type})",
+                metadata={
+                    "relationship_id": relationship.id,
+                    "relationship_type": relationship_type,
+                    "strength": strength,
+                    "bidirectional": relationship.bidirectional
+                },
+                reasoning="Knowledge relationship established to enhance cognitive connections"
+            )
+            
+            return {
+                "relationship_id": relationship.id,
+                "source_concept": source_concept,
+                "target_concept": target_concept,
+                "relationship_type": relationship_type,
+                "strength": strength,
+                "confidence": relationship.confidence,
+                "bidirectional": relationship.bidirectional,
+                "timestamp": datetime.now().isoformat()
+            }
+        except Exception as e:
+            logger.error(f"Error creating knowledge relationship: {e}")
+            return {"error": str(e)}
+    
+    async def detect_emergent_patterns(self) -> Dict[str, Any]:
+        """Detect emergent patterns in the knowledge graph"""
+        try:
+            patterns = await knowledge_graph_evolution.detect_emergent_patterns()
+            
+            # Log transparency event
+            await transparency_engine.log_cognitive_event(
+                event_type="pattern_detection",
+                content=f"Detected {len(patterns)} emergent patterns in knowledge graph",
+                metadata={
+                    "patterns_found": len(patterns),
+                    "pattern_types": [p.pattern_type for p in patterns],
+                    "average_strength": sum(p.strength for p in patterns) / len(patterns) if patterns else 0
+                },
+                reasoning="Pattern detection executed to identify emerging knowledge structures"
+            )
+            
+            return {
+                "patterns_detected": len(patterns),
+                "patterns": [
+                    {
+                        "id": pattern.id,
+                        "type": pattern.pattern_type,
+                        "description": pattern.description,
+                        "strength": pattern.strength,
+                        "confidence": pattern.confidence,
+                        "concepts_involved": len(pattern.involved_concepts),
+                        "relationships_involved": len(pattern.involved_relationships)
+                    }
+                    for pattern in patterns
+                ],
+                "timestamp": datetime.now().isoformat()
+            }
+        except Exception as e:
+            logger.error(f"Error detecting emergent patterns: {e}")
+            return {"error": str(e)}
+    
+    async def get_concept_neighborhood(self, 
+                                    concept_id: str,
+                                    depth: int = 2) -> Dict[str, Any]:
+        """Get the neighborhood of concepts around a given concept"""
+        try:
+            neighborhood = await knowledge_graph_evolution.get_concept_neighborhood(
+                concept_id=concept_id,
+                depth=depth
+            )
+            
+            # Log transparency event
+            await transparency_engine.log_cognitive_event(
+                event_type="neighborhood_analysis",
+                content=f"Analyzed neighborhood for concept {concept_id} at depth {depth}",
+                metadata={
+                    "concept_id": concept_id,
+                    "depth": depth,
+                    "neighborhood_size": neighborhood.get("neighborhood_size", 0),
+                    "neighborhood_density": neighborhood.get("neighborhood_density", 0)
+                },
+                reasoning="Concept neighborhood analysis to understand local knowledge structure"
+            )
+            
+            return neighborhood
+        except Exception as e:
+            logger.error(f"Error getting concept neighborhood: {e}")
+            return {"error": str(e)}
+    
+    async def get_knowledge_graph_summary(self) -> Dict[str, Any]:
+        """Get comprehensive summary of knowledge graph evolution"""
+        try:
+            return await knowledge_graph_evolution.get_evolution_summary()
+        except Exception as e:
+            logger.error(f"Error getting knowledge graph summary: {e}")
             return {"error": str(e)}
 
 

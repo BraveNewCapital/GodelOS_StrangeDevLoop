@@ -216,6 +216,22 @@ class CognitiveTransparencyEngine:
         )
         await self.stream_cognitive_event(event)
     
+    async def log_cognitive_event(self, event_type: str, content: str, metadata: Dict[str, Any] = None, reasoning: str = "") -> None:
+        """Generic cognitive event logging method"""
+        event = CognitiveEvent(
+            timestamp=datetime.now().isoformat(),
+            event_type=event_type,
+            component="cognitive_manager",
+            details={
+                "content": content,
+                "metadata": metadata or {},
+                "context": "knowledge_graph_evolution"
+            },
+            llm_reasoning=reasoning,
+            priority=5
+        )
+        await self.stream_cognitive_event(event)
+    
     async def get_transparency_metrics(self) -> Dict:
         """Get current transparency metrics"""
         return {

@@ -773,6 +773,122 @@ async def get_learning_summary():
         logger.error(f"Error getting learning summary: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# =====================================================================
+# KNOWLEDGE GRAPH EVOLUTION ENDPOINTS
+# =====================================================================
+
+@app.post("/api/v1/knowledge-graph/evolve")
+async def evolve_knowledge_graph(evolution_data: Dict[str, Any]):
+    """Trigger knowledge graph evolution based on new information or patterns"""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+        
+        trigger = evolution_data.get("trigger")
+        context = evolution_data.get("context", {})
+        
+        if not trigger:
+            raise HTTPException(status_code=400, detail="Trigger is required")
+        
+        result = await cognitive_manager.evolve_knowledge_graph(
+            trigger=trigger,
+            context=context
+        )
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error evolving knowledge graph: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/knowledge-graph/concepts")
+async def add_knowledge_concept(concept_data: Dict[str, Any]):
+    """Add a new concept to the knowledge graph"""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+        
+        auto_connect = concept_data.get("auto_connect", True)
+        result = await cognitive_manager.add_knowledge_concept(
+            concept_data=concept_data,
+            auto_connect=auto_connect
+        )
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error adding knowledge concept: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/knowledge-graph/relationships")
+async def create_knowledge_relationship(relationship_data: Dict[str, Any]):
+    """Create a relationship between knowledge concepts"""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+        
+        source_concept = relationship_data.get("source_id")
+        target_concept = relationship_data.get("target_id") 
+        relationship_type = relationship_data.get("relationship_type")
+        strength = relationship_data.get("strength", 0.5)
+        evidence = relationship_data.get("evidence", [])
+        
+        if not source_concept or not target_concept or not relationship_type:
+            raise HTTPException(status_code=400, detail="source_id, target_id, and relationship_type are required")
+        
+        result = await cognitive_manager.create_knowledge_relationship(
+            source_concept=source_concept,
+            target_concept=target_concept,
+            relationship_type=relationship_type,
+            strength=strength,
+            evidence=evidence
+        )
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error creating knowledge relationship: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/knowledge-graph/patterns/detect")
+async def detect_emergent_patterns():
+    """Detect emergent patterns in the knowledge graph"""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+        
+        result = await cognitive_manager.detect_emergent_patterns()
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error detecting emergent patterns: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/knowledge-graph/concepts/{concept_id}/neighborhood")
+async def get_concept_neighborhood(
+    concept_id: str,
+    depth: int = Query(default=2, description="Depth of neighborhood analysis")
+):
+    """Get the neighborhood of concepts around a given concept"""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+        
+        result = await cognitive_manager.get_concept_neighborhood(
+            concept_id=concept_id,
+            depth=depth
+        )
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error getting concept neighborhood: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/knowledge-graph/summary")
+async def get_knowledge_graph_summary():
+    """Get comprehensive summary of knowledge graph evolution"""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+        
+        result = await cognitive_manager.get_knowledge_graph_summary()
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error getting knowledge graph summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Knowledge endpoints
 @app.get("/api/knowledge/concepts")
 async def get_knowledge_concepts():
