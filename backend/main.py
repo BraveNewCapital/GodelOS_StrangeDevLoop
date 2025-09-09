@@ -17,6 +17,7 @@ import os
 import sys
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Dict, List, Optional, Any, Union
 
 import uvicorn
@@ -1641,125 +1642,50 @@ async def query_knowledge(request: dict):
 
 @app.get("/api/knowledge/graph")
 async def get_knowledge_graph():
-    """Get knowledge graph structure for visualization using dynamic processing."""
+    """Get the UNIFIED knowledge graph structure - single source of truth."""
     try:
-        # Try to use dynamic knowledge graph from processor first
-        if hasattr(dynamic_knowledge_processor, 'concept_store') and dynamic_knowledge_processor.concept_store:
-            # Build graph from stored concepts
-            nodes = []
-            edges = []
-            
-            for concept in dynamic_knowledge_processor.concept_store.values():
-                nodes.append({
-                    "id": concept.id,
-                    "label": concept.name,
-                    "type": concept.type,
-                    "level": concept.level,
-                    "category": concept.metadata.get("concept_category", concept.type),
-                    "confidence": concept.confidence,
-                    "size": 8 + concept.level * 2,
-                    "description": concept.description
-                })
-            
-            for relation in dynamic_knowledge_processor.relation_store.values():
-                edges.append({
-                    "source": relation.source_id,
-                    "target": relation.target_id,
-                    "type": relation.relation_type,
-                    "weight": relation.strength,
-                    "confidence": relation.confidence,
-                    "label": relation.relation_type.replace("_", " ").title()
-                })
-            
+        # Import here to avoid circular dependency
+        from backend.cognitive_transparency_integration import cognitive_transparency_api
+        
+        # UNIFIED SYSTEM: Only one knowledge graph source
+        if cognitive_transparency_api and cognitive_transparency_api.knowledge_graph:
+            try:
+                # Get dynamic graph data from the UNIFIED transparency system
+                graph_data = await cognitive_transparency_api.knowledge_graph.export_graph()
+                
+                # Return unified format
+                return {
+                    "nodes": graph_data.get("nodes", []),
+                    "edges": graph_data.get("edges", []),
+                    "metadata": {
+                        "node_count": len(graph_data.get("nodes", [])),
+                        "edge_count": len(graph_data.get("edges", [])),
+                        "last_updated": datetime.now().isoformat(),
+                        "data_source": "unified_dynamic_transparency_system"
+                    }
+                }
+            except Exception as e:
+                logger.warning(f"Failed to get unified dynamic knowledge graph: {e}")
+                # Re-raise the error instead of falling back to static data
+                raise HTTPException(status_code=500, detail=f"Knowledge graph error: {str(e)}")
+        else:
+            # System not ready - return empty graph, NO STATIC FALLBACK
+            logger.warning("Cognitive transparency system not initialized")
             return {
-                "nodes": nodes,
-                "edges": edges,
-                "statistics": {
-                    "node_count": len(nodes),
-                    "edge_count": len(edges),
-                    "atomic_concepts": len([n for n in nodes if n["level"] == 0]),
-                    "aggregated_concepts": len([n for n in nodes if n["level"] == 1]),
-                    "meta_concepts": len([n for n in nodes if n["level"] == 2]),
-                    "categories": list(set(n["category"] for n in nodes)),
-                    "data_source": "dynamic_processing",
-                    "total_count": len(nodes) + len(edges)
-                },
-                "dynamic_graph": True,
-                "timestamp": time.time()
+                "nodes": [],
+                "edges": [],
+                "metadata": {
+                    "node_count": 0,
+                    "edge_count": 0,
+                    "last_updated": datetime.now().isoformat(),
+                    "data_source": "system_not_ready",
+                    "error": "Cognitive transparency system not initialized"
+                }
             }
         
-        # Try to use dynamic knowledge graph from pipeline
-        if knowledge_pipeline_service and knowledge_pipeline_service.initialized:
-            try:
-                graph_data = await knowledge_pipeline_service.get_knowledge_graph_data()
-                if graph_data and (graph_data.get('nodes') or graph_data.get('edges')):
-                    # Enhance the pipeline data with additional metadata
-                    graph_data["dynamic_graph"] = True
-                    graph_data["timestamp"] = time.time()
-                    return graph_data
-            except Exception as e:
-                logger.warning(f"Failed to get dynamic knowledge graph data from pipeline: {e}")
-        
     except Exception as e:
-        logger.warning(f"Failed to get dynamic knowledge graph data: {e}")
-    
-    # Enhanced fallback with more sophisticated graph structure
-    return {
-        "nodes": [
-            {"id": "consciousness", "label": "Consciousness", "type": "meta", "level": 2, "size": 15, "category": "philosophy", 
-             "confidence": 0.9, "description": "Higher-order awareness and subjective experience"},
-            {"id": "ai_system", "label": "AI System", "type": "aggregated", "level": 1, "size": 12, "category": "technology",
-             "confidence": 0.95, "description": "Artificial intelligence computational framework"},
-            {"id": "metacognition", "label": "Meta-cognition", "type": "aggregated", "level": 1, "size": 10, "category": "psychology",
-             "confidence": 0.85, "description": "Thinking about thinking processes"},
-            {"id": "self_awareness", "label": "Self-awareness", "type": "atomic", "level": 0, "size": 8, "category": "cognition",
-             "confidence": 0.8, "description": "Awareness of one's own existence and mental states"},
-            {"id": "godel_architecture", "label": "GödelOS Architecture", "type": "meta", "level": 2, "size": 14, "category": "system",
-             "confidence": 0.9, "description": "Cognitive operating system architecture"},
-            {"id": "reasoning", "label": "Reasoning", "type": "aggregated", "level": 1, "size": 9, "category": "cognition",
-             "confidence": 0.9, "description": "Logical inference and deductive processes"},
-            {"id": "transparency", "label": "Transparency", "type": "aggregated", "level": 1, "size": 7, "category": "system",
-             "confidence": 0.85, "description": "System introspection and cognitive visibility"},
-            {"id": "knowledge_graph", "label": "Knowledge Graph", "type": "atomic", "level": 0, "size": 11, "category": "technology",
-             "confidence": 0.95, "description": "Structured representation of knowledge relationships"},
-            {"id": "llm_integration", "label": "LLM Integration", "type": "aggregated", "level": 1, "size": 10, "category": "technology",
-             "confidence": 0.8, "description": "Large language model integration layer"},
-            {"id": "cognitive_state", "label": "Cognitive State", "type": "atomic", "level": 0, "size": 8, "category": "cognition",
-             "confidence": 0.8, "description": "Current state of cognitive processes"},
-            {"id": "stream_consciousness", "label": "Stream of Consciousness", "type": "atomic", "level": 0, "size": 6, "category": "psychology",
-             "confidence": 0.7, "description": "Continuous flow of thoughts and experiences"},
-            {"id": "autonomous_learning", "label": "Autonomous Learning", "type": "aggregated", "level": 1, "size": 9, "category": "learning",
-             "confidence": 0.85, "description": "Self-directed learning and improvement mechanisms"}
-        ],
-        "edges": [
-            {"source": "godel_architecture", "target": "consciousness", "type": "implements", "weight": 0.9, "confidence": 0.85, "label": "Implements"},
-            {"source": "consciousness", "target": "self_awareness", "type": "requires", "weight": 0.8, "confidence": 0.9, "label": "Requires"},
-            {"source": "ai_system", "target": "metacognition", "type": "enables", "weight": 0.7, "confidence": 0.8, "label": "Enables"},
-            {"source": "metacognition", "target": "consciousness", "type": "contributes_to", "weight": 0.9, "confidence": 0.85, "label": "Contributes To"},
-            {"source": "godel_architecture", "target": "reasoning", "type": "supports", "weight": 0.8, "confidence": 0.9, "label": "Supports"},
-            {"source": "reasoning", "target": "transparency", "type": "enables", "weight": 0.6, "confidence": 0.75, "label": "Enables"},
-            {"source": "knowledge_graph", "target": "reasoning", "type": "supports", "weight": 0.7, "confidence": 0.85, "label": "Supports"},
-            {"source": "llm_integration", "target": "godel_architecture", "type": "extends", "weight": 0.8, "confidence": 0.8, "label": "Extends"},
-            {"source": "cognitive_state", "target": "consciousness", "type": "represents", "weight": 0.7, "confidence": 0.8, "label": "Represents"},
-            {"source": "stream_consciousness", "target": "cognitive_state", "type": "generates", "weight": 0.6, "confidence": 0.7, "label": "Generates"},
-            {"source": "autonomous_learning", "target": "metacognition", "type": "enhances", "weight": 0.8, "confidence": 0.8, "label": "Enhances"},
-            {"source": "transparency", "target": "self_awareness", "type": "enables", "weight": 0.7, "confidence": 0.75, "label": "Enables"},
-            {"source": "godel_architecture", "target": "autonomous_learning", "type": "implements", "weight": 0.8, "confidence": 0.85, "label": "Implements"},
-            {"source": "llm_integration", "target": "reasoning", "type": "augments", "weight": 0.9, "confidence": 0.85, "label": "Augments"}
-        ],
-        "statistics": {
-            "node_count": 12,
-            "edge_count": 14,
-            "total_count": 26,
-            "atomic_concepts": 4,
-            "aggregated_concepts": 6,
-            "meta_concepts": 2,
-            "categories": ["philosophy", "technology", "psychology", "cognition", "system", "learning"],
-            "data_source": "enhanced_fallback"
-        },
-        "dynamic_graph": False,
-        "timestamp": time.time()
-    }
+        logger.error(f"Error retrieving unified knowledge graph: {e}")
+        raise HTTPException(status_code=500, detail=f"Knowledge graph error: {str(e)}")
 
 
 @app.get("/api/knowledge/evolution")
@@ -2495,19 +2421,29 @@ async def startup_event():
     logger.info("Initializing backend services...")
     
     try:
+        # Initialize GödelOS integration first
+        logger.info("🔍 STARTUP: Initializing GödelOS integration...")
+        await godelos_integration.initialize()
+        logger.info("✅ STARTUP: GödelOS integration initialized")
+        
+        # Initialize cognitive transparency system
+        logger.info("🔍 STARTUP: Initializing cognitive transparency system...")
+        await cognitive_transparency_api.initialize(godelos_integration)
+        logger.info("✅ STARTUP: Cognitive transparency system initialized")
+        
         # Initialize knowledge ingestion service with websocket manager
         logger.info(f"🔍 STARTUP: Initializing knowledge_ingestion_service with websocket_manager")
         logger.info(f"🔍 STARTUP: WebSocket manager available: {websocket_manager is not None}")
         await knowledge_ingestion_service.initialize(websocket_manager)
-        logger.info("Knowledge ingestion service initialized")
+        logger.info("✅ STARTUP: Knowledge ingestion service initialized")
         
         # Initialize knowledge management service
         await knowledge_management_service.initialize()
-        logger.info("Knowledge management service initialized")
+        logger.info("✅ STARTUP: Knowledge management service initialized")
         
-        logger.info("All backend services initialized successfully")
+        logger.info("✅ All backend services initialized successfully")
     except Exception as e:
-        logger.error(f"Failed to initialize services: {e}")
+        logger.error(f"❌ Failed to initialize services: {e}")
         # Don't raise here as it would prevent the server from starting
         # The endpoints will handle errors gracefully
 

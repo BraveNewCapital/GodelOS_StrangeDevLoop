@@ -226,6 +226,7 @@ test_results/
 
 # Backend storage
 backend/knowledge_storage/
+backend/godelos_data/
 knowledge_storage/*
 metacognition_modules/backups/
 backend/metacognition_modules/backups
@@ -243,16 +244,38 @@ backend/metacognition_modules/backups
 *_patch*
 *_patched*
 test_*.py
+test_*.txt
+test_*.json
 final_field_test.py
 debug_responses.py
 patch_responses.py
 analyze_failures.py
 run_individual_tests.py
 
-# Generated reports (unless specifically needed)
+# Generated reports and documentation (unless specifically needed)
 *_report.json
 *_report.md
+*_REPORT.md
+*_TEST_REPORT.md
+*_VALIDATION_REPORT.md
+*_ANALYSIS_REPORT.md
+*_DOCUMENTATION.md
 cognitive_architecture_test_report.*
+comprehensive_*.py
+comprehensive_*.js
+llm_cognitive_*.py
+llm_cognitive_*.json
+
+# Process data and temporary files
+temp_*.txt
+*.tmp
+*_temp.*
+simple_*.py
+simulate-*.sh
+run-*.sh
+
+# Duplicate files (originals should be in demo-data/)
+godelos_arxiv_paper_v2.pdf
 
 # Log files
 *.log

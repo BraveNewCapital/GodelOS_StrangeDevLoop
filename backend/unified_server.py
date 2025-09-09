@@ -223,6 +223,7 @@ async def initialize_core_services():
 
 async def initialize_optional_services():
     """Initialize optional advanced services."""
+    global godelos_integration
     
     # Initialize knowledge services if available
     if KNOWLEDGE_SERVICES_AVAILABLE and knowledge_ingestion_service and knowledge_management_service:
@@ -237,14 +238,25 @@ async def initialize_optional_services():
         except Exception as e:
             logger.error(f"❌ Failed to initialize knowledge services: {e}")
     
-    # Initialize transparency system if available
+    # Initialize cognitive transparency API - CRITICAL FOR UNIFIED KG!
     if ENHANCED_APIS_AVAILABLE:
         try:
+            from backend.cognitive_transparency_integration import cognitive_transparency_api
+            
+            # Initialize the cognitive transparency API with GödelOS integration
+            logger.info("🔍 UNIFIED_SERVER: Initializing cognitive transparency API for unified KG...")
+            await cognitive_transparency_api.initialize(godelos_integration)
+            logger.info("✅ Cognitive transparency API initialized successfully - unified KG is ready!")
+            
+            # Also initialize the transparency system
             if initialize_transparency_system:
                 await initialize_transparency_system()
                 logger.info("✅ Transparency system initialized successfully")
         except Exception as e:
-            logger.error(f"❌ Failed to initialize transparency system: {e}")
+            logger.error(f"❌ Failed to initialize cognitive transparency system: {e}")
+            # Log more details about the failure
+            import traceback
+            logger.error(f"❌ Detailed error: {traceback.format_exc()}")
 
 async def continuous_cognitive_streaming():
     """Background task for continuous cognitive state streaming."""
@@ -499,31 +511,163 @@ async def get_knowledge_concepts():
 
 @app.get("/api/knowledge/graph")
 async def get_knowledge_graph():
-    """Get knowledge graph structure."""
+    """Get the UNIFIED knowledge graph structure - single source of truth."""
     try:
-        # Return a basic knowledge graph structure
-        graph = {
-            "nodes": [
-                {"id": "reasoning", "type": "concept", "label": "Reasoning"},
-                {"id": "memory", "type": "concept", "label": "Memory"},
-                {"id": "learning", "type": "concept", "label": "Learning"},
-                {"id": "metacognition", "type": "concept", "label": "Metacognition"}
-            ],
-            "edges": [
-                {"source": "reasoning", "target": "memory", "type": "uses"},
-                {"source": "learning", "target": "memory", "type": "updates"},
-                {"source": "metacognition", "target": "reasoning", "type": "monitors"}
-            ],
-            "metadata": {
-                "node_count": 4,
-                "edge_count": 3,
-                "last_updated": datetime.now().isoformat()
+        # Import here to avoid circular dependency
+        from backend.cognitive_transparency_integration import cognitive_transparency_api
+        
+        # UNIFIED SYSTEM: Only one knowledge graph source
+        if cognitive_transparency_api and cognitive_transparency_api.knowledge_graph:
+            try:
+                # Get dynamic graph data from the UNIFIED transparency system
+                graph_data = await cognitive_transparency_api.knowledge_graph.export_graph()
+                
+                # Return unified format
+                return {
+                    "nodes": graph_data.get("nodes", []),
+                    "edges": graph_data.get("edges", []),
+                    "metadata": {
+                        "node_count": len(graph_data.get("nodes", [])),
+                        "edge_count": len(graph_data.get("edges", [])),
+                        "last_updated": datetime.now().isoformat(),
+                        "data_source": "unified_dynamic_transparency_system"
+                    }
+                }
+            except Exception as e:
+                logger.warning(f"Failed to get unified dynamic knowledge graph: {e}")
+                # Re-raise the error instead of falling back to static data
+                raise HTTPException(status_code=500, detail=f"Knowledge graph error: {str(e)}")
+        else:
+            # System not ready - return empty graph, NO STATIC FALLBACK
+            logger.warning("Cognitive transparency system not initialized")
+            return {
+                "nodes": [],
+                "edges": [],
+                "metadata": {
+                    "node_count": 0,
+                    "edge_count": 0,
+                    "last_updated": datetime.now().isoformat(),
+                    "data_source": "system_not_ready",
+                    "error": "Cognitive transparency system not initialized"
+                }
+            }
+        
+    except Exception as e:
+        logger.error(f"Error retrieving unified knowledge graph: {e}")
+        raise HTTPException(status_code=500, detail=f"Knowledge graph error: {str(e)}")
+
+@app.post("/api/knowledge/reanalyze")
+async def reanalyze_all_documents():
+    """Re-analyze all stored documents and rebuild the unified knowledge graph."""
+    try:
+        # Import here to avoid circular dependency
+        from backend.cognitive_transparency_integration import cognitive_transparency_api
+        from backend.knowledge_ingestion import knowledge_ingestion_service
+        import glob
+        import json
+        
+        if not cognitive_transparency_api or not cognitive_transparency_api.knowledge_graph:
+            raise HTTPException(status_code=503, detail="Cognitive transparency system not ready")
+        
+        if not knowledge_ingestion_service:
+            raise HTTPException(status_code=503, detail="Knowledge ingestion service not available")
+        
+        # Get all stored documents
+        storage_path = knowledge_ingestion_service.storage_path
+        if not storage_path or not storage_path.exists():
+            return {"message": "No documents found to reanalyze", "processed": 0}
+        
+        # Find all JSON files
+        json_files = glob.glob(str(storage_path / "*.json"))
+        document_files = [f for f in json_files if not os.path.basename(f).startswith("temp_")]
+        
+        logger.info(f"🔄 Re-analyzing {len(document_files)} documents...")
+        
+        processed_count = 0
+        failed_count = 0
+        
+        for file_path in document_files:
+            try:
+                # Load document data
+                with open(file_path, 'r') as f:
+                    doc_data = json.load(f)
+                
+                # Extract concepts for knowledge graph
+                concepts = []
+                
+                # Add title
+                if doc_data.get('title'):
+                    concepts.append(doc_data['title'])
+                
+                # Add categories
+                if doc_data.get('categories'):
+                    concepts.extend(doc_data['categories'])
+                
+                # Add keywords from metadata
+                if doc_data.get('metadata', {}).get('keywords'):
+                    keywords = doc_data['metadata']['keywords']
+                    if isinstance(keywords, list):
+                        concepts.extend(keywords[:5])
+                
+                # Add concepts to unified knowledge graph
+                for concept in concepts:
+                    if concept and isinstance(concept, str) and len(concept.strip()) > 0:
+                        await cognitive_transparency_api.knowledge_graph.add_node(
+                            concept=concept.strip(),
+                            node_type="knowledge_item",
+                            properties={
+                                "source_item_id": doc_data.get('id'),
+                                "source": doc_data.get('source', {}).get('source_type', 'unknown'),
+                                "confidence": doc_data.get('confidence', 0.8),
+                                "quality_score": doc_data.get('quality_score', 0.8),
+                                "reanalyzed": True
+                            },
+                            confidence=doc_data.get('confidence', 0.8)
+                        )
+                
+                # Create relationships between concepts from the same document
+                if len(concepts) > 1:
+                    main_concept = concepts[0]
+                    for related_concept in concepts[1:]:
+                        if related_concept and isinstance(related_concept, str) and len(related_concept.strip()) > 0:
+                            await cognitive_transparency_api.knowledge_graph.add_edge(
+                                source_concept=main_concept.strip(),
+                                target_concept=related_concept.strip(),
+                                relation_type="related_to",
+                                strength=0.7,
+                                properties={
+                                    "source_item_id": doc_data.get('id'),
+                                    "relationship_source": "reanalysis"
+                                },
+                                confidence=0.7
+                            )
+                
+                processed_count += 1
+                
+            except Exception as e:
+                logger.warning(f"Failed to reanalyze document {file_path}: {e}")
+                failed_count += 1
+        
+        # Get final graph stats
+        graph_data = await cognitive_transparency_api.knowledge_graph.export_graph()
+        
+        logger.info(f"✅ Re-analysis complete: {processed_count} processed, {failed_count} failed")
+        
+        return {
+            "message": "Document re-analysis completed",
+            "processed_documents": processed_count,
+            "failed_documents": failed_count,
+            "total_documents": len(document_files),
+            "knowledge_graph": {
+                "nodes": len(graph_data.get("nodes", [])),
+                "edges": len(graph_data.get("edges", [])),
+                "data_source": "unified_reanalysis"
             }
         }
-        return graph
+        
     except Exception as e:
-        logger.error(f"Error retrieving knowledge graph: {e}")
-        raise HTTPException(status_code=500, detail=f"Knowledge graph error: {str(e)}")
+        logger.error(f"Error during re-analysis: {e}")
+        raise HTTPException(status_code=500, detail=f"Re-analysis failed: {str(e)}")
 
 @app.get("/api/enhanced-cognitive/stream/status") 
 async def get_enhanced_cognitive_stream_status():
@@ -833,6 +977,7 @@ import_jobs = {}
 async def get_import_progress(import_id: str):
     """Get the progress of a file import operation"""
     try:
+        # First check any short-lived server-side import_jobs map
         if import_id in import_jobs:
             job = import_jobs[import_id]
             return {
@@ -845,12 +990,32 @@ async def get_import_progress(import_id: str):
                 "error": job.get("error", None),
                 "result": job.get("result", None)
             }
-        else:
-            return {
-                "import_id": import_id,
-                "status": "not_found",
-                "error": f"Import job {import_id} not found"
-            }
+
+        # Fallback: consult the knowledge_ingestion_service if available
+        try:
+            if 'knowledge_ingestion_service' in globals() and knowledge_ingestion_service:
+                prog = await knowledge_ingestion_service.get_import_progress(import_id)
+                if prog:
+                    # Normalize the response shape expected by frontend
+                    return {
+                        "import_id": prog.import_id,
+                        "status": getattr(prog, 'status', 'processing'),
+                        "progress": getattr(prog, 'progress_percentage', getattr(prog, 'progress', 0)) or 0,
+                        "filename": getattr(prog, 'filename', ''),
+                        "started_at": getattr(prog, 'started_at', ''),
+                        "completed_at": getattr(prog, 'completed_at', ''),
+                        "error": getattr(prog, 'error_message', None) or getattr(prog, 'error', None),
+                        "result": None
+                    }
+        except Exception as e:
+            logger.warning(f"Error consulting knowledge_ingestion_service for progress {import_id}: {e}")
+
+        # Not found locally or in ingestion service
+        return {
+            "import_id": import_id,
+            "status": "not_found",
+            "error": f"Import job {import_id} not found"
+        }
     except Exception as e:
         logger.error(f"Error getting import progress: {e}")
         return {
@@ -860,7 +1025,7 @@ async def get_import_progress(import_id: str):
         }
 
 @app.post("/api/knowledge/import/file")
-async def import_knowledge_from_file(file: UploadFile = File(...)):
+async def import_knowledge_from_file(file: UploadFile = File(...), filename: str = Form(None), file_type: str = Form(None)):
     """Import knowledge from uploaded file."""
     if not (KNOWLEDGE_SERVICES_AVAILABLE and knowledge_ingestion_service):
         raise HTTPException(status_code=503, detail="Knowledge ingestion service not available")
@@ -874,13 +1039,20 @@ async def import_knowledge_from_file(file: UploadFile = File(...)):
         # Read file content
         content = await file.read()
         
-        # Determine file type
-        file_type = "pdf" if file.filename.lower().endswith('.pdf') else "text"
-        if file.content_type:
-            if "pdf" in file.content_type.lower():
-                file_type = "pdf"
-            elif "text" in file.content_type.lower():
-                file_type = "text"
+        # Determine file type. Prefer client-supplied form field if present.
+        if file_type:
+            determined_file_type = file_type.lower()
+        else:
+            determined_file_type = "pdf" if file.filename.lower().endswith('.pdf') else "text"
+            if file.content_type:
+                if "pdf" in file.content_type.lower():
+                    determined_file_type = "pdf"
+                elif "text" in file.content_type.lower():
+                    determined_file_type = "text"
+
+        # Normalize legacy/ambiguous type names to the expected literals
+        if determined_file_type == 'text':
+            determined_file_type = 'txt'
         
         # Create proper file import request
         file_request = FileImportRequest(
@@ -891,10 +1063,10 @@ async def import_knowledge_from_file(file: UploadFile = File(...)):
                 metadata={
                     "content_type": file.content_type or "application/octet-stream",
                     "file_size": len(content),
-                    "file_type": file_type
+                    "file_type": determined_file_type
                 }
             ),
-            file_type=file_type
+            file_type=determined_file_type
         )
         
         # Use the actual knowledge ingestion service - pass content separately
@@ -911,8 +1083,8 @@ async def import_knowledge_from_file(file: UploadFile = File(...)):
         }
         
     except Exception as e:
-        logger.error(f"Error importing knowledge from file: {e}")
-        raise HTTPException(status_code=500, detail=f"File import error: {str(e)}")
+            logger.error(f"Error importing knowledge from file: {e}")
+            raise HTTPException(status_code=500, detail=f"File import error: {str(e)}")
 
 @app.post("/api/knowledge/import/wikipedia")
 async def import_knowledge_from_wikipedia(request: dict):
@@ -1299,24 +1471,9 @@ async def enhanced_cognitive_status():
 # Knowledge graph and transparency endpoints
 @app.get("/api/transparency/knowledge-graph/export")
 async def export_knowledge_graph():
-    """Export knowledge graph for transparency."""
-    # Mock knowledge graph data
-    return {
-        "nodes": [
-            {"id": "concept1", "label": "Machine Learning", "type": "concept"},
-            {"id": "concept2", "label": "Neural Networks", "type": "concept"},
-            {"id": "concept3", "label": "Deep Learning", "type": "concept"}
-        ],
-        "edges": [
-            {"source": "concept1", "target": "concept2", "type": "contains"},
-            {"source": "concept2", "target": "concept3", "type": "enables"}
-        ],
-        "metadata": {
-            "generated_at": datetime.now().isoformat(),
-            "node_count": 3,
-            "edge_count": 2
-        }
-    }
+    """Export the UNIFIED knowledge graph - IDENTICAL format to main endpoint."""
+    # UNIFIED SYSTEM: Return exactly the same data as the main endpoint
+    return await get_knowledge_graph()
 
 @app.get("/api/enhanced-cognitive/autonomous/gaps")
 async def get_knowledge_gaps():

@@ -385,7 +385,10 @@ class CognitiveTransparencyAPI:
     async def initialize(self, godelos_integration):
         """Initialize the transparency API with GödelOS integration."""
         try:
+            logger.info("🔍 CT_API_INIT: Starting CognitiveTransparencyAPI initialization")
+            
             # Create transparency manager
+            logger.info("🔍 CT_API_INIT: Creating transparency manager")
             self.transparency_manager = CognitiveTransparencyManager(
                 websocket_manager=self.websocket_manager,
                 config={
@@ -396,50 +399,68 @@ class CognitiveTransparencyAPI:
             )
             
             # Initialize transparency manager
+            logger.info("🔍 CT_API_INIT: Initializing transparency manager")
             await self.transparency_manager.initialize()
+            logger.info("🔍 CT_API_INIT: Transparency manager initialized successfully")
             
             # Phase 2: Initialize components
+            logger.info("🔍 CT_API_INIT: Starting Phase 2 component initialization")
+            
             # Create uncertainty quantification engine
+            logger.info("🔍 CT_API_INIT: Creating uncertainty quantification engine")
             self.uncertainty_engine = UncertaintyQuantificationEngine(
                 event_callback=self._handle_uncertainty_event
             )
+            logger.info("🔍 CT_API_INIT: Uncertainty engine created successfully")
             
             # Create provenance tracker
+            logger.info("🔍 CT_API_INIT: Creating provenance tracker")
             self.provenance_tracker = ProvenanceTracker(
                 event_callback=self._handle_provenance_event
             )
+            logger.info("🔍 CT_API_INIT: Provenance tracker created successfully")
             
             # Create dynamic knowledge graph
+            logger.info("🔍 CT_API_INIT: Creating dynamic knowledge graph")
             self.knowledge_graph = DynamicKnowledgeGraph(
                 provenance_tracker=self.provenance_tracker,
                 uncertainty_engine=self.uncertainty_engine,
                 event_callback=self._handle_knowledge_graph_event
             )
+            logger.info(f"🔍 CT_API_INIT: Dynamic knowledge graph created successfully, instance: {self.knowledge_graph}")
+            logger.info(f"🔍 CT_API_INIT: knowledge_graph type: {type(self.knowledge_graph)}")
             
             # Create autonomous learning orchestrator
+            logger.info("🔍 CT_API_INIT: Creating autonomous learning orchestrator")
             self.autonomous_learning = AutonomousLearningOrchestrator(
                 knowledge_graph=self.knowledge_graph,
                 provenance_tracker=self.provenance_tracker,
                 uncertainty_engine=self.uncertainty_engine,
                 event_callback=self._handle_learning_event
             )
-            
+            logger.info("🔍 CT_API_INIT: Autonomous learning orchestrator created successfully")
+                
             # Create enhanced metacognition manager if available
             if hasattr(godelos_integration, 'metacognition_manager'):
+                logger.info("🔍 CT_API_INIT: Creating enhanced metacognition manager")
                 self.enhanced_metacognition = EnhancedMetacognitionManager(
                     kr_system_interface=godelos_integration.knowledge_store,
                     type_system=godelos_integration.type_system,
                     transparency_manager=self.transparency_manager
                 )
-                
+                    
                 # Replace the original metacognition manager
                 godelos_integration.metacognition_manager = self.enhanced_metacognition
+                logger.info("🔍 CT_API_INIT: Enhanced metacognition manager created and replaced")
             
             self.is_initialized = True
-            logger.info("CognitiveTransparencyAPI with Phase 2 components initialized successfully")
+            logger.info("✅ CognitiveTransparencyAPI with Phase 2 components initialized successfully")
             
         except Exception as e:
-            logger.error(f"Failed to initialize CognitiveTransparencyAPI: {e}")
+            logger.error(f"❌ CT_API_INIT: Failed to initialize CognitiveTransparencyAPI: {e}")
+            logger.error(f"❌ CT_API_INIT: Exception type: {type(e).__name__}")
+            import traceback
+            logger.error(f"❌ CT_API_INIT: Traceback: {traceback.format_exc()}")
             raise
     
     async def shutdown(self):

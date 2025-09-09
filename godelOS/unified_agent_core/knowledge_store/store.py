@@ -45,6 +45,7 @@ class SemanticMemory:
     async def store(self, item: Union[Fact, Belief, Concept, Rule]) -> bool:
         """Store an item in semantic memory."""
         async with self.lock:
+            start = time.perf_counter()
             self.items[item.id] = item
             
             # Update relationships
@@ -81,6 +82,11 @@ class SemanticMemory:
                         if item.id not in self.concept_rules[concept_id]:
                             self.concept_rules[concept_id].append(item.id)
             
+            dur = time.perf_counter() - start
+            if dur > 0.5:
+                logger.warning(f"Slow semantic memory store: {dur:.3f}s for item {item.id}")
+            else:
+                logger.debug(f"Semantic memory store took {dur:.3f}s for item {item.id}")
             return True
     
     async def retrieve(self, item_id: str) -> Optional[Union[Fact, Belief, Concept, Rule]]:
@@ -230,6 +236,7 @@ class EpisodicMemory:
     async def store(self, item: Experience) -> bool:
         """Store an item in episodic memory."""
         async with self.lock:
+            start = time.perf_counter()
             self.items[item.id] = item
             
             # Index by day
@@ -250,6 +257,11 @@ class EpisodicMemory:
                 
                 self.context_index[key][str_value].append(item.id)
             
+            dur = time.perf_counter() - start
+            if dur > 0.5:
+                logger.warning(f"Slow episodic memory store: {dur:.3f}s for item {item.id}")
+            else:
+                logger.debug(f"Episodic memory store took {dur:.3f}s for item {item.id}")
             return True
     
     async def retrieve(self, item_id: str) -> Optional[Experience]:

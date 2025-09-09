@@ -241,34 +241,59 @@ class WebSocketManager:
         """Broadcast an event to all connected clients."""
         if not self.active_connections:
             return
-        
+        # Defensive logging around broadcast lock acquisition to detect lock contention
+        logger.debug(f"Attempting to acquire broadcast_lock for event type: {event.get('type')}")
+        start_lock = time.perf_counter()
+
+        # Acquire the lock only to enqueue the event and snapshot active connections.
+        # Do NOT hold the lock while performing network I/O to individual clients.
         async with self.broadcast_lock:
+            lock_acquired = time.perf_counter() - start_lock
+            logger.debug(f"Acquired broadcast_lock (waited {lock_acquired:.3f}s) for event type: {event.get('type')}")
+
             # Add event to queue for new connections
             self._add_to_event_queue(event)
-            
-            # Send to all active connections
-            disconnected_connections = []
-            
-            for websocket in self.active_connections:
-                try:
-                    # Check if connection is subscribed to this event type
-                    if self._should_send_event(websocket, event):
-                        await self._send_to_connection(websocket, event)
-                        
-                        # Update connection metadata
-                        if websocket in self.connection_metadata:
-                            self.connection_metadata[websocket]["events_sent"] += 1
-                            self.connection_metadata[websocket]["last_activity"] = time.time()
-                
-                except WebSocketDisconnect:
-                    disconnected_connections.append(websocket)
-                except Exception as e:
-                    logger.error(f"Error broadcasting to WebSocket: {e}")
-                    disconnected_connections.append(websocket)
-            
-            # Clean up disconnected connections
-            for websocket in disconnected_connections:
+            connections_snapshot = list(self.active_connections)
+
+        # Send to all connections from the snapshot concurrently, with per-send timeouts.
+        send_tasks = []
+        for websocket in connections_snapshot:
+            try:
+                if self._should_send_event(websocket, event):
+                    # Create a background task which performs a guarded send with timeout
+                    send_tasks.append(asyncio.create_task(self._safe_send(websocket, event, timeout=2.0)))
+            except Exception as e:
+                logger.error(f"Error scheduling send to websocket: {e}")
+
+        if not send_tasks:
+            return
+
+        # Await all sends and collect results
+        results = await asyncio.gather(*send_tasks, return_exceptions=True)
+
+        # Clean up any failed connections
+        disconnected_connections = []
+        for result in results:
+            # _safe_send returns a tuple (websocket, success, duration, exception)
+            if isinstance(result, Exception):
+                logger.error(f"Unexpected error in broadcast send task: {result}")
+                continue
+
+            websocket, success, duration, exc = result
+            if not success:
+                logger.warning(f"Broadcast send failed for connection (exc={exc})")
+                disconnected_connections.append(websocket)
+            else:
+                if duration > 1.0:
+                    logger.warning(f"Slow websocket send ({duration:.3f}s) to connection, event: {event.get('type')}")
+                else:
+                    logger.debug(f"Websocket send took {duration:.3f}s for event {event.get('type')}")
+
+        for websocket in disconnected_connections:
+            try:
                 self.disconnect(websocket)
+            except Exception as e:
+                logger.error(f"Error disconnecting websocket after failed send: {e}")
     
     def _should_send_event(self, websocket: WebSocket, event: Dict[str, Any]) -> bool:
         """Determine if an event should be sent to a specific connection."""
@@ -290,6 +315,41 @@ class WebSocketManager:
         except Exception as e:
             logger.error(f"Failed to send data to WebSocket: {e}")
             raise
+
+    async def _safe_send(self, websocket: WebSocket, data: Dict[str, Any], timeout: float = 2.0):
+        """Safely send data to a websocket with a timeout and metadata updates.
+
+        Returns: (websocket, success: bool, duration_seconds: float, exception or None)
+        """
+        start = time.perf_counter()
+        try:
+            # Use asyncio.wait_for to bound the send time so slow clients don't block
+            await asyncio.wait_for(self._send_to_connection(websocket, data), timeout=timeout)
+            duration = time.perf_counter() - start
+
+            # Update metadata on success
+            if websocket in self.connection_metadata:
+                try:
+                    self.connection_metadata[websocket]["events_sent"] += 1
+                    self.connection_metadata[websocket]["last_activity"] = time.time()
+                except Exception:
+                    # Non-fatal metadata update failures should not block sending
+                    logger.debug("Failed to update connection metadata after send")
+
+            return (websocket, True, duration, None)
+
+        except asyncio.TimeoutError as te:
+            duration = time.perf_counter() - start
+            logger.warning(f"Timed out sending to websocket after {duration:.3f}s: {te}")
+            return (websocket, False, duration, te)
+        except WebSocketDisconnect as wd:
+            duration = time.perf_counter() - start
+            logger.info(f"WebSocket disconnected during send: {wd}")
+            return (websocket, False, duration, wd)
+        except Exception as e:
+            duration = time.perf_counter() - start
+            logger.error(f"Error sending to websocket: {e}")
+            return (websocket, False, duration, e)
     
     def _add_to_event_queue(self, event: Dict[str, Any]):
         """Add event to the queue for replay to new connections."""

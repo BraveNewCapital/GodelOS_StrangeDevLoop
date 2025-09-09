@@ -40,10 +40,24 @@ async function loadInitialData() {
     updateCognitiveStateFromAPI(cognitiveData);
   }
   
-  // Fetch knowledge graph data
-  const knowledgeData = await fetchFromAPI('/api/transparency/knowledge-graph/export');
-  if (knowledgeData && knowledgeData.graph_data) {
+  // Fetch knowledge graph data from unified endpoint
+  const knowledgeData = await fetchFromAPI('/api/knowledge/graph');
+  if (knowledgeData && (knowledgeData.nodes || knowledgeData.graph_data)) {
     updateKnowledgeStateFromAPI(knowledgeData);
+    
+    // Calculate document count from unique source_item_ids
+    const nodes = knowledgeData.nodes || [];
+    const uniqueDocuments = new Set();
+    nodes.forEach(node => {
+      if (node.properties?.source_item_id) {
+        uniqueDocuments.add(node.properties.source_item_id);
+      }
+    });
+    
+    knowledgeState.update(state => ({
+      ...state,
+      totalDocuments: uniqueDocuments.size
+    }));
   }
   
   // Fetch system health
@@ -134,30 +148,48 @@ function updateCognitiveStateFromBackend(data) {
   }));
 }
 
-// Update knowledge state from API response
+// Update knowledge state from API response - unified format handler
 function updateKnowledgeStateFromAPI(data) {
-  const nodes = safeArray(data.graph_data?.nodes, []);
-  const edges = safeArray(data.graph_data?.edges, []);
+  // Handle both legacy and unified formats
+  const nodes = safeArray(data.nodes || data.graph_data?.nodes, []);
+  const edges = safeArray(data.edges || data.graph_data?.edges, []);
+  
+  // Calculate document count from unique source_item_ids
+  const uniqueDocuments = new Set();
+  nodes.forEach(node => {
+    if (node.properties?.source_item_id) {
+      uniqueDocuments.add(node.properties.source_item_id);
+    }
+  });
   
   knowledgeState.update(state => ({
     ...state,
     totalConcepts: nodes.length,
     totalConnections: edges.length,
+    totalDocuments: uniqueDocuments.size,
     currentGraph: {
       nodes: nodes.map(node => ({
-        id: node.id,
-        label: node.label || node.id,
-        type: node.type || 'concept',
-        confidence: node.confidence || 1.0
+        id: node.id || node.node_id,
+        label: node.label || node.concept || node.id,
+        type: node.type || node.node_type || 'concept',
+        confidence: node.confidence || 1.0,
+        // Include additional unified graph data
+        properties: node.properties || {},
+        creation_time: node.creation_time,
+        source_item_id: node.properties?.source_item_id
       })),
-      links: edges.map(edge => ({
-        source: edge.source,
-        target: edge.target,
-        type: edge.type || 'relation',
-        confidence: edge.confidence || 1.0
+      edges: edges.map(edge => ({
+        source: edge.source || edge.source_node_id,
+        target: edge.target || edge.target_node_id,
+        type: edge.type || edge.relation_type || 'relation',
+        confidence: edge.confidence || 1.0,
+        strength: edge.strength || edge.weight || 1.0,
+        // Include additional unified graph data
+        properties: edge.properties || {},
+        edge_id: edge.edge_id
       }))
     },
-    categories: [...new Set(nodes.map(n => n.type || 'concept'))],
+    categories: [...new Set(nodes.map(n => n.type || n.node_type || 'concept'))],
     totalRelationships: edges.length,
     lastUpdate: Date.now()
   }));
@@ -258,7 +290,69 @@ function handleCognitiveUpdate(message) {
       break;
       
     case 'knowledge_update':
-      updateKnowledgeState(message.data);
+      // Handle both knowledge updates and document counting
+      console.debug('[WS] knowledge_update received:', message);
+      knowledgeState.update(state => {
+        const updates = { ...state };
+        
+        // Update general knowledge data
+        if (message.data) {
+          Object.assign(updates, message.data);
+        }
+        
+        // Handle document count updates
+        if (message.stats) {
+          if (typeof message.stats.totalDocuments === 'number') {
+            updates.totalDocuments = message.stats.totalDocuments;
+          }
+          
+          // Track new document imports
+          if (message.stats.newDocument && message.data) {
+            const newImport = {
+              id: message.data.item_id,
+              title: message.data.title,
+              type: message.stats.documentType || 'unknown',
+              timestamp: message.data.timestamp,
+              categories: message.data.categories || []
+            };
+            updates.recentImports = [newImport, ...(state.recentImports || [])].slice(0, 10);
+          }
+        }
+        
+        updates.lastUpdate = Date.now();
+        console.log(`🔍 Knowledge state updated: documents=${updates.totalDocuments}, concepts=${updates.totalConcepts}, connections=${updates.totalConnections}`);
+        return updates;
+      });
+      break;
+      
+    case 'knowledge-graph-update':
+      // Handle knowledge graph updates from backend - refresh with latest data
+      console.debug('[WS] knowledge-graph-update received:', message);
+      if (message.data && (message.data.nodes || message.data.edges)) {
+        knowledgeState.update(state => {
+          // Calculate document count from unique source_item_ids in the updated graph
+          const nodes = message.data.nodes || state.currentGraph.nodes || [];
+          const uniqueDocuments = new Set();
+          nodes.forEach(node => {
+            if (node.properties?.source_item_id) {
+              uniqueDocuments.add(node.properties.source_item_id);
+            }
+          });
+          
+          return {
+            ...state,
+            totalConcepts: message.data.nodes?.length || state.totalConcepts,
+            totalConnections: message.data.edges?.length || state.totalConnections,
+            totalDocuments: uniqueDocuments.size,
+            currentGraph: {
+              nodes: message.data.nodes || state.currentGraph.nodes,
+              edges: message.data.edges || state.currentGraph.edges
+            },
+            lastUpdate: Date.now()
+          };
+        });
+        console.log(`🔍 Knowledge graph updated via WebSocket: ${message.data.nodes?.length || 0} nodes, ${message.data.edges?.length || 0} edges`);
+      }
       break;
       
     case 'evolution_update':
@@ -291,6 +385,7 @@ function handleCognitiveUpdate(message) {
 
     case 'import_progress':
       // Update import progress store
+  console.debug('[WS] import_progress message received:', message);
       importProgressState.update(state => ({
         ...state,
         [message.import_id || message.data?.import_id || 'unknown']: {
@@ -298,6 +393,19 @@ function handleCognitiveUpdate(message) {
           ...(message.data || {})
         }
       }));
+
+      // If the import completed, trigger a backend-fetch refresh of the knowledge graph
+      try {
+        const status = message.status || message.data?.status;
+        if (status === 'completed') {
+          // lazy import to avoid circular deps
+          import('../stores/cognitive.js').then(mod => {
+            if (mod && mod.apiHelpers && typeof mod.apiHelpers.updateKnowledgeFromBackend === 'function') {
+              mod.apiHelpers.updateKnowledgeFromBackend();
+            }
+          }).catch(() => {});
+        }
+      } catch (e) { /* ignore */ }
       break;
 
     default:

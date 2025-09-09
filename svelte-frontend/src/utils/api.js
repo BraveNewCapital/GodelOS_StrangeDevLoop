@@ -12,32 +12,35 @@ const API_BASE_URL = `http://localhost:${BACKEND_PORT}`;
 console.log('🔗 GödelOS API connecting to:', API_BASE_URL);
 
 export class GödelOSAPI {
-  static async fetchKnowledgeGraph() {
+  // Knowledge Graph API - Use unified dynamic graph endpoint
+  static async getKnowledgeGraph() {
     try {
-      // Use the correct backend knowledge graph endpoint
       const response = await fetch(`${API_BASE_URL}/api/knowledge/graph`);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
       const data = await response.json();
       
-      // Transform the API response to match expected format
-      if (data && (data.nodes || data.edges)) {
-        return {
-          nodes: data.nodes || [],
-          links: data.edges || [], // edges → links for D3.js compatibility
-          statistics: data.statistics || {
-            node_count: data.nodes?.length || 0,
-            edge_count: data.edges?.length || 0,
-            data_source: data.data_source || "backend"
-          }
-        };
-      }
-      
-      console.warn('Knowledge graph response has unexpected format:', data);
-      return null;
+      // Transform to match expected frontend format
+      return {
+        nodes: data.nodes || [],
+        edges: data.edges || [],
+        statistics: {
+          node_count: data.metadata?.node_count || data.nodes?.length || 0,
+          edge_count: data.metadata?.edge_count || data.edges?.length || 0,
+          data_source: data.metadata?.data_source || "unified_knowledge_graph"
+        },
+        metadata: data.metadata
+      };
     } catch (error) {
-      console.warn('Failed to fetch knowledge graph:', error);
-      return null;
+      console.error('Failed to fetch knowledge graph:', error);
+      throw error;
     }
+  }
+
+  // Alias for backward compatibility
+  static async fetchKnowledgeGraph() {
+    return this.getKnowledgeGraph();
   }
 
   static async fetchConcepts() {
@@ -384,30 +387,7 @@ export class GödelOSAPI {
       throw error;
     }
   }
-
-  static async getImportProgress(importId) {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/knowledge/import/progress/${importId}`);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return await response.json();
-    } catch (error) {
-      console.warn('Failed to get import progress:', error);
-      return null;
-    }
-  }
-
-  static async cancelImport(importId) {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/knowledge/import/${importId}`, {
-        method: 'DELETE'
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return await response.json();
-    } catch (error) {
-      console.error('Failed to cancel import:', error);
-      throw error;
-    }
-  }
+  // ...continued additional knowledge methods...
 
   static async fetchEvolutionData(timeframe = '24h') {
     try {
@@ -693,6 +673,31 @@ export class GödelOSAPI {
         data_lineage: {},
         source_tracking: {},
         attribution_chains: []
+      };
+    }
+  }
+
+  static async fetchKnowledgeStatistics() {
+    try {
+      console.log('📊 Fetching knowledge statistics...');
+      
+      const response = await fetch(`${API_BASE_URL}/api/knowledge/statistics`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      
+      const result = await response.json();
+      console.log('✅ Knowledge statistics fetched:', result);
+      return result;
+    } catch (error) {
+      console.warn('Failed to fetch knowledge statistics:', error);
+      return {
+        total_items: 0,
+        items_by_type: {},
+        items_by_source: {},
+        items_by_category: {},
+        average_confidence: 0.0,
+        quality_distribution: {},
+        recent_imports: 0,
+        import_success_rate: 1.0
       };
     }
   }

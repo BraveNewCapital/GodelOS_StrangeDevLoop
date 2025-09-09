@@ -45,18 +45,24 @@ export const apiHelpers = {
   updateKnowledgeFromBackend: async () => {
     try {
       const { GödelOSAPI } = await import('../utils/api.js');
-      const [concepts, graphData] = await Promise.all([
+      const [concepts, graphData, statistics] = await Promise.all([
         GödelOSAPI.fetchConcepts(),
-        GödelOSAPI.fetchKnowledgeGraph()
+        GödelOSAPI.fetchKnowledgeGraph(),
+        GödelOSAPI.fetchKnowledgeStatistics()
       ]);
 
       knowledgeState.update(state => ({
         ...state,
-        totalConcepts: concepts?.length || 0,
+        totalConcepts: graphData?.nodes?.length || concepts?.length || 0,
+        totalConnections: graphData?.edges?.length || 0,
+        totalDocuments: statistics?.total_items || 0,
         concepts: concepts || [],
-        currentGraph: graphData || { nodes: [], links: [] },
-        totalConnections: graphData?.links?.length || 0
+        currentGraph: graphData || { nodes: [], edges: [] },
+        recentImports: statistics?.recent_imports || state.recentImports || [],
+        categories: Object.keys(statistics?.items_by_category || {}) || state.categories || []
       }));
+      
+      console.log(`📊 Knowledge state updated: ${statistics?.total_items || 0} documents, ${graphData?.nodes?.length || 0} concepts, ${graphData?.edges?.length || 0} connections`);
     } catch (error) {
       console.warn('Failed to update knowledge state from backend:', error);
     }
@@ -112,7 +118,7 @@ export const knowledgeState = writable({
   totalConnections: 0,
   recentImports: [],
   searchResults: [],
-  currentGraph: { nodes: [], links: [] },
+  currentGraph: { nodes: [], edges: [] },
   importStatus: null,
   categories: [],
   totalRelationships: 0

@@ -15,7 +15,7 @@
   let unsubscribe;
   
   // Graph data and state
-  let graphData = { nodes: [], links: [] };
+  let graphData = { nodes: [], edges: [] };
   let selectedNode = null;
   let searchQuery = '';
   let layoutMode = '2d';
@@ -43,7 +43,7 @@
   // Three.js for 3D mode
   let scene, camera, renderer, controls3d;
   let nodeObjects = [];
-  let linkObjects = [];
+  let edgeObjects = [];
   
   // Graph visualization modes
   const layoutModes = [
@@ -305,7 +305,7 @@
       // Try to fetch real data from backend
       const apiData = await GödelOSAPI.fetchKnowledgeGraph();
       
-      if (apiData && apiData.nodes && apiData.links && apiData.nodes.length > 0) {
+      if (apiData && apiData.nodes && apiData.edges && apiData.nodes.length > 0) {
         // Enhanced node processing with semantic analysis
         const processedNodes = apiData.nodes.map((node, index) => {
           // Clean and normalize node data first
@@ -392,13 +392,13 @@
           };
         });
 
-        // Enhanced link processing with proper relationship inference
-        let processedLinks = [];
+        // Enhanced edge processing with proper relationship inference
+        let processedEdges = [];
         
-        if (apiData.links && apiData.links.length > 0) {
-          processedLinks = apiData.links.map(link => {
-            // Clean link labels
-            let cleanLabel = link.label || relationshipTypes[link.relationship_type || link.type]?.label || 'related';
+        if (apiData.edges && apiData.edges.length > 0) {
+          processedEdges = apiData.edges.map(edge => {
+            // Clean edge labels
+            let cleanLabel = edge.label || relationshipTypes[edge.relationship_type || edge.type]?.label || 'related';
             cleanLabel = cleanLabel
               .replace(/file-[a-f0-9-]{36}/gi, '') // Remove UUID patterns
               .replace(/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/gi, '') // Remove UUIDs
@@ -409,41 +409,41 @@
             
             // If label becomes empty or too short, use type or default
             if (!cleanLabel || cleanLabel.length < 3) {
-              cleanLabel = relationshipTypes[link.relationship_type || link.type]?.label || 'related';
+              cleanLabel = relationshipTypes[edge.relationship_type || edge.type]?.label || 'related';
             }
             
             return {
-              ...link,
-              source: String(link.source_id || link.source || link.from),
-              target: String(link.target_id || link.target || link.to),
-              type: link.relationship_type || link.type || 'related',
-              strength: Math.max(0, Math.min(1, link.strength || link.weight || 0.5)),
-              confidence: Math.max(0, Math.min(1, link.confidence || 0.7)),
+              ...edge,
+              source: String(edge.source_id || edge.source || edge.from),
+              target: String(edge.target_id || edge.target || edge.to),
+              type: edge.relationship_type || edge.type || 'related',
+              strength: Math.max(0, Math.min(1, edge.strength || edge.weight || 0.5)),
+              confidence: Math.max(0, Math.min(1, edge.confidence || 0.7)),
               label: cleanLabel
             };
           });
         }
         
         // Generate additional relationships based on content similarity
-        const inferredLinks = generateInferredRelationships(processedNodes);
-        processedLinks = [...processedLinks, ...inferredLinks];
+        const inferredEdges = generateInferredRelationships(processedNodes);
+        processedEdges = [...processedEdges, ...inferredEdges];
         
-        // Filter out invalid links (nodes that don't exist)
+        // Filter out invalid edges (nodes that don't exist)
         const nodeIds = new Set(processedNodes.map(n => n.id));
-        processedLinks = processedLinks.filter(link => 
-          nodeIds.has(String(link.source)) && nodeIds.has(String(link.target))
+        processedEdges = processedEdges.filter(edge => 
+          nodeIds.has(String(edge.source)) && nodeIds.has(String(edge.target))
         );
 
         graphData = {
           nodes: processedNodes,
-          links: processedLinks
+          edges: processedEdges
         };
         
-        console.log(`✅ Loaded real knowledge graph: ${processedNodes.length} nodes, ${processedLinks.length} total links (${processedLinks.filter(l => l.generated).length} generated)`);
+        console.log(`✅ Loaded real knowledge graph: ${processedNodes.length} nodes, ${processedEdges.length} total edges (${processedEdges.filter(e => e.generated).length} generated)`);
       } else {
         // No backend data available
         console.error('❌ No knowledge graph data available from backend');
-        graphData = { nodes: [], links: [] };
+        graphData = { nodes: [], edges: [] };
         error = 'No knowledge data available';
       }
       
@@ -771,18 +771,18 @@
 
   function create3DLinks() {
     // Clear existing link objects
-    linkObjects.forEach(obj => scene.remove(obj));
-    linkObjects = [];
+    edgeObjects.forEach(obj => scene.remove(obj));
+    edgeObjects = [];
     
-    if (!graphData.links) return;
+    if (!graphData.edges) return;
     
-    graphData.links.forEach(link => {
+    graphData.edges.forEach(edge => {
       // Find source and target node objects
       const sourceNode = nodeObjects.find(obj => 
-        obj.userData && obj.userData.id === (link.source.id || link.source)
+        obj.userData && obj.userData.id === (edge.source.id || edge.source)
       );
       const targetNode = nodeObjects.find(obj => 
-        obj.userData && obj.userData.id === (link.target.id || link.target)
+        obj.userData && obj.userData.id === (edge.target.id || edge.target)
       );
       
       if (sourceNode && targetNode) {
@@ -813,7 +813,7 @@
         cylinder.userData = { source: sourceNode, target: targetNode, link: link, isCylinder: true };
         
         scene.add(cylinder);
-        linkObjects.push(cylinder);
+        edgeObjects.push(cylinder);
       }
     });
   }
@@ -828,9 +828,9 @@
       controls3d.update();
     }
     
-    // Update link positions and orientations
-    linkObjects.forEach(linkObj => {
-      const { source, target, isCylinder } = linkObj.userData;
+    // Update edge positions and orientations
+    edgeObjects.forEach(edgeObj => {
+      const { source, target, isCylinder } = edgeObj.userData;
       if (source && target) {
         if (isCylinder) {
           // Update cylindrical link position and orientation
@@ -919,9 +919,9 @@
       });
       
       // Apply attraction forces for connected nodes
-      graphData.links.forEach(link => {
-        const sourceId = link.source.id || link.source;
-        const targetId = link.target.id || link.target;
+      graphData.edges.forEach(edge => {
+        const sourceId = edge.source.id || edge.source;
+        const targetId = edge.target.id || edge.target;
         
         if (node.userData.id === sourceId || node.userData.id === targetId) {
           const partnerId = node.userData.id === sourceId ? targetId : sourceId;
@@ -1010,7 +1010,7 @@
     scene = null;
     camera = null;
     nodeObjects = [];
-    linkObjects = [];
+    edgeObjects = [];
     
     // Clear the container
     if (graphContainer) {
@@ -1025,17 +1025,17 @@
     }
     
     // Validate graph data
-    if (!graphData || !graphData.nodes || !graphData.links) {
+    if (!graphData || !graphData.nodes || !graphData.edges) {
       console.warn('❌ Invalid graph data structure');
       return;
     }
     
-    console.log(`🔄 Updating graph: ${graphData.nodes.length} nodes, ${graphData.links.length} links`);
+    console.log(`🔄 Updating graph: ${graphData.nodes.length} nodes, ${graphData.edges.length} edges`);
     
-    // Filter links based on settings
-    const filteredLinks = showOnlyStrongRelations 
-      ? graphData.links.filter(link => (link.strength || 0.5) > 0.6)
-      : graphData.links;
+    // Filter edges based on settings
+    const filteredEdges = showOnlyStrongRelations 
+      ? graphData.edges.filter(edge => (edge.strength || 0.5) > 0.6)
+      : graphData.edges;
     
     // Get the graph group for appending elements
     const graphGroup = svg.select('.graph-group');
@@ -1065,7 +1065,7 @@
     
     // Update links
     const links = graphGroup.selectAll('.link')
-      .data(filteredLinks, d => `${d.source}-${d.target}`);
+      .data(filteredEdges, d => `${d.source}-${d.target}`);
     
     links.exit().remove();
     
@@ -1299,7 +1299,7 @@
     
     // Update all force parameters
     simulation.force('link')
-      .links(filteredLinks)
+      .links(filteredEdges)
       .strength(linkStrength)
       .distance(linkDistance);
     
@@ -1594,30 +1594,30 @@
 
   // Calculate enhanced node statistics
   function getNodeStatistics(node) {
-    const connectedLinks = graphData.links.filter(link => 
-      link.source.id === node.id || link.target.id === node.id
+    const connectedEdges = graphData.edges.filter(edge => 
+      edge.source.id === node.id || edge.target.id === node.id
     );
     
     const neighbors = new Set();
-    const incomingLinks = [];
-    const outgoingLinks = [];
+    const incomingEdges = [];
+    const outgoingEdges = [];
     const neighborNodes = [];
     
-    connectedLinks.forEach(link => {
-      if (link.source.id === node.id) {
-        neighbors.add(link.target.id);
-        outgoingLinks.push(link);
-        neighborNodes.push(link.target);
-      } else if (link.target.id === node.id) {
-        neighbors.add(link.source.id);
-        incomingLinks.push(link);
-        neighborNodes.push(link.source);
+    connectedEdges.forEach(edge => {
+      if (edge.source.id === node.id) {
+        neighbors.add(edge.target.id);
+        outgoingEdges.push(edge);
+        neighborNodes.push(edge.target);
+      } else if (edge.target.id === node.id) {
+        neighbors.add(edge.source.id);
+        incomingEdges.push(edge);
+        neighborNodes.push(edge.source);
       }
     });
     
-    const relationshipTypes = [...new Set(connectedLinks.map(link => link.type))];
-    const avgLinkStrength = connectedLinks.length > 0 
-      ? connectedLinks.reduce((sum, link) => sum + (link.strength || 0), 0) / connectedLinks.length 
+    const relationshipTypes = [...new Set(connectedEdges.map(edge => edge.type))];
+    const avgEdgeStrength = connectedEdges.length > 0 
+      ? connectedEdges.reduce((sum, edge) => sum + (edge.strength || 0), 0) / connectedEdges.length 
       : 0;
     
     const centrality = neighbors.size / Math.max(1, graphData.nodes.length - 1);
@@ -1829,11 +1829,11 @@
         <span class="status-label">Concepts</span>
       </div>
       <div class="status-item">
-        <span class="status-value">{graphData.links.length}</span>
+        <span class="status-value">{graphData.edges.length}</span>
         <span class="status-label">Relationships</span>
       </div>
       <div class="status-item">
-        <span class="status-value">{graphData.links.filter(l => l.generated).length}</span>
+        <span class="status-value">{graphData.edges.filter(e => e.generated).length}</span>
         <span class="status-label">Inferred</span>
       </div>
       <div class="status-health {loading ? 'loading' : error ? 'error' : 'healthy'}">

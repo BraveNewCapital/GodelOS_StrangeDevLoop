@@ -9,6 +9,7 @@ import asyncio
 import secrets
 import uuid
 import logging
+from datetime import datetime
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from typing import Dict, List, Optional, Any
 import time
@@ -553,82 +554,48 @@ async def process_document_for_knowledge(request: DocumentProcessRequest):
 
 @router.get("/knowledge-graph/export")
 async def export_knowledge_graph():
-    """Export the complete dynamic knowledge graph."""
+    """Export the complete UNIFIED dynamic knowledge graph - IDENTICAL format to main endpoint."""
     try:
-        # Get dynamic knowledge graph from processor
-        if hasattr(dynamic_knowledge_processor, 'concept_store') and dynamic_knowledge_processor.concept_store:
-            # Build graph from stored concepts
-            nodes = []
-            edges = []
-            
-            for concept in dynamic_knowledge_processor.concept_store.values():
-                nodes.append({
-                    "id": concept.id,
-                    "label": concept.name,
-                    "type": concept.type,
-                    "level": concept.level,
-                    "category": concept.metadata.get("concept_category", concept.type),
-                    "confidence": concept.confidence,
-                    "size": 8 + concept.level * 2
-                })
-            
-            for relation in dynamic_knowledge_processor.relation_store.values():
-                edges.append({
-                    "source": relation.source_id,
-                    "target": relation.target_id,
-                    "type": relation.relation_type,
-                    "weight": relation.strength,
-                    "confidence": relation.confidence
-                })
-            
-            return {
-                "nodes": nodes,
-                "edges": edges,
-                "statistics": {
-                    "node_count": len(nodes),
-                    "edge_count": len(edges),
-                    "atomic_concepts": len([n for n in nodes if n["level"] == 0]),
-                    "aggregated_concepts": len([n for n in nodes if n["level"] == 1]),
-                    "meta_concepts": len([n for n in nodes if n["level"] == 2]),
-                    "data_source": "dynamic_processing"
-                },
-                "dynamic_graph": True,
-                "timestamp": time.time()
-            }
+        # Import here to avoid circular dependency
+        from backend.cognitive_transparency_integration import cognitive_transparency_api
+        
+        # UNIFIED SYSTEM: Only use the dynamic transparency system
+        if cognitive_transparency_api and cognitive_transparency_api.knowledge_graph:
+            try:
+                # Get the real dynamic graph data
+                graph_data = await cognitive_transparency_api.knowledge_graph.export_graph()
+                
+                # Return IDENTICAL format to main endpoint
+                return {
+                    "nodes": graph_data.get("nodes", []),
+                    "edges": graph_data.get("edges", []),
+                    "metadata": {
+                        "node_count": len(graph_data.get("nodes", [])),
+                        "edge_count": len(graph_data.get("edges", [])),
+                        "last_updated": datetime.now().isoformat(),
+                        "data_source": "unified_dynamic_transparency_system"
+                    }
+                }
+            except Exception as e:
+                logger.error(f"Failed to get unified dynamic knowledge graph: {e}")
+                raise HTTPException(status_code=500, detail=f"Knowledge graph export failed: {str(e)}")
         else:
-            # Return enhanced fallback graph
+            # If the system isn't initialized, return empty graph - NO STATIC FALLBACK
+            logger.warning("Cognitive transparency API not initialized - returning empty graph")
             return {
-                "nodes": [
-                    {"id": "consciousness", "label": "Consciousness", "type": "meta", "level": 2, "category": "philosophy", "confidence": 0.9, "size": 14},
-                    {"id": "metacognition", "label": "Meta-cognition", "type": "aggregated", "level": 1, "category": "psychology", "confidence": 0.85, "size": 10},
-                    {"id": "self_awareness", "label": "Self-awareness", "type": "atomic", "level": 0, "category": "cognition", "confidence": 0.8, "size": 8},
-                    {"id": "reasoning", "label": "Reasoning", "type": "aggregated", "level": 1, "category": "cognition", "confidence": 0.9, "size": 10},
-                    {"id": "transparency", "label": "Transparency", "type": "aggregated", "level": 1, "category": "system", "confidence": 0.85, "size": 10},
-                    {"id": "knowledge_graph", "label": "Knowledge Graph", "type": "atomic", "level": 0, "category": "technology", "confidence": 0.95, "size": 8},
-                    {"id": "cognitive_architecture", "label": "Cognitive Architecture", "type": "meta", "level": 2, "category": "system", "confidence": 0.9, "size": 14},
-                    {"id": "llm_integration", "label": "LLM Integration", "type": "aggregated", "level": 1, "category": "technology", "confidence": 0.8, "size": 10}
-                ],
-                "edges": [
-                    {"source": "cognitive_architecture", "target": "consciousness", "type": "implements", "weight": 0.9, "confidence": 0.85},
-                    {"source": "consciousness", "target": "metacognition", "type": "requires", "weight": 0.8, "confidence": 0.9},
-                    {"source": "metacognition", "target": "self_awareness", "type": "contains", "weight": 0.7, "confidence": 0.8},
-                    {"source": "reasoning", "target": "transparency", "type": "enables", "weight": 0.6, "confidence": 0.75},
-                    {"source": "knowledge_graph", "target": "reasoning", "type": "supports", "weight": 0.8, "confidence": 0.85},
-                    {"source": "llm_integration", "target": "cognitive_architecture", "type": "extends", "weight": 0.9, "confidence": 0.8}
-                ],
-                "statistics": {
-                    "node_count": 8,
-                    "edge_count": 6,
-                    "atomic_concepts": 2,
-                    "aggregated_concepts": 4,
-                    "meta_concepts": 2,
-                    "data_source": "enhanced_fallback"
-                },
-                "dynamic_graph": False,
-                "timestamp": time.time()
+                "nodes": [],
+                "edges": [],
+                "metadata": {
+                    "node_count": 0,
+                    "edge_count": 0,
+                    "last_updated": datetime.now().isoformat(),
+                    "data_source": "system_not_ready",
+                    "error": "Cognitive transparency system not initialized"
+                }
             }
             
     except Exception as e:
+        logger.error(f"Knowledge graph export failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Knowledge graph export failed: {str(e)}")
 
 @router.get("/provenance")

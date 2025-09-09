@@ -142,8 +142,10 @@ class KnowledgeIntegrator(KnowledgeIntegratorInterface):
                 
                 # Check for conflicts before integration
                 logger.info(f"🔍 DEBUG: Checking for conflicts for item {item_id}")
+                conflict_start = time.perf_counter()
                 conflicts = await self._check_for_conflicts(item, memory_type)
-                logger.info(f"🔍 DEBUG: Found {len(conflicts)} conflicts for item {item_id}")
+                conflict_dur = time.perf_counter() - conflict_start
+                logger.info(f"🔍 DEBUG: Found {len(conflicts)} conflicts for item {item_id} (checked in {conflict_dur:.3f}s)")
                 
                 if conflicts:
                     # Resolve conflicts
@@ -165,8 +167,10 @@ class KnowledgeIntegrator(KnowledgeIntegratorInterface):
                 
                 # Store in appropriate memory
                 logger.info(f"🔍 DEBUG: Storing item {item_id} in memory {memory_type.value}")
+                store_start = time.perf_counter()
                 success = await self._store_in_memory(item, memory_type)
-                logger.info(f"🔍 DEBUG: Stored item {item_id} in memory, success: {success}")
+                store_dur = time.perf_counter() - store_start
+                logger.info(f"🔍 DEBUG: Stored item {item_id} in memory (took {store_dur:.3f}s), success: {success}")
                 
                 if success:
                     # Also store in working memory for immediate access if not already there
@@ -181,13 +185,17 @@ class KnowledgeIntegrator(KnowledgeIntegratorInterface):
                                 item.metadata = {}
                             item.metadata["ttl"] = self.config.get("working_memory_ttl", 3600)
                         logger.info(f"🔍 DEBUG: Storing item {item_id} in working memory")
+                        wm_start = time.perf_counter()
                         await self.working_memory.store(item)
-                        logger.info(f"🔍 DEBUG: Stored item {item_id} in working memory")
+                        wm_dur = time.perf_counter() - wm_start
+                        logger.info(f"🔍 DEBUG: Stored item {item_id} in working memory in {wm_dur:.3f}s")
                     
                     # Generate and store inferences
                     logger.info(f"🔍 DEBUG: Generating inferences for item {item_id}")
+                    gen_start = time.perf_counter()
                     await self._generate_and_store_inferences(item, memory_type)
-                    logger.info(f"🔍 DEBUG: Generated inferences for item {item_id}")
+                    gen_dur = time.perf_counter() - gen_start
+                    logger.info(f"🔍 DEBUG: Generated inferences for item {item_id} in {gen_dur:.3f}s")
                 
                 logger.info(f"🔍 DEBUG: Finished integrating item {item_id}, success: {success}")
                 return success

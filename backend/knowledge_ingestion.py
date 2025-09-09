@@ -6,6 +6,10 @@ URLs, files, Wikipedia, and manual text input with robust processing and validat
 """
 
 import asyncio
+from asyncio import TimeoutError as AsyncioTimeoutError
+
+# Timeout for potentially long-running content processing steps (seconds)
+CONTENT_PROCESS_TIMEOUT = 120
 import hashlib
 import json
 import logging
@@ -498,66 +502,36 @@ class KnowledgeIngestionService:
             await self._broadcast_completion(import_id, False, str(e))
     
     async def _process_content(self, content: str, title: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """Process raw content using advanced knowledge extraction pipeline."""
+        """Process raw content using basic knowledge extraction (temporarily bypassing advanced pipeline)."""
         try:
             logger.info(f"🔍 DEBUG: _process_content called with title: {title}")
-            # Use the advanced knowledge pipeline for processing
-            if knowledge_pipeline_service.initialized:
-                logger.info("🔄 Using advanced knowledge extraction pipeline")
-                
-                # Process through the full pipeline
-                logger.info(f"🔍 DEBUG: Calling pipeline.process_text_document")
-                pipeline_result = await knowledge_pipeline_service.process_text_document(
-                    content=content,
-                    title=title,
-                    metadata=metadata
-                )
-                logger.info(f"🔍 DEBUG: Pipeline completed, result keys: {list(pipeline_result.keys()) if pipeline_result else 'None'}")
-                
-                # Also do basic processing for backward compatibility
-                cleaned_content = content_processor.clean_text(content)
-                sentences = content_processor.extract_sentences(cleaned_content)
-                chunks = content_processor.chunk_content(cleaned_content)
-                keywords = content_processor.extract_keywords(cleaned_content)
-                language = content_processor.detect_language(cleaned_content)
-                
-                result = {
-                    'title': title,
-                    'content': cleaned_content,
-                    'sentences': sentences,
-                    'chunks': chunks,
-                    'keywords': keywords,
-                    'language': language,
-                    'metadata': metadata,
-                    'word_count': len(cleaned_content.split()),
-                    'char_count': len(cleaned_content),
-                    'pipeline_result': pipeline_result,  # Include advanced processing results
-                    'entities_extracted': pipeline_result.get('entities_extracted', 0),
-                    'relationships_extracted': pipeline_result.get('relationships_extracted', 0),
-                    'knowledge_items': pipeline_result.get('knowledge_items', [])
-                }
-                logger.info(f"🔍 DEBUG: _process_content returning with {len(result)} keys")
-                return result
-            else:
-                logger.warning("⚠️ Knowledge pipeline not initialized, using basic processing")
-                # Fallback to basic processing
-                cleaned_content = content_processor.clean_text(content)
-                sentences = content_processor.extract_sentences(cleaned_content)
-                chunks = content_processor.chunk_content(cleaned_content)
-                keywords = content_processor.extract_keywords(cleaned_content)
-                language = content_processor.detect_language(cleaned_content)
-                
-                return {
-                    'title': title,
-                    'content': cleaned_content,
-                    'sentences': sentences,
-                    'chunks': chunks,
-                    'keywords': keywords,
-                    'language': language,
-                    'metadata': metadata,
-                    'word_count': len(cleaned_content.split()),
-                    'char_count': len(cleaned_content)
-                }
+            
+            # TEMPORARILY USE BASIC PROCESSING ONLY
+            logger.info("🔄 Using basic knowledge extraction processing")
+            
+            # Basic processing for backward compatibility
+            cleaned_content = content_processor.clean_text(content)
+            sentences = content_processor.extract_sentences(cleaned_content)
+            chunks = content_processor.chunk_content(cleaned_content)
+            keywords = content_processor.extract_keywords(cleaned_content)
+            language = content_processor.detect_language(cleaned_content)
+            
+            result = {
+                'title': title,
+                'content': cleaned_content,
+                'sentences': sentences,
+                'chunks': chunks,
+                'keywords': keywords,
+                'language': language,
+                'metadata': metadata,
+                'word_count': len(cleaned_content.split()),
+                'char_count': len(cleaned_content),
+                'entities_extracted': 0,
+                'relationships_extracted': 0,
+                'knowledge_items': []
+            }
+            logger.info(f"🔍 DEBUG: _process_content returning with {len(result)} keys")
+            return result
         except Exception as e:
             logger.error(f"❌ Error in content processing: {e}")
             logger.error(f"🔍 DEBUG: Exception traceback: {traceback.format_exc()}")
@@ -614,11 +588,32 @@ class KnowledgeIngestionService:
             # Broadcast progress update
             await self._broadcast_progress_update(import_id, progress)
             
-            processed_data = await self._process_content(
-                content=content,
-                title=title,
-                metadata=request.source.metadata
-            )
+            try:
+                logger.info(f"🔍 DEBUG: Starting _process_content for file import {import_id} with timeout {CONTENT_PROCESS_TIMEOUT}s")
+                processed_data = await asyncio.wait_for(
+                    self._process_content(
+                        content=content,
+                        title=title,
+                        metadata=request.source.metadata
+                    ),
+                    timeout=CONTENT_PROCESS_TIMEOUT
+                )
+                logger.info(f"🔍 DEBUG: _process_content completed for file import {import_id}")
+            except AsyncioTimeoutError:
+                logger.error(f"❌ Timeout during content processing for file import {import_id}")
+                progress.status = "failed"
+                progress.error_message = "Content processing timed out"
+                await self._broadcast_progress_update(import_id, progress)
+                await self._broadcast_completion(import_id, False, progress.error_message)
+                return
+            except Exception as e:
+                logger.error(f"❌ Exception during content processing for file import {import_id}: {e}")
+                logger.error(f"🔍 DEBUG: Traceback: {traceback.format_exc()}")
+                progress.status = "failed"
+                progress.error_message = str(e)
+                await self._broadcast_progress_update(import_id, progress)
+                await self._broadcast_completion(import_id, False, progress.error_message)
+                return
             
             # Create knowledge item
             progress.current_step = "Creating knowledge item"
@@ -717,11 +712,32 @@ class KnowledgeIngestionService:
             progress.completed_steps = 4
             await self._broadcast_progress_update(import_id, progress)
             
-            processed_data = await self._process_content(
-                content=content,
-                title=title,
-                metadata=metadata
-            )
+            try:
+                logger.info(f"🔍 DEBUG: Starting _process_content for URL import {import_id} with timeout {CONTENT_PROCESS_TIMEOUT}s")
+                processed_data = await asyncio.wait_for(
+                    self._process_content(
+                        content=content,
+                        title=title,
+                        metadata=metadata
+                    ),
+                    timeout=CONTENT_PROCESS_TIMEOUT
+                )
+                logger.info(f"🔍 DEBUG: _process_content completed for URL import {import_id}")
+            except AsyncioTimeoutError:
+                logger.error(f"❌ Timeout during content processing for URL import {import_id}")
+                progress.status = "failed"
+                progress.error_message = "Content processing timed out"
+                await self._broadcast_progress_update(import_id, progress)
+                await self._broadcast_completion(import_id, False, progress.error_message)
+                return
+            except Exception as e:
+                logger.error(f"❌ Exception during content processing for URL import {import_id}: {e}")
+                logger.error(f"🔍 DEBUG: Traceback: {traceback.format_exc()}")
+                progress.status = "failed"
+                progress.error_message = str(e)
+                await self._broadcast_progress_update(import_id, progress)
+                await self._broadcast_completion(import_id, False, progress.error_message)
+                return
             
             progress.current_step = "Creating knowledge item"
             progress.progress_percentage = 90.0
@@ -816,11 +832,32 @@ class KnowledgeIngestionService:
             title = request.filename
             
             logger.info(f"🔍 DEBUG: About to call _process_content for file import {import_id}")
-            processed_data = await self._process_content(
-                content=content,
-                title=title,
-                metadata=request.source.metadata
-            )
+            try:
+                logger.info(f"🔍 DEBUG: Starting _process_content for text import {import_id} with timeout {CONTENT_PROCESS_TIMEOUT}s")
+                processed_data = await asyncio.wait_for(
+                    self._process_content(
+                        content=content,
+                        title=title,
+                        metadata=request.source.metadata
+                    ),
+                    timeout=CONTENT_PROCESS_TIMEOUT
+                )
+                logger.info(f"🔍 DEBUG: _process_content completed for text import {import_id}")
+            except AsyncioTimeoutError:
+                logger.error(f"❌ Timeout during content processing for text import {import_id}")
+                progress.status = "failed"
+                progress.error_message = "Content processing timed out"
+                await self._broadcast_progress_update(import_id, progress)
+                await self._broadcast_completion(import_id, False, progress.error_message)
+                return
+            except Exception as e:
+                logger.error(f"❌ Exception during content processing for text import {import_id}: {e}")
+                logger.error(f"🔍 DEBUG: Traceback: {traceback.format_exc()}")
+                progress.status = "failed"
+                progress.error_message = str(e)
+                await self._broadcast_progress_update(import_id, progress)
+                await self._broadcast_completion(import_id, False, progress.error_message)
+                return
             logger.info(f"🔍 DEBUG: _process_content returned for file import {import_id}, keys: {list(processed_data.keys())}")
             
             progress.current_step = "Creating knowledge item"
@@ -925,12 +962,32 @@ class KnowledgeIngestionService:
             progress.completed_steps = 4
             await self._broadcast_progress_update(import_id, progress)
             
-            processed_data = await self._process_content(
-                content=content,
-                title=title,
-                metadata=metadata
-            )
-            logger.info(f"🔍 DEBUG: Content processed for {import_id}")
+            try:
+                logger.info(f"🔍 DEBUG: Starting _process_content for wikipedia import {import_id} with timeout {CONTENT_PROCESS_TIMEOUT}s")
+                processed_data = await asyncio.wait_for(
+                    self._process_content(
+                        content=content,
+                        title=title,
+                        metadata=metadata
+                    ),
+                    timeout=CONTENT_PROCESS_TIMEOUT
+                )
+                logger.info(f"🔍 DEBUG: _process_content completed for wikipedia import {import_id}")
+            except AsyncioTimeoutError:
+                logger.error(f"❌ Timeout during content processing for wikipedia import {import_id}")
+                progress.status = "failed"
+                progress.error_message = "Content processing timed out"
+                await self._broadcast_progress_update(import_id, progress)
+                await self._broadcast_completion(import_id, False, progress.error_message)
+                return
+            except Exception as e:
+                logger.error(f"❌ Exception during content processing for wikipedia import {import_id}: {e}")
+                logger.error(f"🔍 DEBUG: Traceback: {traceback.format_exc()}")
+                progress.status = "failed"
+                progress.error_message = str(e)
+                await self._broadcast_progress_update(import_id, progress)
+                await self._broadcast_completion(import_id, False, progress.error_message)
+                return
             
             progress.current_step = "Creating knowledge item"
             progress.progress_percentage = 85.0
@@ -992,37 +1049,60 @@ class KnowledgeIngestionService:
         try:
             # Store to local file system
             file_path = self.storage_path / f"{knowledge_item.id}.json"
+            file_write_start = time.perf_counter()
             async with aiofiles.open(file_path, 'w') as f:
                 await f.write(knowledge_item.model_dump_json(indent=2))
-
-            logger.debug(f"Stored knowledge item: {knowledge_item.id}")
+            file_write_dur = time.perf_counter() - file_write_start
+            logger.debug(f"Stored knowledge item: {knowledge_item.id} (file write {file_write_dur:.3f}s)")
             
-            # Add to knowledge management service for real-time updates
-            global knowledge_management_service
-            if knowledge_management_service:
-                try:
-                    knowledge_management_service.add_item(knowledge_item)
-                    logger.info(f"🔍 KNOWLEDGE SYNC: Added item {knowledge_item.id} to knowledge management service")
-                except Exception as e:
-                    logger.warning(f"Failed to add item to knowledge management service: {e}")
-            
-            # Add to cognitive transparency knowledge graph for visualization
+            # UNIFIED KNOWLEDGE GRAPH: Use transparency knowledge graph as the single source of truth
+            # This eliminates the dual graph anti-pattern and ensures consistency
+            tkg_start = time.perf_counter()
             await self._add_to_transparency_knowledge_graph(knowledge_item)
-                    
-            # Broadcast knowledge update via WebSocket
+            tkg_dur = time.perf_counter() - tkg_start
+            logger.info(f"🔍 UNIFIED GRAPH: Added item {knowledge_item.id} to unified knowledge graph in {tkg_dur:.3f}s")
+            
+            # TODO: Remove knowledge_management_service dependency entirely - it's redundant and causes inconsistency
+            # Legacy code attempted to maintain two separate graph systems which is a bad design pattern
+
+            # Broadcast knowledge update via WebSocket (measure duration)
             if self.websocket_manager and self.websocket_manager.has_connections():
-                await self.websocket_manager.broadcast({
-                    "type": "knowledge_update",
-                    "event": "item_added",
-                    "data": {
-                        "item_id": knowledge_item.id,
-                        "title": knowledge_item.title,
-                        "source": knowledge_item.source,
-                        "categories": knowledge_item.categories,
-                        "timestamp": time.time()
-                    }
-                })
-                logger.info(f"🔍 KNOWLEDGE BROADCAST: Broadcasted knowledge update for {knowledge_item.id}")
+                try:
+                    # Ensure the payload is JSON serializable (convert Pydantic models to dicts)
+                    try:
+                        if hasattr(knowledge_item.source, "model_dump"):
+                            source_serializable = knowledge_item.source.model_dump()
+                        elif hasattr(knowledge_item.source, "dict"):
+                            source_serializable = knowledge_item.source.dict()
+                        else:
+                            source_serializable = str(knowledge_item.source)
+                    except Exception:
+                        source_serializable = str(knowledge_item.source)
+
+                    broadcast_start = time.perf_counter()
+                    # Get current document count by counting stored knowledge items
+                    document_count = len([f for f in self.storage_path.glob("*.json") if not f.name.startswith("temp_")])
+                    
+                    await self.websocket_manager.broadcast({
+                        "type": "knowledge_update",
+                        "event": "item_added",
+                        "data": {
+                            "item_id": knowledge_item.id,
+                            "title": knowledge_item.title,
+                            "source": source_serializable,
+                            "categories": knowledge_item.categories,
+                            "timestamp": time.time()
+                        },
+                        "stats": {
+                            "totalDocuments": document_count,
+                            "newDocument": True,
+                            "documentType": source_serializable.get("source_type", "unknown") if isinstance(source_serializable, dict) else "unknown"
+                        }
+                    })
+                    broadcast_dur = time.perf_counter() - broadcast_start
+                    logger.info(f"🔍 KNOWLEDGE BROADCAST: Broadcasted knowledge update for {knowledge_item.id} in {broadcast_dur:.3f}s")
+                except Exception as e:
+                    logger.error(f"Failed to broadcast knowledge update for {knowledge_item.id}: {e}")
                     
         except Exception as e:
             logger.error(f"Failed to store knowledge item {knowledge_item.id}: {e}")
@@ -1035,6 +1115,16 @@ class KnowledgeIngestionService:
             # Import here to avoid circular dependency
             from backend.cognitive_transparency_integration import cognitive_transparency_api
             
+            logger.info(f"🔍 GRAPH SYNC: Starting to add knowledge item {knowledge_item.id} to transparency graph")
+            logger.info(f"🔍 GRAPH SYNC: cognitive_transparency_api exists: {cognitive_transparency_api is not None}")
+            logger.info(f"🔍 GRAPH SYNC: knowledge_graph exists: {cognitive_transparency_api.knowledge_graph is not None if cognitive_transparency_api else False}")
+            
+            # FIXED: Don't create fallback instances - this was causing dual graph problem!
+            # Instead, wait for proper initialization or skip if not ready
+            if not cognitive_transparency_api or not getattr(cognitive_transparency_api, 'knowledge_graph', None):
+                logger.warning(f"🔍 GRAPH SYNC: Transparency API not fully initialized yet for item {knowledge_item.id}, skipping graph sync")
+                return  # Skip graph sync if not properly initialized
+
             if cognitive_transparency_api and cognitive_transparency_api.knowledge_graph:
                 # Extract concepts from the knowledge item for graph nodes
                 concepts = []
@@ -1042,21 +1132,27 @@ class KnowledgeIngestionService:
                 # Add title as a main concept
                 if knowledge_item.title:
                     concepts.append(knowledge_item.title)
+                    logger.info(f"🔍 GRAPH SYNC: Added title concept: {knowledge_item.title}")
                 
                 # Add categories as concepts
                 if knowledge_item.categories:
                     concepts.extend(knowledge_item.categories)
+                    logger.info(f"🔍 GRAPH SYNC: Added category concepts: {knowledge_item.categories}")
                 
                 # Add keywords from metadata if available
                 if knowledge_item.metadata and 'keywords' in knowledge_item.metadata:
                     keywords = knowledge_item.metadata['keywords']
                     if isinstance(keywords, list):
                         concepts.extend(keywords[:5])  # Limit to first 5 keywords
+                        logger.info(f"🔍 GRAPH SYNC: Added keyword concepts: {keywords[:5]}")
+                
+                logger.info(f"🔍 GRAPH SYNC: Total concepts to add: {len(concepts)} - {concepts}")
                 
                 # Add each concept as a node in the knowledge graph
                 for concept in concepts:
                     if concept and isinstance(concept, str) and len(concept.strip()) > 0:
                         try:
+                            logger.info(f"🔍 GRAPH SYNC: Attempting to add concept '{concept}' to knowledge graph")
                             result = cognitive_transparency_api.knowledge_graph.add_node(
                                 concept=concept.strip(),
                                 node_type="knowledge_item",
@@ -1068,9 +1164,10 @@ class KnowledgeIngestionService:
                                 },
                                 confidence=knowledge_item.confidence
                             )
-                            logger.info(f"🔍 GRAPH SYNC: Added concept '{concept}' to knowledge graph from item {knowledge_item.id}")
+                            logger.info(f"🔍 GRAPH SYNC: Successfully added concept '{concept}' to knowledge graph, result: {result}")
                         except Exception as e:
                             logger.warning(f"🔍 GRAPH SYNC: Failed to add concept '{concept}' to knowledge graph: {e}")
+                            logger.warning(f"🔍 GRAPH SYNC: Exception details: {type(e).__name__}: {str(e)}")
                 
                 # Create relationships between concepts from the same item
                 if len(concepts) > 1:
@@ -1078,6 +1175,7 @@ class KnowledgeIngestionService:
                     for related_concept in concepts[1:]:
                         if related_concept and isinstance(related_concept, str) and len(related_concept.strip()) > 0:
                             try:
+                                logger.info(f"🔍 GRAPH SYNC: Attempting to add relationship '{main_concept}' -> '{related_concept}'")
                                 result = cognitive_transparency_api.knowledge_graph.add_edge(
                                     source_concept=main_concept.strip(),
                                     target_concept=related_concept.strip(),
@@ -1089,25 +1187,58 @@ class KnowledgeIngestionService:
                                     },
                                     confidence=0.7
                                 )
-                                logger.info(f"🔍 GRAPH SYNC: Added relationship '{main_concept}' -> '{related_concept}' from item {knowledge_item.id}")
+                                logger.info(f"🔍 GRAPH SYNC: Successfully added relationship '{main_concept}' -> '{related_concept}', result: {result}")
                             except Exception as e:
                                 logger.warning(f"🔍 GRAPH SYNC: Failed to add relationship '{main_concept}' -> '{related_concept}': {e}")
                 
                 # Broadcast knowledge graph update to frontend
                 if self.websocket_manager and self.websocket_manager.has_connections():
                     try:
-                        # Export updated graph data
+                        # Export updated graph data and ensure it's serializable
                         graph_data = await cognitive_transparency_api.knowledge_graph.export_graph()
-                        await self.websocket_manager.broadcast({
-                            "type": "knowledge-graph-update",
-                            "data": {
-                                "nodes": graph_data.get("nodes", []),
-                                "links": graph_data.get("edges", []),
-                                "timestamp": time.time(),
-                                "update_source": "knowledge_ingestion"
-                            }
-                        })
-                        logger.info(f"🔍 GRAPH SYNC: Broadcasted updated knowledge graph with {len(graph_data.get('nodes', []))} nodes")
+                        logger.info(f"🔍 GRAPH SYNC: Exported graph data has {len(graph_data.get('nodes', []))} nodes and {len(graph_data.get('edges', []))} edges")
+                        
+                        try:
+                            nodes = graph_data.get("nodes", [])
+                            links = graph_data.get("edges", [])
+
+                            # Serialize nodes and links defensively
+                            serializable_nodes = []
+                            for n in nodes:
+                                try:
+                                    if hasattr(n, "model_dump"):
+                                        serializable_nodes.append(n.model_dump())
+                                    elif hasattr(n, "dict"):
+                                        serializable_nodes.append(n.dict())
+                                    else:
+                                        serializable_nodes.append(dict(n) if isinstance(n, (list, tuple)) else n)
+                                except Exception:
+                                    serializable_nodes.append(str(n))
+
+                            serializable_links = []
+                            for l in links:
+                                try:
+                                    if hasattr(l, "model_dump"):
+                                        serializable_links.append(l.model_dump())
+                                    elif hasattr(l, "dict"):
+                                        serializable_links.append(l.dict())
+                                    else:
+                                        serializable_links.append(dict(l) if isinstance(l, (list, tuple)) else l)
+                                except Exception:
+                                    serializable_links.append(str(l))
+
+                            await self.websocket_manager.broadcast({
+                                "type": "knowledge-graph-update",
+                                "data": {
+                                    "nodes": serializable_nodes,
+                                    "links": serializable_links,
+                                    "timestamp": time.time(),
+                                    "update_source": "knowledge_ingestion"
+                                }
+                            })
+                            logger.info(f"🔍 GRAPH SYNC: Broadcasted updated knowledge graph with {len(serializable_nodes)} nodes")
+                        except Exception as e:
+                            logger.warning(f"🔍 GRAPH SYNC: Failed to serialize or broadcast graph data: {e}")
                     except Exception as e:
                         logger.warning(f"🔍 GRAPH SYNC: Failed to broadcast knowledge graph update: {e}")
                         
@@ -1116,6 +1247,7 @@ class KnowledgeIngestionService:
                 
         except Exception as e:
             logger.error(f"🔍 GRAPH SYNC: Failed to add knowledge item {knowledge_item.id} to transparency knowledge graph: {e}")
+            logger.error(f"🔍 GRAPH SYNC: Exception details: {type(e).__name__}: {str(e)}")
             # Don't raise the exception as this is not critical for the ingestion process
     
     async def _send_wikipedia_progress_updates(self, import_id: str, request: WikipediaImportRequest):

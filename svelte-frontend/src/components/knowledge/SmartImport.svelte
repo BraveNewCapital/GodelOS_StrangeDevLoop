@@ -4,8 +4,9 @@
   import { importProgressState } from '../../stores/importProgress.js';
   import { GödelOSAPI } from '../../utils/api.js';
   import { get } from 'svelte/store';
+  import { apiHelpers } from '../../stores/cognitive.js';
   import LoadingState from '../ui/LoadingState.svelte';
-  
+
   let fileInput;
   let dragActive = false;
   let selectedTab = 'file';
@@ -13,143 +14,249 @@
   let textInput = '';
   let textTitle = 'Text Import';
   let apiKeyInput = '';
-  
+
+  // Options
+  let enableAI = false;
+  let confidenceLevel = 'medium';
+  let tabs = [
+    { id: 'file', name: 'File', icon: '📁' },
+    { id: 'url', name: 'URL', icon: '🌐' },
+    { id: 'text', name: 'Text', icon: '📝' },
+    { id: 'api', name: 'API', icon: '🔗' }
+  ];
+
   // Progress tracking
   let activeImports = new Map();
   let importProgress = {};
   $: importProgress = $importProgressState;
   $: activeImportsArray = [...activeImports.values()];
-  
-  // Simple processing options
-  let enableAI = true;
-  let confidenceLevel = 'medium';
-  
-  const tabs = [
-    { id: 'file', name: 'File Upload', icon: '📁' },
-    { id: 'url', name: 'Web URL', icon: '🌐' },
-    { id: 'text', name: 'Text Input', icon: '📝' },
-    { id: 'api', name: 'API Source', icon: '🔗' }
-  ];
 
-  onMount(() => {
-    setupDragAndDrop();
-  });
+  // Fallback polling for import progress if websocket events are missing
+  let pollingIntervals = new Map();
 
-  function setupDragAndDrop() {
-    const container = document.querySelector('.import-container');
-    if (!container) return;
-    
-    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-      container.addEventListener(eventName, preventDefaults, false);
-    });
-    
-    ['dragenter', 'dragover'].forEach(eventName => {
-      container.addEventListener(eventName, () => dragActive = true, false);
-    });
-    
-    ['dragleave', 'drop'].forEach(eventName => {
-      container.addEventListener(eventName, () => dragActive = false, false);
-    });
-    
-    container.addEventListener('drop', handleDrop, false);
+  // Utility function to format file sizes
+  function formatFileSize(bytes) {
+    if (!bytes) return '';
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
   }
 
-  function preventDefaults(e) {
-    e.preventDefault();
-    e.stopPropagation();
+  // Utility function to format file type
+  function formatFileType(type) {
+    if (!type || type === 'file') return 'Unknown';
+    if (type.startsWith('application/pdf')) return 'PDF Document';
+    if (type.startsWith('application/vnd.openxmlformats-officedocument.wordprocessingml')) return 'Word Document';
+    if (type.startsWith('text/plain')) return 'Text File';
+    if (type.startsWith('text/')) return 'Text';
+    if (type.startsWith('image/')) return 'Image';
+    return type.split('/').pop().toUpperCase();
   }
 
-  function handleDrop(e) {
-    const files = Array.from(e.dataTransfer.files);
-    processFiles(files);
-  }
-
-  function handleFileSelect() {
-    if (fileInput.files.length > 0) {
-      const files = Array.from(fileInput.files);
-      processFiles(files);
+  // Utility function to get status color
+  function getStatusColor(status) {
+    switch (status) {
+      case 'completed': return '#4ade80';
+      case 'failed': return '#f87171';
+      case 'cancelled': return '#94a3b8';
+      case 'processing': return '#3b82f6';
+      default: return '#64748b';
     }
   }
 
-  async function processFiles(files) {
-    for (const file of files) {
+  function startPolling(importId) {
+    if (pollingIntervals.has(importId)) return;
+    const poll = async () => {
+  console.debug('[Import] polling progress for', importId);
+  const progress = await GödelOSAPI.getImportProgress(importId);
+  console.debug('[Import] poll result for', importId, progress);
+      if (progress && progress.status) {
+        importProgressState.update(state => ({
+          ...state,
+          [importId]: progress
+        }));
+        if (progress.status === 'completed' || progress.status === 'failed') {
+          clearInterval(pollingIntervals.get(importId));
+          pollingIntervals.delete(importId);
+        }
+      }
+    };
+    const interval = setInterval(poll, 2000);
+    pollingIntervals.set(importId, interval);
+    poll();
+  }
+
+  // --- Import handlers (restored) ---
+  async function handleFileSelect(event) {
+    const files = event?.target?.files || event;
+    if (!files || files.length === 0) return;
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      // optimistic temporary id until backend returns a real import id
+      const tempId = `temp-${Date.now()}-${i}`;
+      activeImports.set(tempId, { id: tempId, filename: file.name, type: file.type || 'file', source: 'upload' });
+      activeImports = activeImports;
+
+      importProgressState.update(state => ({
+        ...state,
+        [tempId]: { status: 'queued', progress: 0, message: 'Queued for upload' }
+      }));
+
       try {
-        const importResponse = await GödelOSAPI.importFromFile(file);
-        const importId = importResponse.import_id || importResponse.file_id;
-        
-        if (importId) {
-          activeImports.set(importId, {
-            id: importId,
-            filename: file.name,
-            status: 'processing',
-            type: 'file',
-            startTime: Date.now()
-          });
+        const result = await GödelOSAPI.importFromFile(file);
+  console.debug('[Import] importFromFile result:', result);
+        const importId = result?.import_id || result?.id || result?.importId || tempId;
+  console.debug('[Import] resolved importId:', importId, 'tempId:', tempId);
+
+        // normalize activeImports key if backend returned a different id
+        if (importId !== tempId) {
+          const item = activeImports.get(tempId);
+          activeImports.delete(tempId);
+          item.id = importId;
+          activeImports.set(importId, item);
           activeImports = activeImports;
         }
-      } catch (error) {
-        console.error('Import error:', error);
-      }
-    }
-  }
 
-  async function importFromUrl() {
-    if (!urlInput.trim()) return;
-    
-    try {
-      const importResponse = await GödelOSAPI.importFromUrl(urlInput);
-      const importId = importResponse.import_id;
-      
-      if (importId) {
-        activeImports.set(importId, {
-          id: importId,
-          source: urlInput,
-          status: 'processing',
-          type: 'url',
-          startTime: Date.now()
-        });
-        activeImports = activeImports;
-        urlInput = '';
-      }
-    } catch (error) {
-      console.error('URL import error:', error);
-    }
-  }
+        importProgressState.update(state => ({
+          ...state,
+          [importId]: { status: 'started', progress: 0, message: 'Upload started' }
+        }));
 
-  async function importFromText() {
-    if (!textInput.trim()) return;
-    
-    try {
-      const importResponse = await GödelOSAPI.importFromText(textInput, textTitle);
-      const importId = importResponse.import_id;
-      
-      if (importId) {
-        activeImports.set(importId, {
-          id: importId,
-          source: textTitle,
-          status: 'processing',
-          type: 'text',
-          startTime: Date.now()
-        });
-        activeImports = activeImports;
-        textInput = '';
-        textTitle = 'Text Import';
-      }
-    } catch (error) {
-      console.error('Text import error:', error);
-    }
-  }
-
-  // Clean up completed imports
-  $: {
-    for (const [id, progress] of Object.entries(importProgress)) {
-      if (progress.status === 'completed' || progress.status === 'failed') {
+        // start polling for progress (websocket will update if available)
+        startPolling(importId);
+      } catch (err) {
+        importProgressState.update(state => ({
+          ...state,
+          [tempId]: { status: 'failed', progress: 0, message: err?.message || 'Upload failed' }
+        }));
+        // remove after short delay
         setTimeout(() => {
-          activeImports.delete(id);
+          activeImports.delete(tempId);
           activeImports = activeImports;
         }, 3000);
       }
     }
+
+    // reset file input so same file can be chosen again
+    if (fileInput) fileInput.value = '';
+  }
+
+  async function importFromUrl() {
+    if (!urlInput || !urlInput.trim()) return;
+    const tempId = `url-${Date.now()}`;
+    activeImports.set(tempId, { id: tempId, source: urlInput, type: 'url' });
+    activeImports = activeImports;
+    importProgressState.update(s => ({ ...s, [tempId]: { status: 'queued', progress: 0, message: 'Starting URL import' } }));
+
+    try {
+      const result = await GödelOSAPI.importFromUrl(urlInput, 'web');
+  console.debug('[Import] importFromUrl result:', result);
+      const importId = result?.import_id || result?.id || tempId;
+  console.debug('[Import] resolved importId:', importId, 'tempId:', tempId);
+      if (importId !== tempId) {
+        const item = activeImports.get(tempId);
+        activeImports.delete(tempId);
+        item.id = importId;
+        activeImports.set(importId, item);
+        activeImports = activeImports;
+      }
+      importProgressState.update(s => ({ ...s, [importId]: { status: 'started', progress: 0, message: 'URL import started' } }));
+      startPolling(importId);
+      urlInput = '';
+    } catch (err) {
+      importProgressState.update(s => ({ ...s, [tempId]: { status: 'failed', progress: 0, message: err?.message || 'URL import failed' } }));
+      setTimeout(() => { activeImports.delete(tempId); activeImports = activeImports; }, 3000);
+    }
+  }
+
+  async function importFromText() {
+    if (!textInput || !textInput.trim()) return;
+    const tempId = `text-${Date.now()}`;
+    activeImports.set(tempId, { id: tempId, filename: textTitle || 'Text Import', type: 'text' });
+    activeImports = activeImports;
+    importProgressState.update(s => ({ ...s, [tempId]: { status: 'queued', progress: 0, message: 'Submitting text' } }));
+
+    try {
+      const result = await GödelOSAPI.importFromText(textInput, textTitle, 'document');
+  console.debug('[Import] importFromText result:', result);
+      const importId = result?.import_id || result?.id || tempId;
+  console.debug('[Import] resolved importId:', importId, 'tempId:', tempId);
+      if (importId !== tempId) {
+        const item = activeImports.get(tempId);
+        activeImports.delete(tempId);
+        item.id = importId;
+        activeImports.set(importId, item);
+        activeImports = activeImports;
+      }
+      importProgressState.update(s => ({ ...s, [importId]: { status: 'started', progress: 0, message: 'Processing text' } }));
+      startPolling(importId);
+      // clear text input after sending
+      textInput = '';
+      textTitle = 'Text Import';
+    } catch (err) {
+      importProgressState.update(s => ({ ...s, [tempId]: { status: 'failed', progress: 0, message: err?.message || 'Text import failed' } }));
+      setTimeout(() => { activeImports.delete(tempId); activeImports = activeImports; }, 3000);
+    }
+  }
+
+  // Drag & drop support and cleanup
+  onMount(() => {
+    const handleDragOver = (e) => { e.preventDefault(); dragActive = true; };
+    const handleDragLeave = (e) => { e.preventDefault(); dragActive = false; };
+    const handleDrop = (e) => {
+      e.preventDefault(); dragActive = false;
+      if (e.dataTransfer && e.dataTransfer.files) {
+        handleFileSelect(e.dataTransfer.files);
+      }
+    };
+
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('dragleave', handleDragLeave);
+    window.addEventListener('drop', handleDrop);
+
+    return () => {
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('dragleave', handleDragLeave);
+      window.removeEventListener('drop', handleDrop);
+      // clear any polling intervals
+      for (const interval of pollingIntervals.values()) clearInterval(interval);
+      pollingIntervals.clear();
+    };
+  });
+
+  // Clean up completed imports
+  $: {
+    for (const [id, progress] of Object.entries(importProgress)) {
+      if (progress.status === 'completed' || progress.status === 'failed' || progress.status === 'cancelled') {
+        setTimeout(() => {
+          activeImports.delete(id);
+          activeImports = activeImports;
+        }, 3000);
+        if (progress.status === 'completed') {
+          // refresh knowledge graph so imported data becomes visible
+          try { apiHelpers.updateKnowledgeFromBackend(); } catch (e) { /* ignore */ }
+        }
+      }
+    }
+  }
+
+  // allow cancelling an import (best-effort - backend may not implement)
+  async function cancelImport(id) {
+    try {
+      if (GödelOSAPI.cancelImport) {
+        await GödelOSAPI.cancelImport(id);
+        importProgressState.update(s => ({ ...s, [id]: { ...(s[id] || {}), status: 'cancelled', message: 'Cancelled by user' } }));
+      } else {
+        // Best-effort local update if backend doesn't support cancel
+        importProgressState.update(s => ({ ...s, [id]: { ...(s[id] || {}), status: 'cancelled', message: 'Cancelled (local)' } }));
+      }
+    } catch (err) {
+      console.warn('cancelImport error', err);
+      importProgressState.update(s => ({ ...s, [id]: { ...(s[id] || {}), status: 'failed', message: err?.message || 'Cancel failed' } }));
+    }
+    // remove from active list shortly after
+    setTimeout(() => { activeImports.delete(id); activeImports = activeImports; }, 1000);
   }
 </script>
 
@@ -271,10 +378,109 @@
           <p class="help-text">Connect to external knowledge sources</p>
         </div>
       {/if}
-    </div>
 
-    <!-- Options Panel -->
-    <div class="options-panel">
+      <!-- Inline Progress Panel (moved into import-section for better visibility) -->
+      {#if activeImports.size > 0}
+        <div class="inline-progress">
+          <h4>Active Imports</h4>
+          <div class="progress-list">
+            {#each activeImportsArray as item}
+              <div class="progress-item">
+                <div class="progress-header">
+                  <div style="display:flex;flex-direction:column;">
+                    <span class="progress-name">{item.source || item.filename}</span>
+                    <small class="progress-type">{item.type}</small>
+                  </div>
+                  <div style="display:flex;gap:8px;align-items:center;">
+                    {#if importProgress[item.id]?.status === 'completed'}
+                      <button class="view-btn" on:click={() => apiHelpers.updateKnowledgeFromBackend()}>View in KG</button>
+                    {/if}
+                    <button class="cancel-btn" on:click={() => cancelImport(item.id)}>Cancel</button>
+                  </div>
+                </div>
+                {#if importProgress[item.id]}
+                  <div class="progress-bar large">
+                    <div 
+                      class="progress-fill" 
+                      style="width: {importProgress[item.id].progress || 0}%"
+                    ></div>
+                    <div class="progress-percent">{Math.round(importProgress[item.id].progress || 0)}%</div>
+                  </div>
+                  <div class="progress-status">
+                    <span class="status-badge" style="background-color: {getStatusColor(importProgress[item.id].status)}20; color: {getStatusColor(importProgress[item.id].status)}; border: 1px solid {getStatusColor(importProgress[item.id].status)}40;">
+                      {importProgress[item.id].status.toUpperCase()}
+                    </span>
+                    <span class="status-step">
+                      {importProgress[item.id].current_step || importProgress[item.id].message || ''}
+                    </span>
+                  </div>
+                  
+                  <!-- File Details -->
+                  <div class="file-details">
+                    <div class="detail-row">
+                      <span class="detail-label">File:</span>
+                      <span class="detail-value">{item.filename || item.source}</span>
+                    </div>
+                    {#if item.type && item.type !== 'file'}
+                      <div class="detail-row">
+                        <span class="detail-label">Type:</span>
+                        <span class="detail-value">{formatFileType(item.type)}</span>
+                      </div>
+                    {/if}
+                    {#if importProgress[item.id].completed_steps !== undefined && importProgress[item.id].total_steps}
+                      <div class="detail-row">
+                        <span class="detail-label">Steps:</span>
+                        <span class="detail-value">{importProgress[item.id].completed_steps}/{importProgress[item.id].total_steps}</span>
+                      </div>
+                    {/if}
+                    {#if importProgress[item.id].started_at}
+                      <div class="detail-row">
+                        <span class="detail-label">Started:</span>
+                        <span class="detail-value">{new Date(importProgress[item.id].started_at * 1000).toLocaleTimeString()}</span>
+                      </div>
+                    {/if}
+                    {#if importProgress[item.id].estimated_completion}
+                      <div class="detail-row">
+                        <span class="detail-label">ETA:</span>
+                        <span class="detail-value">{new Date(importProgress[item.id].estimated_completion * 1000).toLocaleTimeString()}</span>
+                      </div>
+                    {/if}
+                    {#if importProgress[item.id].warnings && importProgress[item.id].warnings.length > 0}
+                      <div class="detail-row">
+                        <span class="detail-label">Warnings:</span>
+                        <span class="detail-value warning">{importProgress[item.id].warnings.length}</span>
+                      </div>
+                    {/if}
+                  </div>
+                {:else}
+                  <div class="progress-bar large">
+                    <div class="progress-fill" style="width: 10%"></div>
+                    <div class="progress-percent">0%</div>
+                  </div>
+                  <div class="progress-status">Starting...</div>
+                  
+                  <!-- File Details -->
+                  <div class="file-details">
+                    <div class="detail-row">
+                      <span class="detail-label">File:</span>
+                      <span class="detail-value">{item.filename || item.source}</span>
+                    </div>
+                    {#if item.type && item.type !== 'file'}
+                      <div class="detail-row">
+                        <span class="detail-label">Type:</span>
+                        <span class="detail-value">{formatFileType(item.type)}</span>
+                      </div>
+                    {/if}
+                  </div>
+                {/if}
+              </div>
+            {/each}
+          </div>
+        </div>
+      {/if}
+    </div>
+  <!-- Options Panel + Progress pinned below -->
+  <div class="options-panel">
       <h4>Processing Options</h4>
       <div class="option-group">
         <label class="toggle-option">
@@ -283,8 +489,8 @@
           <span>AI Processing</span>
         </label>
         <div class="confidence-option">
-          <label>Confidence Level:</label>
-          <select bind:value={confidenceLevel}>
+          <label for="confidence-select">Confidence Level:</label>
+          <select id="confidence-select" bind:value={confidenceLevel}>
             <option value="low">Low</option>
             <option value="medium">Medium</option>
             <option value="high">High</option>
@@ -294,38 +500,7 @@
     </div>
   </div>
 
-  <!-- Progress Section -->
-  {#if activeImports.size > 0}
-    <div class="progress-section">
-      <h4>Active Imports</h4>
-      <div class="progress-list">
-        {#each activeImportsArray as item}
-          <div class="progress-item">
-            <div class="progress-header">
-              <span class="progress-name">{item.source || item.filename}</span>
-              <span class="progress-type">{item.type}</span>
-            </div>
-            {#if importProgress[item.id]}
-              <div class="progress-bar">
-                <div 
-                  class="progress-fill" 
-                  style="width: {importProgress[item.id].progress || 0}%"
-                ></div>
-              </div>
-              <div class="progress-status">
-                {importProgress[item.id].status} - {importProgress[item.id].message || ''}
-              </div>
-            {:else}
-              <div class="progress-bar">
-                <div class="progress-fill" style="width: 10%"></div>
-              </div>
-              <div class="progress-status">Starting...</div>
-            {/if}
-          </div>
-        {/each}
-      </div>
-    </div>
-  {/if}
+  
 </div>
 
 <style>
@@ -338,7 +513,8 @@
     border-radius: 1rem;
     min-height: 600px;
     max-height: 90vh;
-    overflow-y: auto;
+    /* container itself should not scroll; inner regions handle overflow */
+    overflow: hidden;
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
@@ -434,9 +610,10 @@
   /* Content */
   .content {
     display: grid;
-    grid-template-columns: 2fr 1fr;
+    grid-template-columns: 3fr 1fr;
     gap: 2rem;
     flex: 1;
+  min-height: 520px;
   }
 
   /* Import Section */
@@ -444,9 +621,10 @@
     background: #1a1a3e;
     border-radius: 1rem;
     padding: 2rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-start;
+  overflow: auto; /* scroll inside if content grows */
   }
 
   .upload-zone {
@@ -505,6 +683,8 @@
   /* Input Section */
   .input-section {
     width: 100%;
+    display: flex;
+    flex-direction: column;
   }
 
   .input-section h3 {
@@ -529,7 +709,7 @@
     padding: 0.75rem;
     border-radius: 0.5rem;
     font-size: 1rem;
-  }qqqqq  qqqq
+  }
 
   .text-input {
     width: 100%;
@@ -575,7 +755,11 @@
     background: #1a1a3e;
     border-radius: 1rem;
     padding: 1.5rem;
-    height: fit-content;
+  height: fit-content;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
   }
 
   .options-panel h4 {
@@ -649,8 +833,11 @@
     background: #1a1a3e;
     border-radius: 1rem;
     padding: 1.5rem;
-    max-height: 200px;
-    overflow-y: auto;
+  width: 100%;
+  max-height: 260px;
+  overflow: auto;
+  position: sticky;
+  bottom: 0;
   }
 
   .progress-section h4 {
@@ -663,7 +850,20 @@
     display: flex;
     flex-direction: column;
     gap: 1rem;
+  max-height: 220px;
+  overflow: auto;
   }
+
+.cancel-btn {
+  background: transparent;
+  color: #ff7b7b;
+  border: 1px solid #ff7b7b33;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.375rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.cancel-btn:hover { background: rgba(255,123,123,0.06); }
 
   .progress-item {
     background: #2a2a4a;
@@ -709,6 +909,94 @@
   .progress-status {
     font-size: 0.9rem;
     color: #aaa;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .status-badge {
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .status-step {
+    color: #ddd;
+    font-size: 0.85rem;
+  }
+
+  /* Inline progress panel inside import-section */
+  .inline-progress {
+    margin-top: 1.25rem;
+    background: rgba(255,255,255,0.02);
+    padding: 1rem;
+    border-radius: 0.75rem;
+  }
+
+  .progress-bar.large {
+    height: 14px;
+    position: relative;
+  }
+
+  .progress-percent {
+    position: absolute;
+    right: 8px;
+    top: -18px;
+    font-size: 0.85rem;
+    color: #ccc;
+  }
+
+  .view-btn {
+    background: #2a9eff33;
+    color: #4a9eff;
+    border: 1px solid #2a9eff55;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.375rem;
+    cursor: pointer;
+  }
+
+  .file-details {
+    margin-top: 0.75rem;
+    background: rgba(255,255,255,0.03);
+    padding: 0.75rem;
+    border-radius: 0.375rem;
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+
+  .detail-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.4rem;
+  }
+
+  .detail-row:last-child {
+    margin-bottom: 0;
+  }
+
+  .detail-label {
+    font-size: 0.85rem;
+    color: #aaa;
+    font-weight: 500;
+    min-width: 60px;
+  }
+
+  .detail-value {
+    font-size: 0.85rem;
+    color: #ddd;
+    text-align: right;
+    font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+    word-break: break-all;
+    max-width: 200px;
+  }
+
+  .detail-value.warning {
+    color: #fbbf24;
+    font-weight: 600;
   }
 
   /* Responsive */
