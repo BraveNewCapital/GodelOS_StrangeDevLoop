@@ -166,6 +166,7 @@ except ImportError as e:
 try:
     from backend.core.consciousness_engine import ConsciousnessEngine
     from backend.core.cognitive_manager import CognitiveManager
+    from backend.core.cognitive_transparency import transparency_engine
     CONSCIOUSNESS_AVAILABLE = True
 except ImportError as e:
     logger.warning(f"Consciousness engine not available: {e}")
@@ -582,6 +583,97 @@ async def get_consciousness_trajectory():
     except Exception as e:
         logger.error(f"Error getting consciousness trajectory: {e}")
         raise HTTPException(status_code=500, detail=f"Consciousness trajectory error: {str(e)}")
+
+# Transparency API endpoints
+@app.get("/api/v1/transparency/metrics")
+async def get_transparency_metrics():
+    """Get current cognitive transparency metrics"""
+    try:
+        metrics = await transparency_engine.get_transparency_metrics()
+        return JSONResponse(content=metrics)
+    except Exception as e:
+        logger.error(f"Error getting transparency metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/transparency/activity") 
+async def get_cognitive_activity():
+    """Get summary of recent cognitive activity"""
+    try:
+        activity = await transparency_engine.get_cognitive_activity_summary()
+        return JSONResponse(content=activity)
+    except Exception as e:
+        logger.error(f"Error getting cognitive activity: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/transparency/events")
+async def get_recent_events(limit: int = Query(default=20, le=100)):
+    """Get recent cognitive events"""
+    try:
+        events = transparency_engine.event_buffer[-limit:] if len(transparency_engine.event_buffer) >= limit else transparency_engine.event_buffer
+        return JSONResponse(content={
+            "events": [event.to_dict() for event in events],
+            "total_events": len(transparency_engine.event_buffer),
+            "returned_count": len(events)
+        })
+    except Exception as e:
+        logger.error(f"Error getting recent events: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Meta-cognitive API endpoints
+@app.post("/api/v1/metacognitive/monitor")
+async def initiate_metacognitive_monitoring(context: Dict[str, Any] = None):
+    """Initiate comprehensive meta-cognitive monitoring"""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+        
+        result = await cognitive_manager.initiate_meta_cognitive_monitoring(context or {})
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error initiating meta-cognitive monitoring: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/metacognitive/analyze")
+async def perform_metacognitive_analysis(request: QueryRequest):
+    """Perform deep meta-cognitive analysis of a query"""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+        
+        analysis = await cognitive_manager.perform_meta_cognitive_analysis(
+            request.query, 
+            request.context or {}
+        )
+        return JSONResponse(content=analysis)
+    except Exception as e:
+        logger.error(f"Error in meta-cognitive analysis: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/metacognitive/self-awareness")
+async def assess_self_awareness():
+    """Assess current self-awareness level"""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+        
+        assessment = await cognitive_manager.assess_self_awareness()
+        return JSONResponse(content=assessment)
+    except Exception as e:
+        logger.error(f"Error in self-awareness assessment: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/metacognitive/summary")
+async def get_metacognitive_summary():
+    """Get comprehensive meta-cognitive summary"""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+        
+        summary = await cognitive_manager.get_meta_cognitive_summary()
+        return JSONResponse(content=summary)
+    except Exception as e:
+        logger.error(f"Error getting meta-cognitive summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Knowledge endpoints
 @app.get("/api/knowledge/concepts")
@@ -1540,6 +1632,50 @@ async def websocket_cognitive_stream(websocket: WebSocket):
     finally:
         websocket_manager.disconnect(websocket)
         logger.info(f"WebSocket disconnected. Active connections: {len(websocket_manager.active_connections)}")
+
+# Enhanced WebSocket endpoint for cognitive transparency
+@app.websocket("/ws/transparency")
+async def websocket_transparency_stream(websocket: WebSocket):
+    """WebSocket endpoint for real-time cognitive transparency streaming."""
+    try:
+        await transparency_engine.connect_client(websocket)
+        logger.info(f"Transparency WebSocket connected. Active: {transparency_engine.metrics.active_connections}")
+        
+        # Keep connection alive
+        while True:
+            try:
+                # Listen for any messages from client (though we primarily stream to them)
+                data = await websocket.receive_text()
+                logger.debug(f"Received transparency message: {data}")
+                
+                # Handle client commands
+                try:
+                    message = json.loads(data)
+                    if message.get("type") == "get_metrics":
+                        metrics = await transparency_engine.get_transparency_metrics()
+                        await websocket.send_text(json.dumps({
+                            "type": "metrics_response",
+                            "data": metrics
+                        }))
+                    elif message.get("type") == "get_activity":
+                        activity = await transparency_engine.get_cognitive_activity_summary()
+                        await websocket.send_text(json.dumps({
+                            "type": "activity_response", 
+                            "data": activity
+                        }))
+                except json.JSONDecodeError:
+                    await websocket.send_text(json.dumps({
+                        "type": "error",
+                        "message": "Invalid JSON format"
+                    }))
+                    
+            except WebSocketDisconnect:
+                break
+                
+    except Exception as e:
+        logger.error(f"Transparency WebSocket error: {e}")
+    finally:
+        await transparency_engine.disconnect_client(websocket)
 
 # Enhanced cognitive configuration endpoints
 @app.post("/api/enhanced-cognitive/stream/configure")

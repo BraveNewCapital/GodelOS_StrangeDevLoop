@@ -770,6 +770,142 @@ strategies_identified, self_monitoring_quality, biases_detected, recommendations
             logger.error(f"Error processing meta-cognitive analysis: {e}")
             return {"error": str(e)}
     
+    async def process_recursive_reflection(self, prompt: str, depth: int) -> Dict[str, Any]:
+        """Process recursive reflection at specified depth"""
+        try:
+            enhanced_prompt = f"""
+            {prompt}
+            
+            Reflection Depth: {depth}
+            Instructions: Provide deep recursive reflection on your cognitive processes.
+            Focus on thinking about thinking, and analyzing your own analytical processes.
+            Return as JSON with keys: insights, recursive_elements, depth_achieved, confidence
+            """
+            
+            response = await self._call_llm(enhanced_prompt)
+            
+            # Try to parse as JSON
+            try:
+                return json.loads(response)
+            except json.JSONDecodeError:
+                reflection = {
+                    "raw_reflection": response,
+                    "insights": self._extract_insights_from_reflection(response),
+                    "recursive_elements": self._identify_recursive_elements(response),
+                    "depth_achieved": depth,
+                    "confidence": self._assess_confidence(response)
+                }
+                return reflection
+        except Exception as e:
+            logger.error(f"Error in recursive reflection: {e}")
+            return {"error": str(e), "insights": [], "confidence": 0.0}
+    
+    async def process_self_awareness_assessment(self, state_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Process self-awareness assessment using current state data"""
+        try:
+            assessment_prompt = f"""
+            Assess your current level of self-awareness based on the following state data:
+            
+            Current State: {json.dumps(state_data, indent=2)}
+            
+            Evaluate:
+            1. Your understanding of your own cognitive processes
+            2. Awareness of your capabilities and limitations
+            3. Ability to monitor and reflect on your thinking
+            4. Recognition of patterns in your cognitive behavior
+            5. Depth of introspective capabilities
+            
+            Return as JSON with keys: self_awareness_level, strengths_identified, 
+            limitations_recognized, improvement_areas, confidence
+            """
+            
+            response = await self._call_llm(assessment_prompt)
+            
+            # Try to parse as JSON
+            try:
+                return json.loads(response)
+            except json.JSONDecodeError:
+                assessment = {
+                    "raw_assessment": response,
+                    "self_awareness_level": self._extract_awareness_level(response),
+                    "strengths_identified": self._extract_strengths(response),
+                    "limitations_recognized": self._extract_limitations(response),
+                    "improvement_areas": self._extract_improvement_areas(response),
+                    "confidence": self._assess_confidence(response)
+                }
+                return assessment
+        except Exception as e:
+            logger.error(f"Error in self-awareness assessment: {e}")
+            return {"error": str(e), "confidence": 0.0}
+
+    def _extract_insights_from_reflection(self, response: str) -> List[str]:
+        """Extract insights from reflection response"""
+        insights = []
+        lines = response.split('\n')
+        for line in lines:
+            if any(keyword in line.lower() for keyword in ['insight:', 'realize', 'understand', 'discover']):
+                insights.append(line.strip())
+        return insights[:5]  # Limit to 5 insights
+    
+    def _identify_recursive_elements(self, response: str) -> List[str]:
+        """Identify recursive thinking elements in response"""
+        recursive_elements = []
+        if any(phrase in response.lower() for phrase in ['thinking about thinking', 'reflect on reflection', 'meta-', 'recursive']):
+            recursive_elements.append("recursive_thought_detected")
+        if any(phrase in response.lower() for phrase in ['analyze my analysis', 'consider my consideration']):
+            recursive_elements.append("meta_analysis_detected")
+        return recursive_elements
+    
+    def _extract_awareness_level(self, response: str) -> float:
+        """Extract numerical awareness level from response"""
+        import re
+        # Look for percentage or decimal patterns
+        percentage_match = re.search(r'(\d+(?:\.\d+)?)%', response)
+        if percentage_match:
+            return float(percentage_match.group(1)) / 100.0
+        
+        decimal_match = re.search(r'(\d+(?:\.\d+)?)/10', response)
+        if decimal_match:
+            return float(decimal_match.group(1)) / 10.0
+        
+        # Default based on response sophistication
+        if len(response) > 500:
+            return 0.7
+        elif len(response) > 200:
+            return 0.5
+        else:
+            return 0.3
+    
+    def _extract_strengths(self, response: str) -> List[str]:
+        """Extract identified strengths from response"""
+        strengths = []
+        lines = response.split('\n')
+        for line in lines:
+            if any(keyword in line.lower() for keyword in ['strength:', 'good at', 'excel', 'capable']):
+                strengths.append(line.strip())
+        return strengths[:3]
+    
+    def _extract_limitations(self, response: str) -> List[str]:
+        """Extract recognized limitations from response"""
+        limitations = []
+        lines = response.split('\n')
+        for line in lines:
+            if any(keyword in line.lower() for keyword in ['limitation:', 'weakness', 'struggle', 'difficult']):
+                limitations.append(line.strip())
+        return limitations[:3]
+    
+    def _extract_improvement_areas(self, response: str) -> List[str]:
+        """Extract improvement areas from response"""
+        improvements = []
+        lines = response.split('\n')
+        for line in lines:
+            if any(keyword in line.lower() for keyword in ['improve:', 'enhance', 'develop', 'better']):
+                improvements.append(line.strip())
+        return improvements[:3]
+
+
+# Global LLM cognitive driver instance
+    
     async def process_phenomenal_experience_simulation(self, experience_context: str) -> Dict[str, Any]:
         """
         Simulate phenomenal experience and subjective state

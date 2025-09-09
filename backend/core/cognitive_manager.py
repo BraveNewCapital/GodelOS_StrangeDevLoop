@@ -1,22 +1,25 @@
 #!/usr/bin/env python3
 """
-Cognitive Manager - Central Orchestrator for GodelOS
+GödelOS Cognitive Manager
 
-This is the central cognitive manager that coordinates all cognitive processes,
-LLM interactions, knowledge management, and autonomous reasoning.
+This module provides comprehensive cognitive orchestration, session management,
+and intelligent reasoning coordination for the GödelOS system.
 """
 
 import asyncio
+import json
 import logging
 import time
 import uuid
-from datetime import datetime
-from typing import Dict, List, Optional, Any, Union
-from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from dataclasses import dataclass, asdict, field
+from typing import Dict, List, Optional, Any, Union, Tuple
 from enum import Enum
 
 # Import consciousness engine
 from .consciousness_engine import ConsciousnessEngine, ConsciousnessState
+from .cognitive_transparency import transparency_engine
+from .metacognitive_monitor import metacognitive_monitor
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +96,10 @@ class CognitiveManager:
             knowledge_pipeline=knowledge_pipeline,
             websocket_manager=websocket_manager
         )
+        
+        # Initialize meta-cognitive monitor
+        metacognitive_monitor.llm_driver = llm_driver
+        logger.info("Meta-cognitive monitor initialized with LLM driver")
         
         # Cognitive state management
         self.active_sessions: Dict[str, Dict[str, Any]] = {}
@@ -704,7 +711,21 @@ class CognitiveManager:
     
     async def assess_consciousness(self, context: Dict[str, Any] = None) -> ConsciousnessState:
         """Assess current consciousness state using the consciousness engine"""
-        return await self.consciousness_engine.assess_consciousness_state(context)
+        consciousness_state = await self.consciousness_engine.assess_consciousness_state(context)
+        
+        # Log transparency event
+        await transparency_engine.log_consciousness_assessment(
+            assessment_data={
+                "awareness_level": consciousness_state.awareness_level,
+                "self_reflection_depth": consciousness_state.self_reflection_depth,
+                "autonomous_goals": consciousness_state.autonomous_goals,
+                "cognitive_integration": consciousness_state.cognitive_integration,
+                "manifest_behaviors": consciousness_state.manifest_behaviors
+            },
+            reasoning="Systematic consciousness assessment using integrated cognitive state analysis"
+        )
+        
+        return consciousness_state
     
     async def get_consciousness_summary(self) -> Dict[str, Any]:
         """Get comprehensive consciousness summary"""
@@ -712,7 +733,16 @@ class CognitiveManager:
     
     async def initiate_autonomous_goals(self, context: str = None) -> List[str]:
         """Generate autonomous goals based on current consciousness state"""
-        return await self.consciousness_engine.initiate_autonomous_goal_generation(context)
+        goals = await self.consciousness_engine.initiate_autonomous_goal_generation(context)
+        
+        # Log transparency event
+        await transparency_engine.log_autonomous_goal_creation(
+            goals=goals,
+            context={"input_context": context, "consciousness_driven": True},
+            reasoning="Autonomous goal generation based on current consciousness state and identified learning opportunities"
+        )
+        
+        return goals
     
     async def get_consciousness_trajectory(self) -> Dict[str, Any]:
         """Get consciousness development trajectory analysis"""
@@ -739,6 +769,75 @@ class CognitiveManager:
             'autonomous_goals': consciousness_state.autonomous_goals,
             'manifest_behaviors': consciousness_state.manifest_behaviors
         }
+    
+    # Meta-cognitive methods
+    async def initiate_meta_cognitive_monitoring(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Initiate comprehensive meta-cognitive monitoring"""
+        try:
+            meta_state = await metacognitive_monitor.initiate_self_monitoring(context)
+            
+            # Log transparency event
+            await transparency_engine.log_meta_cognitive_reflection(
+                reflection_data={
+                    "self_awareness_level": meta_state.self_awareness_level,
+                    "reflection_depth": meta_state.reflection_depth,
+                    "recursive_loops": meta_state.recursive_loops,
+                    "cognitive_load": meta_state.cognitive_load
+                },
+                depth=meta_state.reflection_depth,
+                reasoning="Initiated comprehensive meta-cognitive monitoring of cognitive processes"
+            )
+            
+            return {
+                "meta_cognitive_state": asdict(meta_state),
+                "monitoring_initiated": True,
+                "timestamp": datetime.now().isoformat()
+            }
+        except Exception as e:
+            logger.error(f"Error initiating meta-cognitive monitoring: {e}")
+            return {"error": str(e), "monitoring_initiated": False}
+    
+    async def perform_meta_cognitive_analysis(self, query: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Perform deep meta-cognitive analysis"""
+        try:
+            analysis = await metacognitive_monitor.perform_meta_cognitive_analysis(query, context)
+            
+            # Log transparency event for meta-cognitive analysis
+            await transparency_engine.log_meta_cognitive_reflection(
+                reflection_data=analysis,
+                depth=analysis.get("self_reference_depth", 1),
+                reasoning="Deep meta-cognitive analysis performed on query and cognitive processes"
+            )
+            
+            return analysis
+        except Exception as e:
+            logger.error(f"Error in meta-cognitive analysis: {e}")
+            return {"error": str(e)}
+    
+    async def assess_self_awareness(self) -> Dict[str, Any]:
+        """Assess current self-awareness level"""
+        try:
+            assessment = await metacognitive_monitor.assess_self_awareness()
+            
+            # Log transparency event
+            await transparency_engine.log_meta_cognitive_reflection(
+                reflection_data=assessment,
+                depth=3,  # Self-awareness assessment is deep reflection
+                reasoning="Comprehensive self-awareness assessment conducted"
+            )
+            
+            return assessment
+        except Exception as e:
+            logger.error(f"Error in self-awareness assessment: {e}")
+            return {"error": str(e)}
+    
+    async def get_meta_cognitive_summary(self) -> Dict[str, Any]:
+        """Get comprehensive meta-cognitive summary"""
+        try:
+            return await metacognitive_monitor.get_meta_cognitive_summary()
+        except Exception as e:
+            logger.error(f"Error getting meta-cognitive summary: {e}")
+            return {"error": str(e)}
 
 
 # Global instance
