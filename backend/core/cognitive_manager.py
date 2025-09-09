@@ -20,6 +20,7 @@ from enum import Enum
 from .consciousness_engine import ConsciousnessEngine, ConsciousnessState
 from .cognitive_transparency import transparency_engine
 from .metacognitive_monitor import metacognitive_monitor
+from .autonomous_learning import autonomous_learning_system
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,10 @@ class CognitiveManager:
         # Initialize meta-cognitive monitor
         metacognitive_monitor.llm_driver = llm_driver
         logger.info("Meta-cognitive monitor initialized with LLM driver")
+        
+        # Initialize autonomous learning system
+        autonomous_learning_system.llm_driver = llm_driver
+        logger.info("Autonomous learning system initialized with LLM driver")
         
         # Cognitive state management
         self.active_sessions: Dict[str, Dict[str, Any]] = {}
@@ -837,6 +842,160 @@ class CognitiveManager:
             return await metacognitive_monitor.get_meta_cognitive_summary()
         except Exception as e:
             logger.error(f"Error getting meta-cognitive summary: {e}")
+            return {"error": str(e)}
+    
+    # Autonomous learning methods
+    async def analyze_knowledge_gaps(self, context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Analyze and identify knowledge gaps for autonomous learning"""
+        try:
+            gaps = await autonomous_learning_system.analyze_knowledge_gaps(context or {})
+            
+            # Log transparency event
+            await transparency_engine.log_knowledge_integration(
+                domains=list(set([gap.domain.value for gap in gaps])),
+                connections=len(gaps),
+                novel_insights=[gap.gap_description for gap in gaps[:3]],
+                reasoning="Identified knowledge gaps through systematic analysis for autonomous learning focus"
+            )
+            
+            return {
+                "knowledge_gaps": [asdict(gap) for gap in gaps],
+                "gap_count": len(gaps),
+                "domains_affected": list(set([gap.domain.value for gap in gaps])),
+                "critical_gaps": [asdict(gap) for gap in gaps if gap.severity > 0.7],
+                "timestamp": datetime.now().isoformat()
+            }
+        except Exception as e:
+            logger.error(f"Error analyzing knowledge gaps: {e}")
+            return {"error": str(e)}
+    
+    async def generate_autonomous_learning_goals(self, 
+                                               focus_domains: List[str] = None,
+                                               urgency: str = "medium") -> Dict[str, Any]:
+        """Generate autonomous learning goals based on current state"""
+        try:
+            # Convert string domains to enum if provided
+            domain_enums = []
+            if focus_domains:
+                from .autonomous_learning import LearningDomain
+                for domain_str in focus_domains:
+                    try:
+                        domain_enums.append(LearningDomain(domain_str.lower()))
+                    except ValueError:
+                        continue
+            
+            goals = await autonomous_learning_system.generate_autonomous_learning_goals(
+                focus_domains=domain_enums or None,
+                urgency_level=urgency
+            )
+            
+            # Log transparency event
+            await transparency_engine.log_autonomous_goal_creation(
+                goals=[goal.description for goal in goals],
+                context={
+                    "focus_domains": focus_domains,
+                    "urgency": urgency,
+                    "learning_driven": True
+                },
+                reasoning="Generated autonomous learning goals based on identified knowledge gaps and learning priorities"
+            )
+            
+            return {
+                "learning_goals": [autonomous_learning_system._serialize_goal(goal) for goal in goals],
+                "goal_count": len(goals),
+                "domains_covered": list(set([goal.domain.value for goal in goals])),
+                "total_estimated_hours": sum(goal.estimated_duration for goal in goals),
+                "timestamp": datetime.now().isoformat()
+            }
+        except Exception as e:
+            logger.error(f"Error generating autonomous learning goals: {e}")
+            return {"error": str(e)}
+    
+    async def create_learning_plan(self, goal_ids: List[str] = None) -> Dict[str, Any]:
+        """Create comprehensive learning plan"""
+        try:
+            # Get goals if specific IDs provided
+            goals = None
+            if goal_ids:
+                goals = [autonomous_learning_system.active_goals.get(goal_id) for goal_id in goal_ids]
+                goals = [goal for goal in goals if goal is not None]
+            
+            plan = await autonomous_learning_system.create_learning_plan(goals)
+            
+            return {
+                "learning_plan": asdict(plan),
+                "plan_id": plan.id,
+                "goals_included": len(plan.goals),
+                "estimated_duration": plan.estimated_total_duration,
+                "timestamp": datetime.now().isoformat()
+            }
+        except Exception as e:
+            logger.error(f"Error creating learning plan: {e}")
+            return {"error": str(e)}
+    
+    async def assess_learning_skills(self, domains: List[str] = None) -> Dict[str, Any]:
+        """Assess current skill levels across learning domains"""
+        try:
+            # Convert string domains to enum if provided
+            domain_enums = None
+            if domains:
+                from .autonomous_learning import LearningDomain
+                domain_enums = []
+                for domain_str in domains:
+                    try:
+                        domain_enums.append(LearningDomain(domain_str.lower()))
+                    except ValueError:
+                        continue
+            
+            assessments = await autonomous_learning_system.assess_current_skills(domain_enums)
+            
+            return {
+                "skill_assessments": {domain.value: asdict(assessment) for domain, assessment in assessments.items()},
+                "domains_assessed": len(assessments),
+                "average_skill_level": sum(assessment.current_level for assessment in assessments.values()) / len(assessments) if assessments else 0.0,
+                "improvement_needed": sum(assessment.improvement_needed for assessment in assessments.values()),
+                "timestamp": datetime.now().isoformat()
+            }
+        except Exception as e:
+            logger.error(f"Error assessing learning skills: {e}")
+            return {"error": str(e)}
+    
+    async def track_learning_progress(self, goal_id: str, progress_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Track progress on a learning goal"""
+        try:
+            success = await autonomous_learning_system.track_learning_progress(goal_id, progress_data)
+            
+            return {
+                "goal_id": goal_id,
+                "progress_updated": success,
+                "progress_data": progress_data,
+                "timestamp": datetime.now().isoformat()
+            }
+        except Exception as e:
+            logger.error(f"Error tracking learning progress: {e}")
+            return {"error": str(e)}
+    
+    async def get_learning_insights(self) -> Dict[str, Any]:
+        """Generate insights about learning patterns and effectiveness"""
+        try:
+            insights = await autonomous_learning_system.generate_learning_insights()
+            
+            return {
+                "learning_insights": insights,
+                "insight_count": len(insights.get("insights", [])),
+                "recommendations_count": len(insights.get("recommendations", [])),
+                "timestamp": datetime.now().isoformat()
+            }
+        except Exception as e:
+            logger.error(f"Error getting learning insights: {e}")
+            return {"error": str(e)}
+    
+    async def get_autonomous_learning_summary(self) -> Dict[str, Any]:
+        """Get comprehensive summary of autonomous learning system"""
+        try:
+            return await autonomous_learning_system.get_learning_summary()
+        except Exception as e:
+            logger.error(f"Error getting autonomous learning summary: {e}")
             return {"error": str(e)}
 
 

@@ -675,6 +675,104 @@ async def get_metacognitive_summary():
         logger.error(f"Error getting meta-cognitive summary: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# Autonomous Learning API endpoints
+@app.post("/api/v1/learning/analyze-gaps")
+async def analyze_knowledge_gaps(context: Dict[str, Any] = None):
+    """Analyze and identify knowledge gaps for learning"""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+        
+        result = await cognitive_manager.analyze_knowledge_gaps(context)
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error analyzing knowledge gaps: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/learning/generate-goals")
+async def generate_autonomous_goals(
+    focus_domains: List[str] = Query(default=None),
+    urgency: str = Query(default="medium")
+):
+    """Generate autonomous learning goals"""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+        
+        result = await cognitive_manager.generate_autonomous_learning_goals(
+            focus_domains=focus_domains,
+            urgency=urgency
+        )
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error generating autonomous goals: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/learning/create-plan")
+async def create_learning_plan(goal_ids: List[str] = Query(default=None)):
+    """Create comprehensive learning plan"""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+        
+        result = await cognitive_manager.create_learning_plan(goal_ids)
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error creating learning plan: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/learning/assess-skills")
+async def assess_learning_skills(domains: List[str] = Query(default=None)):
+    """Assess current skill levels across learning domains"""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+        
+        result = await cognitive_manager.assess_learning_skills(domains)
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error assessing learning skills: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/learning/track-progress/{goal_id}")
+async def track_learning_progress(goal_id: str, progress_data: Dict[str, Any]):
+    """Track progress on a learning goal"""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+        
+        result = await cognitive_manager.track_learning_progress(goal_id, progress_data)
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error tracking learning progress: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/learning/insights")
+async def get_learning_insights():
+    """Get insights about learning patterns and effectiveness"""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+        
+        result = await cognitive_manager.get_learning_insights()
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error getting learning insights: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/learning/summary")
+async def get_learning_summary():
+    """Get comprehensive autonomous learning system summary"""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+        
+        result = await cognitive_manager.get_autonomous_learning_summary()
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error getting learning summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Knowledge endpoints
 @app.get("/api/knowledge/concepts")
 async def get_knowledge_concepts():
