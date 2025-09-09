@@ -369,7 +369,7 @@ async def health_check():
     # Check knowledge pipeline
     if knowledge_pipeline:
         try:
-            pipeline_stats = await knowledge_pipeline.get_statistics()
+            pipeline_stats = knowledge_pipeline.get_statistics()
             health_status["components"]["knowledge_pipeline"] = {
                 "status": "healthy",
                 "statistics": pipeline_stats
@@ -496,14 +496,25 @@ def main():
     logger.info(f"🌍 Environment: {ENVIRONMENT}")
     logger.info(f"📚 API Documentation: http://{host}:{port}/docs")
     
-    uvicorn.run(
-        app,
-        host=host,
-        port=port,
-        log_level="info",
-        access_log=True,
-        reload=ENVIRONMENT == "development"
-    )
+    # Use app object directly for production, module string for development with reload
+    if ENVIRONMENT == "development":
+        uvicorn.run(
+            "modernized_main:app",
+            host=host,
+            port=port,
+            log_level="info",
+            access_log=True,
+            reload=True
+        )
+    else:
+        uvicorn.run(
+            app,
+            host=host,
+            port=port,
+            log_level="info",
+            access_log=True,
+            reload=False
+        )
 
 
 if __name__ == "__main__":

@@ -410,7 +410,7 @@ class CognitiveManager:
             # Analyze knowledge pipeline statistics
             if self.knowledge_pipeline:
                 try:
-                    stats = await self.knowledge_pipeline.get_statistics()
+                    stats = self.knowledge_pipeline.get_statistics()
                     entities_count = stats.get("total_entities", 0)
                     relationships_count = stats.get("total_relationships", 0)
                     

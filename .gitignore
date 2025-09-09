@@ -287,3 +287,5 @@ test_run_output.txt
 # OS files
 .DS_Store
 Thumbs.db
+modernized_architecture_test_results.json
+regression_test_results.json

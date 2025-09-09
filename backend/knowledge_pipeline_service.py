@@ -333,6 +333,63 @@ class KnowledgePipelineService:
             }
         }
     
+    def get_statistics(self) -> Dict[str, Any]:
+        """Get knowledge pipeline statistics (synchronous version for health checks)."""
+        try:
+            # Get knowledge store statistics if available
+            knowledge_stats = {}
+            if self.knowledge_store:
+                try:
+                    # Try to get stats from knowledge store
+                    knowledge_stats = {
+                        "total_knowledge_items": getattr(self.knowledge_store, 'get_total_count', lambda: 0)(),
+                        "active_connections": getattr(self.knowledge_store, 'get_connection_count', lambda: 0)()
+                    }
+                except Exception:
+                    knowledge_stats = {"total_knowledge_items": 0, "active_connections": 0}
+            
+            # Get vector store statistics if available
+            vector_stats = {}
+            if self.vector_store:
+                try:
+                    vector_stats = {
+                        "total_embeddings": getattr(self.vector_store, 'get_total_embeddings', lambda: 0)(),
+                        "dimensions": getattr(self.vector_store, 'embedding_dim', 384)
+                    }
+                except Exception:
+                    vector_stats = {"total_embeddings": 0, "dimensions": 384}
+            
+            return {
+                "status": "healthy" if self.initialized else "initializing",
+                "initialized": self.initialized,
+                "components_active": sum([
+                    self.nlp_processor is not None,
+                    self.knowledge_store is not None,
+                    self.graph_builder is not None,
+                    self.pipeline is not None,
+                    self.vector_store is not None,
+                    self.query_engine is not None
+                ]),
+                "total_components": 6,
+                "processing_metrics": {
+                    "documents_processed": self.documents_processed,
+                    "entities_extracted": self.entities_extracted,
+                    "relationships_extracted": self.relationships_extracted,
+                    "queries_processed": self.queries_processed
+                },
+                "knowledge_store": knowledge_stats,
+                "vector_store": vector_stats
+            }
+        except Exception as e:
+            logger.error(f"Error getting knowledge pipeline statistics: {e}")
+            return {
+                "status": "error",
+                "error": str(e),
+                "initialized": self.initialized,
+                "components_active": 0,
+                "total_components": 6
+            }
+    
     async def _broadcast_event(self, event: Dict[str, Any]):
         """Broadcast an event via websocket if available."""
         if self.websocket_manager and self.websocket_manager.has_connections():
