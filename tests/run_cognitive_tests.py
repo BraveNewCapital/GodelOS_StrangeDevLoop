@@ -62,13 +62,13 @@ def main():
     
     # Run phenomenal experience tests
     if args.phenomenal or args.all:
-        success = run_test_script("test_phenomenal_experience_system.py", 
+        success = run_test_script("tests/test_phenomenal_experience_system.py", 
                                 "Phenomenal Experience System Tests")
         test_results.append(("Phenomenal Experience Tests", success))
     
     # Run integration tests
     if args.integration or args.all:
-        success = run_test_script("test_kg_phenomenal_integration.py", 
+        success = run_test_script("tests/test_kg_phenomenal_integration.py", 
                                 "KG-PE Integration Tests")
         test_results.append(("KG-PE Integration Tests", success))
     

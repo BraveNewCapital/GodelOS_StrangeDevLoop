@@ -913,9 +913,9 @@ async def generate_phenomenal_experience(experience_data: Dict[str, Any]):
                 experience_type = ExperienceType.COGNITIVE
         
         experience = await phenomenal_experience_generator.generate_experience(
+            trigger_context=context,
             experience_type=experience_type,
-            context=context,
-            intensity=intensity
+            desired_intensity=intensity
         )
         
         return JSONResponse(content={
@@ -1060,9 +1060,9 @@ async def trigger_specific_experience(trigger_data: Dict[str, Any]):
             )
         
         experience = await phenomenal_experience_generator.generate_experience(
+            trigger_context=enhanced_context,
             experience_type=experience_type,
-            context=enhanced_context,
-            intensity=intensity
+            desired_intensity=intensity
         )
         
         return JSONResponse(content={
