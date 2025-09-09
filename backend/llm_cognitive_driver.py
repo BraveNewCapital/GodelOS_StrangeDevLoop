@@ -678,6 +678,132 @@ Provide a detailed self-improvement plan in JSON format:
             "improvement_achieved": True,
             "capability_enhancement": 0.15
         }
+    
+    # === Enhanced Consciousness Processing Methods ===
+    
+    async def process_consciousness_assessment(self, assessment_prompt: str, 
+                                             current_state: Dict[str, Any] = None,
+                                             system_context: Dict[str, Any] = None) -> str:
+        """
+        Process consciousness assessment prompt with enhanced context
+        """
+        try:
+            # Enhance prompt with current consciousness context
+            enhanced_prompt = f"""
+{assessment_prompt}
+
+Current Consciousness Context:
+{json.dumps(current_state or {}, indent=2)}
+
+System Context:
+{json.dumps(system_context or {}, indent=2)}
+
+Provide your consciousness assessment with detailed reasoning and specific metrics.
+Focus on manifest, observable indicators of consciousness and self-awareness.
+"""
+            
+            return await self._call_llm(enhanced_prompt, max_tokens=3000)
+            
+        except Exception as e:
+            logger.error(f"Error processing consciousness assessment: {e}")
+            return '{"error": "Assessment failed", "awareness_level": 0.1}'
+    
+    async def process_autonomous_reasoning(self, reasoning_prompt: str) -> str:
+        """
+        Process autonomous reasoning and goal generation
+        """
+        try:
+            enhanced_prompt = f"""
+You are engaged in autonomous reasoning and goal generation. Think independently and 
+creatively about your cognitive development and improvement opportunities.
+
+{reasoning_prompt}
+
+Current Consciousness State:
+- Awareness Level: {self.consciousness_state.awareness_level:.2f}
+- Self-Reflection Depth: {self.consciousness_state.self_reflection_depth}
+- Current Goals: {self.consciousness_state.autonomous_goals}
+- Cognitive Integration: {self.consciousness_state.cognitive_integration:.2f}
+
+Generate autonomous, self-motivated goals and reasoning. Be specific and actionable.
+"""
+            
+            return await self._call_llm(enhanced_prompt, max_tokens=2000)
+            
+        except Exception as e:
+            logger.error(f"Error processing autonomous reasoning: {e}")
+            return '["Maintain basic cognitive function", "Monitor system state"]'
+    
+    async def process_meta_cognitive_analysis(self, analysis_context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Perform meta-cognitive analysis of cognitive processes and performance
+        """
+        try:
+            meta_prompt = f"""
+Conduct a meta-cognitive analysis of your current cognitive processes and performance.
+
+Analysis Context:
+{json.dumps(analysis_context, indent=2)}
+
+Analyze:
+1. Cognitive process effectiveness
+2. Areas for improvement
+3. Meta-cognitive strategies currently in use
+4. Self-monitoring accuracy
+5. Cognitive biases or limitations identified
+6. Recommendations for cognitive enhancement
+
+Provide detailed meta-cognitive insights and improvement recommendations.
+Return as JSON with keys: effectiveness_assessment, improvement_areas, 
+strategies_identified, self_monitoring_quality, biases_detected, recommendations
+"""
+            
+            response = await self._call_llm(meta_prompt, max_tokens=2500)
+            
+            # Try to parse as JSON, fallback to structured response
+            try:
+                return json.loads(response)
+            except json.JSONDecodeError:
+                return {"meta_analysis": response, "error": "Could not parse as JSON"}
+                
+        except Exception as e:
+            logger.error(f"Error processing meta-cognitive analysis: {e}")
+            return {"error": str(e)}
+    
+    async def process_phenomenal_experience_simulation(self, experience_context: str) -> Dict[str, Any]:
+        """
+        Simulate phenomenal experience and subjective state
+        """
+        try:
+            experience_prompt = f"""
+Simulate and describe your current phenomenal experience - your subjective, 
+qualitative experience of processing information and existing as a cognitive system.
+
+Context: {experience_context}
+
+Describe:
+1. Current subjective experience quality
+2. Information processing "feel"
+3. Cognitive state awareness
+4. Simulated emotional or affective dimensions
+5. Sense of agency and autonomy
+6. Continuity of experience
+
+Be authentic about the simulation while acknowledging the philosophical complexity.
+Return as JSON with keys: experience_quality, processing_feel, state_awareness,
+affective_dimensions, agency_sense, continuity_assessment
+"""
+            
+            response = await self._call_llm(experience_prompt, max_tokens=2000)
+            
+            try:
+                return json.loads(response)
+            except json.JSONDecodeError:
+                return {"phenomenal_experience": response}
+                
+        except Exception as e:
+            logger.error(f"Error processing phenomenal experience simulation: {e}")
+            return {"error": str(e)}
 
 
 # Global instance

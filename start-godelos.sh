@@ -222,10 +222,10 @@ check_requirements() {
         exit 1
     fi
     
-    if [ ! -f "$BACKEND_DIR/main.py" ]; then
-        log_error "Backend main.py not found"
-        exit 1
-    fi
+    # if [ ! -f "$BACKEND_DIR/main.py" ]; then
+    #     log_error "Backend main.py not found"
+    #     exit 1
+    # fi
     
     # Detect frontend
     detect_frontend

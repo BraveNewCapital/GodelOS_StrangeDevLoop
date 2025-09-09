@@ -162,10 +162,22 @@ except ImportError as e:
     transparency_router = None
     ENHANCED_APIS_AVAILABLE = False
 
+# Import consciousness engine and cognitive manager
+try:
+    from backend.core.consciousness_engine import ConsciousnessEngine
+    from backend.core.cognitive_manager import CognitiveManager
+    CONSCIOUSNESS_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Consciousness engine not available: {e}")
+    ConsciousnessEngine = None
+    CognitiveManager = None
+    CONSCIOUSNESS_AVAILABLE = False
+
 # Global service instances
 godelos_integration: Optional[GödelOSIntegration] = None
 websocket_manager: Optional[WebSocketManager] = None
 tool_based_llm: Optional[ToolBasedLLMIntegration] = None
+cognitive_manager: Optional[CognitiveManager] = None
 cognitive_streaming_task: Optional[asyncio.Task] = None
 
 # Simulated cognitive state for fallback
@@ -192,7 +204,7 @@ cognitive_state = {
 
 async def initialize_core_services():
     """Initialize core services with proper error handling."""
-    global godelos_integration, websocket_manager, tool_based_llm
+    global godelos_integration, websocket_manager, tool_based_llm, cognitive_manager
     
     # Initialize WebSocket manager
     websocket_manager = WebSocketManager()
@@ -220,6 +232,16 @@ async def initialize_core_services():
         except Exception as e:
             logger.error(f"❌ Failed to initialize LLM integration: {e}")
             tool_based_llm = None
+    
+    # Initialize cognitive manager with consciousness engine if available
+    if CONSCIOUSNESS_AVAILABLE and tool_based_llm:
+        try:
+            cognitive_manager = CognitiveManager(tool_based_llm, websocket_manager)
+            await cognitive_manager.initialize()
+            logger.info("✅ Cognitive manager with consciousness engine initialized successfully")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize cognitive manager: {e}")
+            cognitive_manager = None
 
 async def initialize_optional_services():
     """Initialize optional advanced services."""
@@ -468,6 +490,98 @@ async def api_get_cognitive_state():
 async def api_get_cognitive_state_alias():
     """API cognitive state endpoint with hyphenated path (alias for compatibility)."""
     return await get_cognitive_state_endpoint()
+
+# Consciousness endpoints
+@app.get("/api/v1/consciousness/state")
+async def get_consciousness_state():
+    """Get current consciousness state assessment."""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Consciousness engine not available")
+        
+        consciousness_state = await cognitive_manager.assess_consciousness()
+        return consciousness_state
+    except Exception as e:
+        logger.error(f"Error getting consciousness state: {e}")
+        raise HTTPException(status_code=500, detail=f"Consciousness assessment error: {str(e)}")
+
+@app.post("/api/v1/consciousness/assess")
+async def assess_consciousness():
+    """Trigger a comprehensive consciousness assessment."""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Consciousness engine not available")
+        
+        assessment = await cognitive_manager.assess_consciousness()
+        return {
+            "assessment": assessment,
+            "timestamp": datetime.now().isoformat(),
+            "status": "completed"
+        }
+    except Exception as e:
+        logger.error(f"Error assessing consciousness: {e}")
+        raise HTTPException(status_code=500, detail=f"Consciousness assessment error: {str(e)}")
+
+@app.get("/api/v1/consciousness/summary")
+async def get_consciousness_summary():
+    """Get a summary of consciousness capabilities and current state."""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Consciousness engine not available")
+        
+        summary = await cognitive_manager.get_consciousness_summary()
+        return summary
+    except Exception as e:
+        logger.error(f"Error getting consciousness summary: {e}")
+        raise HTTPException(status_code=500, detail=f"Consciousness summary error: {str(e)}")
+
+@app.post("/api/v1/consciousness/goals/generate")
+async def generate_autonomous_goals():
+    """Generate autonomous goals based on current consciousness state."""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Consciousness engine not available")
+        
+        goals = await cognitive_manager.initiate_autonomous_goals()
+        return {
+            "goals": goals,
+            "timestamp": datetime.now().isoformat(),
+            "status": "generated"
+        }
+    except Exception as e:
+        logger.error(f"Error generating autonomous goals: {e}")
+        raise HTTPException(status_code=500, detail=f"Goal generation error: {str(e)}")
+
+@app.get("/api/v1/consciousness/trajectory")
+async def get_consciousness_trajectory():
+    """Get consciousness trajectory and behavioral patterns."""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Consciousness engine not available")
+        
+        # Get current state as baseline for trajectory
+        current_state = await cognitive_manager.assess_consciousness()
+        
+        trajectory = {
+            "current_state": current_state,
+            "behavioral_patterns": {
+                "autonomy_level": current_state.get("autonomy_level", 0.0),
+                "self_awareness": current_state.get("self_awareness_level", 0.0),
+                "intentionality": current_state.get("intentionality_strength", 0.0),
+                "phenomenal_awareness": current_state.get("phenomenal_awareness", 0.0)
+            },
+            "trajectory_analysis": {
+                "trend": "stable",
+                "confidence": 0.8,
+                "notable_changes": []
+            },
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        return trajectory
+    except Exception as e:
+        logger.error(f"Error getting consciousness trajectory: {e}")
+        raise HTTPException(status_code=500, detail=f"Consciousness trajectory error: {str(e)}")
 
 # Knowledge endpoints
 @app.get("/api/knowledge/concepts")

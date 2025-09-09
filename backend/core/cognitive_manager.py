@@ -15,6 +15,9 @@ from typing import Dict, List, Optional, Any, Union
 from dataclasses import dataclass, field
 from enum import Enum
 
+# Import consciousness engine
+from .consciousness_engine import ConsciousnessEngine, ConsciousnessState
+
 logger = logging.getLogger(__name__)
 
 
@@ -83,6 +86,13 @@ class CognitiveManager:
         self.llm_driver = llm_driver
         self.knowledge_pipeline = knowledge_pipeline
         self.websocket_manager = websocket_manager
+        
+        # Initialize consciousness engine
+        self.consciousness_engine = ConsciousnessEngine(
+            llm_driver=llm_driver,
+            knowledge_pipeline=knowledge_pipeline,
+            websocket_manager=websocket_manager
+        )
         
         # Cognitive state management
         self.active_sessions: Dict[str, Dict[str, Any]] = {}
@@ -689,6 +699,46 @@ class CognitiveManager:
             
         except Exception as e:
             logger.error(f"Error logging cognitive transparency: {e}")
+    
+    # === Consciousness Engine Integration ===
+    
+    async def assess_consciousness(self, context: Dict[str, Any] = None) -> ConsciousnessState:
+        """Assess current consciousness state using the consciousness engine"""
+        return await self.consciousness_engine.assess_consciousness_state(context)
+    
+    async def get_consciousness_summary(self) -> Dict[str, Any]:
+        """Get comprehensive consciousness summary"""
+        return await self.consciousness_engine.get_consciousness_summary()
+    
+    async def initiate_autonomous_goals(self, context: str = None) -> List[str]:
+        """Generate autonomous goals based on current consciousness state"""
+        return await self.consciousness_engine.initiate_autonomous_goal_generation(context)
+    
+    async def get_consciousness_trajectory(self) -> Dict[str, Any]:
+        """Get consciousness development trajectory analysis"""
+        summary = await self.consciousness_engine.get_consciousness_summary()
+        return summary.get('consciousness_trajectory', {})
+    
+    def get_current_consciousness_state(self) -> ConsciousnessState:
+        """Get current consciousness state without assessment"""
+        return self.consciousness_engine.current_state
+    
+    async def trigger_consciousness_assessment(self) -> Dict[str, Any]:
+        """Manually trigger consciousness assessment and return results"""
+        consciousness_state = await self.assess_consciousness()
+        
+        # Log consciousness assessment
+        logger.info(f"Consciousness Assessment - Awareness: {consciousness_state.awareness_level:.2f}, "
+                   f"Reflection: {consciousness_state.self_reflection_depth}, "
+                   f"Goals: {len(consciousness_state.autonomous_goals)}")
+        
+        return {
+            'consciousness_state': consciousness_state,
+            'assessment_timestamp': consciousness_state.timestamp,
+            'consciousness_level': self.consciousness_engine._categorize_consciousness_level(),
+            'autonomous_goals': consciousness_state.autonomous_goals,
+            'manifest_behaviors': consciousness_state.manifest_behaviors
+        }
 
 
 # Global instance

@@ -401,6 +401,115 @@ async def health_check():
     return health_status
 
 
+# ===== CONSCIOUSNESS ENDPOINTS =====
+
+@app.get("/api/v1/consciousness/state")
+async def get_consciousness_state():
+    """Get current consciousness state assessment."""
+    try:
+        if not cognitive_manager:
+            return {"error": "Cognitive manager not available", "status": "unavailable"}
+        
+        consciousness_state = cognitive_manager.get_current_consciousness_state()
+        return {
+            "status": "success",
+            "consciousness_state": {
+                "awareness_level": consciousness_state.awareness_level,
+                "self_reflection_depth": consciousness_state.self_reflection_depth,
+                "autonomous_goals": consciousness_state.autonomous_goals,
+                "cognitive_integration": consciousness_state.cognitive_integration,
+                "manifest_behaviors": consciousness_state.manifest_behaviors,
+                "timestamp": consciousness_state.timestamp
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting consciousness state: {e}")
+        return {"error": str(e), "status": "error"}
+
+
+@app.post("/api/v1/consciousness/assess")
+async def trigger_consciousness_assessment(request: Optional[Dict[str, Any]] = None):
+    """Trigger a comprehensive consciousness assessment."""
+    try:
+        if not cognitive_manager:
+            return {"error": "Cognitive manager not available", "status": "unavailable"}
+        
+        # Extract context from request body if provided
+        context = request.get("context") if request else None
+        
+        # Trigger consciousness assessment
+        assessment_result = await cognitive_manager.trigger_consciousness_assessment()
+        
+        return {
+            "status": "success",
+            "assessment": assessment_result
+        }
+        
+    except Exception as e:
+        logger.error(f"Error triggering consciousness assessment: {e}")
+        return {"error": str(e), "status": "error"}
+
+
+@app.get("/api/v1/consciousness/summary")
+async def get_consciousness_summary():
+    """Get comprehensive consciousness summary including metrics and trajectory."""
+    try:
+        if not cognitive_manager:
+            return {"error": "Cognitive manager not available", "status": "unavailable"}
+        
+        summary = await cognitive_manager.get_consciousness_summary()
+        
+        return {
+            "status": "success",
+            "consciousness_summary": summary
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting consciousness summary: {e}")
+        return {"error": str(e), "status": "error"}
+
+
+@app.post("/api/v1/consciousness/goals/generate")
+async def generate_autonomous_goals(context: str = "general"):
+    """Generate autonomous goals based on current consciousness state."""
+    try:
+        if not cognitive_manager:
+            return {"error": "Cognitive manager not available", "status": "unavailable"}
+        
+        goals = await cognitive_manager.initiate_autonomous_goals(context)
+        
+        return {
+            "status": "success",
+            "autonomous_goals": goals,
+            "context": context,
+            "generation_timestamp": time.time()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error generating autonomous goals: {e}")
+        return {"error": str(e), "status": "error"}
+
+
+@app.get("/api/v1/consciousness/trajectory")
+async def get_consciousness_trajectory():
+    """Get consciousness development trajectory analysis."""
+    try:
+        if not cognitive_manager:
+            return {"error": "Cognitive manager not available", "status": "unavailable"}
+        
+        trajectory = await cognitive_manager.get_consciousness_trajectory()
+        
+        return {
+            "status": "success",
+            "consciousness_trajectory": trajectory
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting consciousness trajectory: {e}")
+        return {"error": str(e), "status": "error"}
+
+
 # ===== WEBSOCKET ENDPOINTS =====
 
 @app.websocket("/ws/cognitive/stream")
