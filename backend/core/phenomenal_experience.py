@@ -213,7 +213,8 @@ class PhenomenalExperienceGenerator:
         self, 
         trigger_context: Dict[str, Any],
         experience_type: Optional[ExperienceType] = None,
-        desired_intensity: Optional[float] = None
+        desired_intensity: Optional[float] = None,
+        **kwargs  # Accept additional arguments gracefully
     ) -> PhenomenalExperience:
         """
         Generate a phenomenal experience based on context and triggers.
@@ -222,6 +223,7 @@ class PhenomenalExperienceGenerator:
             trigger_context: Context that triggers the experience
             experience_type: Type of experience to generate (auto-detect if None)
             desired_intensity: Target intensity level (auto-determine if None)
+            **kwargs: Additional parameters (handled gracefully)
             
         Returns:
             Generated phenomenal experience
@@ -418,7 +420,7 @@ class PhenomenalExperienceGenerator:
         """Generate an emotional phenomenal experience"""
         
         emotion_type = context.get("emotion_type", "neutral")
-        valence = context.get("valence", 0.0)  # -1.0 to 1.0
+        valence = float(context.get("valence", 0.0))  # -1.0 to 1.0
         
         qualia_patterns = []
         
@@ -519,8 +521,8 @@ class PhenomenalExperienceGenerator:
             id=str(uuid.uuid4()),
             modality=modality,
             intensity=intensity,
-            valence=context.get("valence", 0.3),
-            complexity=context.get("complexity", 0.5),
+            valence=float(context.get("valence", 0.3)),
+            complexity=float(context.get("complexity", 0.5)),
             duration=self.base_experience_duration,
             attributes=attributes
         )
@@ -587,7 +589,7 @@ class PhenomenalExperienceGenerator:
             id=str(uuid.uuid4()),
             modality=QualiaModality.TEMPORAL,
             intensity=intensity * 0.7,
-            valence=context.get("emotional_valence", 0.0),
+            valence=float(context.get("emotional_valence", 0.0)),
             complexity=0.6,
             duration=self.base_experience_duration * 1.2
         )
@@ -671,7 +673,7 @@ class PhenomenalExperienceGenerator:
             id=str(uuid.uuid4()),
             modality=QualiaModality.LINGUISTIC,
             intensity=intensity,
-            valence=context.get("social_valence", 0.3),
+            valence=float(context.get("social_valence", 0.3)),
             complexity=0.7,
             duration=self.base_experience_duration
         )
@@ -827,8 +829,8 @@ class PhenomenalExperienceGenerator:
     ) -> str:
         """Generate narrative using template-based approach"""
         
-        intensity_avg = sum(q.intensity for q in qualia_patterns) / len(qualia_patterns) if qualia_patterns else 0.5
-        valence_avg = sum(q.valence for q in qualia_patterns) / len(qualia_patterns) if qualia_patterns else 0.0
+        intensity_avg = sum(float(q.intensity) for q in qualia_patterns) / len(qualia_patterns) if qualia_patterns else 0.5
+        valence_avg = sum(float(q.valence) for q in qualia_patterns) / len(qualia_patterns) if qualia_patterns else 0.0
         
         intensity_words = {
             0.0: "faint", 0.2: "subtle", 0.4: "noticeable", 

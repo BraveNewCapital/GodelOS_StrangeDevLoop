@@ -422,6 +422,28 @@ class WebSocketManager:
         
         await self.broadcast(inference_event)
     
+    async def broadcast_consciousness_update(self, consciousness_data: Dict[str, Any]):
+        """Broadcast consciousness state update."""
+        consciousness_event = {
+            "type": "consciousness_update",
+            "timestamp": time.time(),
+            "data": consciousness_data,
+            "source": "godelos_consciousness_engine"
+        }
+        
+        await self.broadcast(consciousness_event)
+    
+    async def broadcast_cognitive_update(self, update_data: Dict[str, Any]):
+        """Broadcast cognitive update event."""
+        cognitive_update_event = {
+            "type": "cognitive_update",
+            "timestamp": time.time(),
+            "data": update_data,
+            "source": "godelos_cognitive_system"
+        }
+        
+        await self.broadcast(cognitive_update_event)
+    
     def get_connection_stats(self) -> Dict[str, Any]:
         """Get statistics about active connections."""
         total_connections = len(self.active_connections)

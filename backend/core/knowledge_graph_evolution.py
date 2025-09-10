@@ -31,6 +31,14 @@ class RelationshipType(Enum):
     COMPOSITIONAL = "compositional" # A is composed of B
     EMERGENT = "emergent"          # A emerges from B
     CONTRADICTORY = "contradictory" # A contradicts B
+    
+    # Common relationship types used in the system
+    RELATED_TO = "related_to"      # General relationship
+    SIMILAR_TO = "similar_to"      # Similarity relationship
+    IS_A = "is_a"                  # Type/instance relationship
+    USES = "uses"                  # Usage relationship
+    MENTIONS = "mentions"          # Reference relationship
+    INCLUDES = "includes"          # Inclusion relationship
 
 class EvolutionTrigger(Enum):
     """Triggers that cause knowledge graph evolution"""
@@ -42,6 +50,28 @@ class EvolutionTrigger(Enum):
     EMERGENT_CONCEPT = "emergent_concept"
     COGNITIVE_LOAD = "cognitive_load"
     LEARNING_FEEDBACK = "learning_feedback"
+    
+    # Testing and validation triggers
+    DATA_FLOW_TEST = "data_flow_test"
+    INTEGRATION_TEST = "integration_test"
+    NEW_CONCEPT = "new_concept"
+    
+    # Cognitive insight triggers
+    SELF_REFLECTION_INSIGHTS = "self_reflection_insights"
+    EXPERIENCE_INSIGHTS = "experience_insights"
+    CREATIVE_CONCEPT_FORMATION = "creative_concept_formation"
+    HYPOTHESIS_FORMATION = "hypothesis_formation"
+    HYPOTHESIS_REFINEMENT = "hypothesis_refinement"
+    
+    # Additional triggers for comprehensive coverage
+    USER_FEEDBACK = "user_feedback"
+    SYSTEM_OPTIMIZATION = "system_optimization"
+    ENVIRONMENTAL_CHANGE = "environmental_change"
+    GOAL_COMPLETION = "goal_completion"
+    ERROR_CORRECTION = "error_correction"
+    LEARNING_MILESTONE = "learning_milestone"
+    EXTERNAL_VALIDATION = "external_validation"
+    PERFORMANCE_THRESHOLD = "performance_threshold"
 
 class ConceptStatus(Enum):
     """Status of concepts in the knowledge graph"""
