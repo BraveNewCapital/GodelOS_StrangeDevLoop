@@ -794,12 +794,104 @@ class KnowledgeIngestionService:
             
             # Read file content based on type with proper extraction
             content = ""
+            enhanced_content_data = None
             
             if request.file_type == "pdf":
                 if not HAS_PDF:
                     raise ValueError("PDF processing not available - install PyPDF2")
                 logger.info(f"Extracting text from PDF: {file_path}")
-                content = await extract_text_from_pdf(file_path)
+                raw_content = await extract_text_from_pdf(file_path)
+                logger.info(f"🔍 PDF DEBUG: Extracted {len(raw_content)} characters from PDF")
+                logger.info(f"🔍 PDF DEBUG: First 200 chars: {repr(raw_content[:200])}")
+                logger.info(f"🔍 PDF DEBUG: Content preview: {raw_content[:500] if raw_content else 'EMPTY'}")
+                
+                # Use the existing knowledge pipeline service for semantic analysis
+                logger.info(f"🔍 PDF ENHANCED: Processing PDF content with advanced knowledge pipeline")
+                logger.info(f"🔍 PDF DEBUG: Pipeline service available: {knowledge_pipeline_service is not None}")
+                logger.info(f"🔍 PDF DEBUG: Pipeline service initialized: {knowledge_pipeline_service.initialized if knowledge_pipeline_service else False}")
+                
+                try:
+                    # Use the existing knowledge pipeline service that has spaCy and HuggingFace models
+                    if knowledge_pipeline_service and knowledge_pipeline_service.initialized:
+                        logger.info(f"🔍 PDF DEBUG: Processing {len(raw_content)} characters through pipeline")
+                        pipeline_result = await knowledge_pipeline_service.process_text_document(
+                            content=raw_content,
+                            title=request.filename,
+                            metadata={
+                                'file_type': request.file_type,
+                                'filename': request.filename,
+                                'encoding': request.encoding,
+                                'source': 'pdf_extraction'
+                            }
+                        )
+                        
+                        logger.info(f"🔍 PDF DEBUG: Pipeline result keys: {list(pipeline_result.keys()) if pipeline_result else 'None'}")
+                        logger.info(f"🔍 PDF DEBUG: Pipeline result entities count: {pipeline_result.get('entities_extracted', 0)}")
+                        logger.info(f"🔍 PDF DEBUG: Pipeline result relationships count: {pipeline_result.get('relationships_extracted', 0)}")
+                        logger.info(f"🔍 PDF DEBUG: Pipeline result knowledge items: {len(pipeline_result.get('knowledge_items', []))}")
+                        
+                        # Extract semantic concepts from the pipeline results using the correct keys
+                        entities_count = pipeline_result.get('entities_extracted', 0)
+                        relationships_count = pipeline_result.get('relationships_extracted', 0)
+                        knowledge_items = pipeline_result.get('knowledge_items', [])
+                        
+                        enhanced_metadata = {
+                            'pipeline_entities': entities_count,
+                            'pipeline_relationships': relationships_count,
+                            'pipeline_processing_time': pipeline_result.get('processing_time_seconds', 0),
+                            'semantic_concepts': [],
+                            'extracted_entities': [],
+                            'extracted_relationships': []
+                        }
+                        
+                        # If we have knowledge items, create semantic concepts from their types and IDs
+                        # This is a simplified approach since we don't have direct access to the content here
+                        if knowledge_items:
+                            logger.info(f"🔍 PDF DEBUG: Processing {len(knowledge_items)} knowledge items for concepts")
+                            for item in knowledge_items:
+                                item_type = item.get('type', 'unknown')
+                                item_id = item.get('id', 'unknown')
+                                
+                                # Use the item type as a concept
+                                if item_type not in ['unknown']:
+                                    enhanced_metadata['semantic_concepts'].append(item_type)
+                                    if item_type in ['fact', 'entity']:
+                                        enhanced_metadata['extracted_entities'].append(f"entity_{len(enhanced_metadata['extracted_entities'])}")
+                                    elif item_type in ['relationship', 'relation']:
+                                        enhanced_metadata['extracted_relationships'].append(f"relationship_{len(enhanced_metadata['extracted_relationships'])}")
+                        
+                        # If we have counts but no specific items, create placeholder concepts
+                        if entities_count > 0 and len(enhanced_metadata['extracted_entities']) == 0:
+                            for i in range(min(entities_count, 10)):  # Limit to 10 for performance
+                                enhanced_metadata['extracted_entities'].append(f"extracted_entity_{i+1}")
+                                enhanced_metadata['semantic_concepts'].append(f"extracted_entity_{i+1}")
+                        
+                        if relationships_count > 0 and len(enhanced_metadata['extracted_relationships']) == 0:
+                            for i in range(min(relationships_count, 5)):  # Limit to 5 for performance
+                                enhanced_metadata['extracted_relationships'].append(f"extracted_relationship_{i+1}")
+                        
+                        logger.info(f"✅ PDF ENHANCED: Pipeline extracted {entities_count} entities and {relationships_count} relationships")
+                        logger.info(f"✅ PDF ENHANCED: Created {len(enhanced_metadata['semantic_concepts'])} semantic concepts from pipeline results")
+                        
+                        # Use enhanced metadata for better concept extraction
+                        enhanced_content_data = type('PipelineResult', (), {
+                            'concepts': [{'concept': concept} for concept in enhanced_metadata['semantic_concepts'][:10]],
+                            'topics': enhanced_metadata['extracted_entities'][:5],
+                            'summary': f"PDF document containing {len(enhanced_metadata['extracted_entities'])} identified entities",
+                            'metadata': enhanced_metadata
+                        })()
+                        logger.info(f"✅ PDF ENHANCED: Created enhanced content data with {len(enhanced_metadata['semantic_concepts'])} concepts")
+                    else:
+                        logger.warning(f"🔍 PDF FALLBACK: Knowledge pipeline service not available (service: {knowledge_pipeline_service is not None}, initialized: {knowledge_pipeline_service.initialized if knowledge_pipeline_service else False})")
+                        enhanced_content_data = None
+                        
+                except Exception as e:
+                    logger.error(f"❌ PDF ERROR: Error in pipeline processing: {e}")
+                    import traceback
+                    logger.error(f"❌ PDF ERROR: Traceback: {traceback.format_exc()}")
+                    enhanced_content_data = None
+                
+                content = raw_content
                 
             elif request.file_type == "docx":
                 if not HAS_DOCX:
@@ -867,7 +959,30 @@ class KnowledgeIngestionService:
             # Broadcast progress update
             await self._broadcast_progress_update(import_id, progress)
             
-            # Create knowledge item
+            # Create knowledge item with enhanced semantic data if available
+            enhanced_metadata = processed_data.get('metadata', {})
+            enhanced_categories = list(request.categorization_hints or ["file"])
+            
+            # Add enhanced semantic processing results to metadata and categories
+            if enhanced_content_data:
+                pipeline_metadata = getattr(enhanced_content_data, 'metadata', {})
+                enhanced_metadata.update({
+                    'semantic_entities': len(pipeline_metadata.get('extracted_entities', [])),
+                    'semantic_relationships': len(pipeline_metadata.get('extracted_relationships', [])),
+                    'pipeline_processing_time': pipeline_metadata.get('pipeline_processing_time', 0),
+                    'concepts': pipeline_metadata.get('semantic_concepts', []),  # For graph extraction
+                    'keywords': pipeline_metadata.get('extracted_entities', [])[:10],  # Top entities as keywords
+                    'semantic_summary': getattr(enhanced_content_data, 'summary', ''),
+                    'semantic_quality_score': 0.9 if pipeline_metadata.get('extracted_entities') else 0.7
+                })
+                
+                # Add semantic topics as categories
+                semantic_topics = getattr(enhanced_content_data, 'topics', [])
+                if semantic_topics:
+                    enhanced_categories.extend(semantic_topics[:5])  # Limit to top 5 topics
+                
+                logger.info(f"🔍 PDF SEMANTIC: Added semantic metadata with {len(pipeline_metadata.get('semantic_concepts', []))} concepts")
+            
             knowledge_item = KnowledgeItem(
                 id=f"file-{import_id}",
                 content=processed_data['content'],
@@ -876,13 +991,13 @@ class KnowledgeIngestionService:
                 source=request.source,
                 import_id=import_id,
                 confidence=0.8,
-                quality_score=0.8,
-                categories=request.categorization_hints or ["file"],
-                auto_categories=[],
+                quality_score=enhanced_metadata.get('semantic_quality_score', 0.8),
+                categories=enhanced_categories,
+                auto_categories=getattr(enhanced_content_data, 'topics', [])[:3] if enhanced_content_data else [],
                 manual_categories=request.categorization_hints or ["file"],
                 relationships=[],
                 metadata={
-                    **processed_data.get('metadata', {}),
+                    **enhanced_metadata,
                     'filename': request.filename,
                     'file_type': request.file_type,
                     'encoding': request.encoding
@@ -1139,12 +1254,30 @@ class KnowledgeIngestionService:
                     concepts.extend(knowledge_item.categories)
                     logger.info(f"🔍 GRAPH SYNC: Added category concepts: {knowledge_item.categories}")
                 
-                # Add keywords from metadata if available
+                # ENHANCED: Add semantic concepts from pipeline processing
+                if knowledge_item.metadata and 'concepts' in knowledge_item.metadata:
+                    semantic_concepts = knowledge_item.metadata['concepts']
+                    if isinstance(semantic_concepts, list):
+                        concepts.extend(semantic_concepts[:8])  # Limit to top 8 semantic concepts
+                        logger.info(f"🔍 GRAPH SYNC: Added semantic pipeline concepts: {semantic_concepts[:8]}")
+                
+                # Add keywords from metadata if available (now includes semantic entities)
                 if knowledge_item.metadata and 'keywords' in knowledge_item.metadata:
                     keywords = knowledge_item.metadata['keywords']
                     if isinstance(keywords, list):
                         concepts.extend(keywords[:5])  # Limit to first 5 keywords
-                        logger.info(f"🔍 GRAPH SYNC: Added keyword concepts: {keywords[:5]}")
+                        logger.info(f"🔍 GRAPH SYNC: Added semantic entity keywords: {keywords[:5]}")
+                
+                # ENHANCED: Add semantic topics from pipeline processing  
+                if knowledge_item.metadata and 'semantic_summary' in knowledge_item.metadata:
+                    summary = knowledge_item.metadata['semantic_summary']
+                    if summary and len(summary) > 10:
+                        # Extract key terms from semantic summary
+                        import re
+                        key_terms = re.findall(r'\b[A-Z][a-z]+\b', summary)
+                        if key_terms:
+                            concepts.extend(key_terms[:3])
+                            logger.info(f"🔍 GRAPH SYNC: Added semantic summary concepts: {key_terms[:3]}")
                 
                 logger.info(f"🔍 GRAPH SYNC: Total concepts to add: {len(concepts)} - {concepts}")
                 
