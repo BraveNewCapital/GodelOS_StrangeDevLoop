@@ -74,10 +74,23 @@ class NlpProcessor:
         Returns:
             A dictionary containing the extracted entities and relationships.
         """
+        logger.info(f"🔍 NLP PROCESS: Starting to process text with {len(text)} characters")
+        logger.info(f"🔍 NLP PROCESS: Text preview: {repr(text[:200])}")
+        logger.info(f"🔍 NLP PROCESS: spaCy model type: {type(self.nlp)}")
+        logger.info(f"🔍 NLP PROCESS: spaCy model name: {getattr(self.nlp.meta, 'name', 'unknown') if hasattr(self.nlp, 'meta') else 'no meta'}")
+        logger.info(f"🔍 NLP PROCESS: Available pipeline components: {self.nlp.pipe_names if hasattr(self.nlp, 'pipe_names') else 'no pipe_names'}")
+        
         doc = self.nlp(text)
+        logger.info(f"🔍 NLP PROCESS: Created spaCy doc with {len(doc)} tokens")
+        logger.info(f"🔍 NLP PROCESS: Doc has {len(list(doc.sents))} sentences")
+        logger.info(f"🔍 NLP PROCESS: Doc ents attribute exists: {hasattr(doc, 'ents')}")
+        logger.info(f"🔍 NLP PROCESS: Doc ents count: {len(doc.ents) if hasattr(doc, 'ents') else 'no ents'}")
+        
         entities = self._extract_entities(doc)
         relationships = self._extract_relationships(doc, entities)
 
+        logger.info(f"🔍 NLP PROCESS: Final result - {len(entities)} entities, {len(relationships)} relationships")
+        
         return {
             "entities": entities,
             "relationships": relationships

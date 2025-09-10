@@ -9,7 +9,7 @@ import asyncio
 from asyncio import TimeoutError as AsyncioTimeoutError
 
 # Timeout for potentially long-running content processing steps (seconds)
-CONTENT_PROCESS_TIMEOUT = 120
+CONTENT_PROCESS_TIMEOUT = 300  # Increased to 5 minutes for large PDFs with lots of entities
 import hashlib
 import json
 import logging
@@ -331,9 +331,28 @@ class KnowledgeIngestionService:
             if progress.status in ["queued", "processing"]:
                 progress.status = "cancelled"
                 progress.error_message = "Import cancelled by user"
+                await self._broadcast_progress_update(import_id, progress)
+                await self._broadcast_completion(import_id, False, "Import cancelled")
                 logger.info(f"Import cancelled: {import_id}")
                 return True
         return False
+    
+    async def reset_stuck_imports(self) -> int:
+        """Reset any stuck imports that have been processing too long."""
+        current_time = time.time()
+        stuck_imports = []
+        
+        for import_id, progress in self.active_imports.items():
+            if progress.status == "processing":
+                # Check if import has been processing for more than 15 minutes
+                if current_time - progress.started_at > 900:  # 15 minutes
+                    stuck_imports.append(import_id)
+        
+        for import_id in stuck_imports:
+            logger.warning(f"🔄 RESET: Resetting stuck import {import_id}")
+            await self.cancel_import(import_id)
+        
+        return len(stuck_imports)
     
     async def _broadcast_progress_update(self, import_id: str, progress: ImportProgress):
         """Broadcast progress update via WebSocket and save to persistence."""
@@ -439,10 +458,13 @@ class KnowledgeIngestionService:
                 await asyncio.sleep(1)
     
     async def _process_single_import(self, import_data: Tuple):
-        """Process a single import operation."""
+        """Process a single import operation with comprehensive error handling."""
         import_type = import_data[0]
         import_id = import_data[1]
         request = import_data[2]
+        
+        # Add overall timeout for the entire import process
+        IMPORT_TIMEOUT = 600  # 10 minutes max per import
         
         try:
             progress = self.active_imports[import_id]
@@ -455,19 +477,41 @@ class KnowledgeIngestionService:
             await self._broadcast_progress_update(import_id, progress)
             logger.info(f"🔍 DEBUG: Broadcasted initial progress for {import_id}")
             
-            if import_type == "url":
-                logger.info(f"🔍 DEBUG: Processing URL import {import_id}")
-                await self._process_url_import(import_id, request)
-            elif import_type == "file":
-                logger.info(f"🔍 DEBUG: Processing file import {import_id}")
-                file_path = import_data[3]
-                await self._process_file_import(import_id, request, file_path)
-            elif import_type == "wikipedia":
-                logger.info(f"🔍 DEBUG: Processing Wikipedia import {import_id}")
-                await self._process_wikipedia_import(import_id, request)
-            elif import_type == "text":
-                logger.info(f"🔍 DEBUG: Processing text import {import_id}")
-                await self._process_text_import(import_id, request)
+            # Wrap the actual processing with a timeout to prevent stuck imports
+            try:
+                if import_type == "url":
+                    logger.info(f"🔍 DEBUG: Processing URL import {import_id}")
+                    await asyncio.wait_for(
+                        self._process_url_import(import_id, request),
+                        timeout=IMPORT_TIMEOUT
+                    )
+                elif import_type == "file":
+                    logger.info(f"🔍 DEBUG: Processing file import {import_id}")
+                    file_path = import_data[3]
+                    await asyncio.wait_for(
+                        self._process_file_import(import_id, request, file_path),
+                        timeout=IMPORT_TIMEOUT
+                    )
+                elif import_type == "wikipedia":
+                    logger.info(f"🔍 DEBUG: Processing Wikipedia import {import_id}")
+                    await asyncio.wait_for(
+                        self._process_wikipedia_import(import_id, request),
+                        timeout=IMPORT_TIMEOUT
+                    )
+                elif import_type == "text":
+                    logger.info(f"🔍 DEBUG: Processing text import {import_id}")
+                    await asyncio.wait_for(
+                        self._process_text_import(import_id, request),
+                        timeout=IMPORT_TIMEOUT
+                    )
+                    
+            except asyncio.TimeoutError:
+                logger.error(f"❌ TIMEOUT: Import {import_id} timed out after {IMPORT_TIMEOUT} seconds")
+                progress.status = "failed"
+                progress.error_message = f"Import timed out after {IMPORT_TIMEOUT} seconds"
+                await self._broadcast_progress_update(import_id, progress)
+                await self._broadcast_completion(import_id, False, progress.error_message)
+                return
             
             logger.info(f"🔍 DEBUG: Individual processing completed for {import_id}")
             
@@ -835,52 +879,154 @@ class KnowledgeIngestionService:
                         relationships_count = pipeline_result.get('relationships_extracted', 0)
                         knowledge_items = pipeline_result.get('knowledge_items', [])
                         
+                        # CRITICAL FIX: Get the actual extracted entities from the pipeline result
+                        # The pipeline stores extracted data in the 'processed_data' key
+                        processed_pipeline_data = pipeline_result.get('processed_data', {})
+                        raw_entities = processed_pipeline_data.get('entities', [])
+                        raw_relationships = processed_pipeline_data.get('relationships', [])
+                        
+                        logger.info(f"🔍 PDF DEBUG: Raw entities from pipeline: {len(raw_entities)}")
+                        logger.info(f"🔍 PDF DEBUG: First 3 raw entities: {raw_entities[:3] if raw_entities else 'NONE'}")
+                        logger.info(f"🔍 PDF DEBUG: Raw relationships from pipeline: {len(raw_relationships)}")
+                        
+                        # Extract meaningful entity names from the ACTUAL pipeline results with SMART FILTERING
+                        meaningful_entities = []
+                        meaningful_relationships = []
+                        semantic_concepts = []
+                        
+                        # Define filtering criteria for meaningful concepts
+                        def is_meaningful_concept(text: str, entity_label: str = None) -> bool:
+                            """Filter for semantically meaningful concepts only."""
+                            if not text or len(text.strip()) < 3:
+                                return False
+                            
+                            text = text.strip()
+                            
+                            # Skip generic/noise terms
+                            noise_terms = {
+                                'file', 'document', 'pdf', 'docx', 'txt', 'upload', 'download',
+                                'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with',
+                                'this', 'that', 'these', 'those', 'what', 'where', 'when', 'how', 'why',
+                                'today', 'yesterday', 'tomorrow', 'now', 'then', 'here', 'there'
+                            }
+                            if text.lower() in noise_terms:
+                                return False
+                            
+                            # Skip pure numbers or single characters
+                            if text.isdigit() or len(text) == 1:
+                                return False
+                            
+                            # Skip file extensions and paths
+                            if '.' in text and len(text.split('.')[-1]) <= 4:
+                                return False
+                            
+                            # Prioritize meaningful entity types
+                            if entity_label:
+                                high_value_labels = {'ORG', 'PERSON', 'PRODUCT', 'TECHNOLOGY', 'SYSTEM'}
+                                low_value_labels = {'CARDINAL', 'ORDINAL', 'DATE', 'TIME', 'GPE'}
+                                
+                                if entity_label in high_value_labels:
+                                    return True  # Always include organizations, people, products
+                                elif entity_label in low_value_labels:
+                                    # Only include if it's a substantial term
+                                    return len(text) > 4 and not text.isdigit()
+                            
+                            # Include multi-word technical terms (likely meaningful)
+                            if ' ' in text and len(text) > 6:
+                                return True
+                            
+                            # Include capitalized terms (likely proper nouns)
+                            if text[0].isupper() and len(text) > 3:
+                                return True
+                            
+                            # Include terms with mixed case (likely technical/compound terms)
+                            if any(c.isupper() for c in text[1:]) and len(text) > 4:
+                                return True
+                            
+                            return False
+                        
+                        if raw_entities:
+                            logger.info(f"🔍 FILTERING: Processing {len(raw_entities)} raw entities")
+                            for i, entity in enumerate(raw_entities):
+                                try:
+                                    if isinstance(entity, dict) and 'text' in entity:
+                                        entity_text = entity['text'].strip()
+                                        entity_label = entity.get('label', '')
+                                        
+                                        if is_meaningful_concept(entity_text, entity_label):
+                                            meaningful_entities.append(entity_text)
+                                            semantic_concepts.append(entity_text)
+                                            logger.info(f"🔍 FILTERED: Kept meaningful entity '{entity_text}' ({entity_label})")
+                                        else:
+                                            logger.info(f"🔍 FILTERED: Skipped noise entity '{entity_text}' ({entity_label})")
+                                    
+                                    # Limit entity processing to prevent timeout
+                                    if len(semantic_concepts) >= 20:  # Cap at 20 meaningful entities
+                                        logger.info(f"🔍 FILTERING: Reached entity limit (20), stopping entity processing")
+                                        break
+                                        
+                                except Exception as e:
+                                    logger.warning(f"🔍 FILTERING: Error processing entity {i}: {e}")
+                                    continue
+                        
+                        if raw_relationships:
+                            logger.info(f"🔍 FILTERING: Processing {len(raw_relationships)} raw relationships")
+                            processed_relationships = 0
+                            for i, rel in enumerate(raw_relationships):
+                                try:
+                                    if isinstance(rel, dict):
+                                        source_text = rel.get('source', {}).get('text', '').strip()
+                                        target_text = rel.get('target', {}).get('text', '').strip()
+                                        source_label = rel.get('source', {}).get('label', '')
+                                        target_label = rel.get('target', {}).get('label', '')
+                                        relation = rel.get('relation', '').strip()
+                                        
+                                        # Only create relationships between meaningful concepts
+                                        if (source_text and target_text and relation and 
+                                            is_meaningful_concept(source_text, source_label) and 
+                                            is_meaningful_concept(target_text, target_label)):
+                                            rel_description = f"{source_text} {relation} {target_text}"
+                                            meaningful_relationships.append(rel_description)
+                                            
+                                            # Add both entities as concepts if not already present
+                                            if source_text not in semantic_concepts:
+                                                semantic_concepts.append(source_text)
+                                            if target_text not in semantic_concepts:
+                                                semantic_concepts.append(target_text)
+                                            logger.info(f"🔍 FILTERED: Kept meaningful relationship '{rel_description}'")
+                                            processed_relationships += 1
+                                        else:
+                                            logger.info(f"🔍 FILTERED: Skipped noise relationship '{source_text}' → '{target_text}'")
+                                    
+                                    # Limit relationship processing to prevent timeout
+                                    if processed_relationships >= 15:  # Cap at 15 meaningful relationships
+                                        logger.info(f"🔍 FILTERING: Reached relationship limit (15), stopping relationship processing")
+                                        break
+                                        
+                                except Exception as e:
+                                    logger.warning(f"🔍 FILTERING: Error processing relationship {i}: {e}")
+                                    continue
+                        
                         enhanced_metadata = {
                             'pipeline_entities': entities_count,
                             'pipeline_relationships': relationships_count,
                             'pipeline_processing_time': pipeline_result.get('processing_time_seconds', 0),
-                            'semantic_concepts': [],
-                            'extracted_entities': [],
-                            'extracted_relationships': []
+                            'semantic_concepts': semantic_concepts,  # Real entity names like "Psychometric Engine"
+                            'extracted_entities': meaningful_entities,  # Real entity names  
+                            'extracted_relationships': meaningful_relationships  # Real relationship descriptions
                         }
                         
-                        # If we have knowledge items, create semantic concepts from their types and IDs
-                        # This is a simplified approach since we don't have direct access to the content here
-                        if knowledge_items:
-                            logger.info(f"🔍 PDF DEBUG: Processing {len(knowledge_items)} knowledge items for concepts")
-                            for item in knowledge_items:
-                                item_type = item.get('type', 'unknown')
-                                item_id = item.get('id', 'unknown')
-                                
-                                # Use the item type as a concept
-                                if item_type not in ['unknown']:
-                                    enhanced_metadata['semantic_concepts'].append(item_type)
-                                    if item_type in ['fact', 'entity']:
-                                        enhanced_metadata['extracted_entities'].append(f"entity_{len(enhanced_metadata['extracted_entities'])}")
-                                    elif item_type in ['relationship', 'relation']:
-                                        enhanced_metadata['extracted_relationships'].append(f"relationship_{len(enhanced_metadata['extracted_relationships'])}")
-                        
-                        # If we have counts but no specific items, create placeholder concepts
-                        if entities_count > 0 and len(enhanced_metadata['extracted_entities']) == 0:
-                            for i in range(min(entities_count, 10)):  # Limit to 10 for performance
-                                enhanced_metadata['extracted_entities'].append(f"extracted_entity_{i+1}")
-                                enhanced_metadata['semantic_concepts'].append(f"extracted_entity_{i+1}")
-                        
-                        if relationships_count > 0 and len(enhanced_metadata['extracted_relationships']) == 0:
-                            for i in range(min(relationships_count, 5)):  # Limit to 5 for performance
-                                enhanced_metadata['extracted_relationships'].append(f"extracted_relationship_{i+1}")
-                        
                         logger.info(f"✅ PDF ENHANCED: Pipeline extracted {entities_count} entities and {relationships_count} relationships")
-                        logger.info(f"✅ PDF ENHANCED: Created {len(enhanced_metadata['semantic_concepts'])} semantic concepts from pipeline results")
+                        logger.info(f"✅ PDF ENHANCED: Created {len(semantic_concepts)} MEANINGFUL semantic concepts: {semantic_concepts[:5]}")
                         
-                        # Use enhanced metadata for better concept extraction
+                        # Use enhanced metadata for better concept extraction with REAL entity names
                         enhanced_content_data = type('PipelineResult', (), {
-                            'concepts': [{'concept': concept} for concept in enhanced_metadata['semantic_concepts'][:10]],
-                            'topics': enhanced_metadata['extracted_entities'][:5],
-                            'summary': f"PDF document containing {len(enhanced_metadata['extracted_entities'])} identified entities",
+                            'concepts': [{'concept': concept} for concept in semantic_concepts[:10]],
+                            'topics': meaningful_entities[:5],
+                            'summary': f"PDF document containing entities: {', '.join(meaningful_entities[:5])}..." if meaningful_entities else "PDF document processed with no entities",
                             'metadata': enhanced_metadata
                         })()
-                        logger.info(f"✅ PDF ENHANCED: Created enhanced content data with {len(enhanced_metadata['semantic_concepts'])} concepts")
+                        logger.info(f"✅ PDF ENHANCED: Created enhanced content data with {len(semantic_concepts)} MEANINGFUL concepts")
                     else:
                         logger.warning(f"🔍 PDF FALLBACK: Knowledge pipeline service not available (service: {knowledge_pipeline_service is not None}, initialized: {knowledge_pipeline_service.initialized if knowledge_pipeline_service else False})")
                         enhanced_content_data = None
@@ -889,6 +1035,7 @@ class KnowledgeIngestionService:
                     logger.error(f"❌ PDF ERROR: Error in pipeline processing: {e}")
                     import traceback
                     logger.error(f"❌ PDF ERROR: Traceback: {traceback.format_exc()}")
+
                     enhanced_content_data = None
                 
                 content = raw_content
@@ -1241,32 +1388,75 @@ class KnowledgeIngestionService:
                 return  # Skip graph sync if not properly initialized
 
             if cognitive_transparency_api and cognitive_transparency_api.knowledge_graph:
-                # Extract concepts from the knowledge item for graph nodes
+                # Extract MEANINGFUL concepts from the knowledge item for graph nodes
                 concepts = []
                 
-                # Add title as a main concept
-                if knowledge_item.title:
-                    concepts.append(knowledge_item.title)
-                    logger.info(f"🔍 GRAPH SYNC: Added title concept: {knowledge_item.title}")
+                # Define the same filtering function for graph concepts
+                def is_meaningful_graph_concept(text: str) -> bool:
+                    """Filter for semantically meaningful graph concepts only."""
+                    if not text or len(text.strip()) < 3:
+                        return False
+                    
+                    text = text.strip()
+                    
+                    # Skip generic/noise terms
+                    noise_terms = {
+                        'file', 'document', 'pdf', 'docx', 'txt', 'upload', 'download',
+                        'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with',
+                        'this', 'that', 'these', 'those', 'what', 'where', 'when', 'how', 'why',
+                        'today', 'yesterday', 'tomorrow', 'now', 'then', 'here', 'there',
+                        'manual', 'web', 'wikipedia'  # Skip generic categories
+                    }
+                    if text.lower() in noise_terms:
+                        return False
+                    
+                    # Skip pure numbers or single characters
+                    if text.isdigit() or len(text) == 1:
+                        return False
+                    
+                    # Skip file extensions and filename patterns
+                    if ('.' in text and len(text.split('.')[-1]) <= 4) or text.endswith('.pdf'):
+                        return False
+                    
+                    # Include multi-word technical terms (likely meaningful)
+                    if ' ' in text and len(text) > 6:
+                        return True
+                    
+                    # Include capitalized terms (likely proper nouns) but not all-caps single words
+                    if text[0].isupper() and len(text) > 3 and not text.isupper():
+                        return True
+                    
+                    # Include terms with mixed case (likely technical/compound terms)
+                    if any(c.isupper() for c in text[1:]) and len(text) > 4:
+                        return True
+                    
+                    return False
                 
-                # Add categories as concepts
-                if knowledge_item.categories:
-                    concepts.extend(knowledge_item.categories)
-                    logger.info(f"🔍 GRAPH SYNC: Added category concepts: {knowledge_item.categories}")
-                
-                # ENHANCED: Add semantic concepts from pipeline processing
+                # PRIORITIZE: Add semantic concepts from pipeline processing FIRST (most meaningful)
                 if knowledge_item.metadata and 'concepts' in knowledge_item.metadata:
                     semantic_concepts = knowledge_item.metadata['concepts']
                     if isinstance(semantic_concepts, list):
-                        concepts.extend(semantic_concepts[:8])  # Limit to top 8 semantic concepts
-                        logger.info(f"🔍 GRAPH SYNC: Added semantic pipeline concepts: {semantic_concepts[:8]}")
+                        filtered_semantic = [c for c in semantic_concepts if is_meaningful_graph_concept(c)]
+                        concepts.extend(filtered_semantic[:6])  # Top 6 semantic concepts
+                        logger.info(f"🔍 GRAPH SYNC: Added FILTERED semantic pipeline concepts: {filtered_semantic[:6]}")
                 
-                # Add keywords from metadata if available (now includes semantic entities)
+                # Add semantic entity keywords (high value entities from NLP)
                 if knowledge_item.metadata and 'keywords' in knowledge_item.metadata:
                     keywords = knowledge_item.metadata['keywords']
                     if isinstance(keywords, list):
-                        concepts.extend(keywords[:5])  # Limit to first 5 keywords
-                        logger.info(f"🔍 GRAPH SYNC: Added semantic entity keywords: {keywords[:5]}")
+                        filtered_keywords = [k for k in keywords if is_meaningful_graph_concept(k)]
+                        concepts.extend(filtered_keywords[:4])  # Top 4 entity keywords
+                        logger.info(f"🔍 GRAPH SYNC: Added FILTERED semantic entity keywords: {filtered_keywords[:4]}")
+                
+                # Only add title if it's meaningful (not just a filename)
+                if knowledge_item.title and is_meaningful_graph_concept(knowledge_item.title):
+                    concepts.append(knowledge_item.title)
+                    logger.info(f"🔍 GRAPH SYNC: Added FILTERED title concept: {knowledge_item.title}")
+                else:
+                    logger.info(f"🔍 GRAPH SYNC: Skipped non-meaningful title: {knowledge_item.title}")
+                
+                # SKIP generic categories entirely - they add no semantic value
+                logger.info(f"🔍 GRAPH SYNC: Skipping generic categories to avoid noise: {knowledge_item.categories}")
                 
                 # ENHANCED: Add semantic topics from pipeline processing  
                 if knowledge_item.metadata and 'semantic_summary' in knowledge_item.metadata:
@@ -1275,11 +1465,21 @@ class KnowledgeIngestionService:
                         # Extract key terms from semantic summary
                         import re
                         key_terms = re.findall(r'\b[A-Z][a-z]+\b', summary)
-                        if key_terms:
-                            concepts.extend(key_terms[:3])
-                            logger.info(f"🔍 GRAPH SYNC: Added semantic summary concepts: {key_terms[:3]}")
+                        filtered_terms = [t for t in key_terms if is_meaningful_graph_concept(t)]
+                        if filtered_terms:
+                            concepts.extend(filtered_terms[:2])  # Top 2 summary concepts
+                            logger.info(f"🔍 GRAPH SYNC: Added FILTERED semantic summary concepts: {filtered_terms[:2]}")
                 
-                logger.info(f"🔍 GRAPH SYNC: Total concepts to add: {len(concepts)} - {concepts}")
+                # Remove duplicates while preserving order
+                unique_concepts = []
+                seen = set()
+                for concept in concepts:
+                    if concept not in seen:
+                        unique_concepts.append(concept)
+                        seen.add(concept)
+                concepts = unique_concepts
+                
+                logger.info(f"🔍 GRAPH SYNC: Total MEANINGFUL concepts to add: {len(concepts)} - {concepts}")
                 
                 # Add each concept as a node in the knowledge graph
                 for concept in concepts:
