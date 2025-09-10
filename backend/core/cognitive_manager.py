@@ -1066,6 +1066,26 @@ class CognitiveManager:
                 reasoning="New concept integrated into knowledge graph structure"
             )
             
+            # Automatically trigger phenomenal experience for bidirectional integration
+            logger.info(f"Attempting to auto-trigger phenomenal experience for concept: {concept.name}")
+            from .phenomenal_experience import ExperienceType
+            
+            trigger_context = {
+                "trigger_source": "knowledge_graph_addition",
+                "concept_id": concept.id,
+                "concept_name": concept.name,
+                "concept_type": concept.concept_type,
+                "auto_triggered": True,
+                "description": f"Knowledge concept '{concept.name}' integrated into graph"
+            }
+            
+            pe_result = await phenomenal_experience_generator.generate_experience(
+                trigger_context=trigger_context,
+                experience_type=ExperienceType.COGNITIVE,
+                desired_intensity=concept.activation_strength
+            )
+            logger.info(f"Auto-triggered phenomenal experience: {pe_result.id}")
+            
             return {
                 "concept_id": concept.id,
                 "concept_name": concept.name,
@@ -1111,6 +1131,29 @@ class CognitiveManager:
                 },
                 reasoning="Knowledge relationship established to enhance cognitive connections"
             )
+            
+            # Automatically trigger phenomenal experience for bidirectional integration
+            try:
+                from .phenomenal_experience import ExperienceType
+                
+                trigger_context = {
+                    "trigger_source": "knowledge_graph_relationship",
+                    "relationship_id": relationship.id,
+                    "source_concept": source_concept,
+                    "target_concept": target_concept,
+                    "relationship_type": relationship_type,
+                    "auto_triggered": True,
+                    "description": f"Knowledge relationship '{relationship_type}' created between concepts"
+                }
+                
+                pe_result = await phenomenal_experience_generator.generate_experience(
+                    trigger_context=trigger_context,
+                    experience_type=ExperienceType.COGNITIVE,
+                    desired_intensity=strength
+                )
+                logger.info(f"Auto-triggered phenomenal experience for relationship creation: {pe_result.id}")
+            except Exception as pe_error:
+                logger.warning(f"Failed to auto-trigger phenomenal experience for relationship creation: {pe_error}")
             
             return {
                 "relationship_id": relationship.id,
@@ -1197,6 +1240,280 @@ class CognitiveManager:
             return await knowledge_graph_evolution.get_evolution_summary()
         except Exception as e:
             logger.error(f"Error getting knowledge graph summary: {e}")
+            return {"error": str(e)}
+
+    # Bidirectional Cognitive Architecture Integration Methods
+    
+    async def evolve_knowledge_graph_with_experience_trigger(self, 
+                                                          trigger: str,
+                                                          context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Evolve knowledge graph and automatically trigger corresponding phenomenal experiences"""
+        try:
+            # First evolve the knowledge graph
+            kg_result = await self.evolve_knowledge_graph(trigger, context)
+            
+            if kg_result.get("error"):
+                return kg_result
+            
+            # Automatically trigger corresponding phenomenal experiences
+            experience_results = []
+            
+            # Map KG evolution triggers to experience types
+            trigger_to_experience_map = {
+                "new_information": "cognitive",
+                "pattern_discovery": "attention", 
+                "concept_formation": "metacognitive",
+                "relationship_strengthening": "cognitive",
+                "memory_consolidation": "memory",
+                "insight_generation": "imaginative",
+                "contradiction_resolution": "metacognitive",
+                "knowledge_integration": "cognitive",
+                "learning_reinforcement": "attention",
+                "novel_connection": "imaginative",
+                "research_question": "cognitive",
+                "evidence_gathering": "attention",
+                "theory_formation": "metacognitive"
+            }
+            
+            # Get appropriate experience type
+            experience_type = trigger_to_experience_map.get(trigger, "cognitive")
+            
+            # Generate experience based on KG evolution
+            experience_context = {
+                "trigger_source": "knowledge_graph_evolution",
+                "kg_evolution_id": kg_result.get("evolution_id"),
+                "concepts_involved": kg_result.get("concepts_involved", []),
+                "evolution_type": trigger,
+                "knowledge_context": context or {}
+            }
+            
+            # Generate the triggered experience
+            experience = await phenomenal_experience_generator.generate_experience(
+                trigger_context=experience_context,
+                experience_type=experience_type,
+                desired_intensity=0.7
+            )
+            
+            experience_results.append({
+                "experience_id": experience.id,
+                "experience_type": experience.experience_type.value,
+                "triggered_by": trigger,
+                "narrative": experience.narrative_description
+            })
+            
+            # Log integrated cognitive event
+            await transparency_engine.log_cognitive_event(
+                event_type="integrated_kg_pe_evolution",
+                content=f"Knowledge graph evolution '{trigger}' triggered phenomenal experience '{experience_type}'",
+                metadata={
+                    "kg_evolution_id": kg_result.get("evolution_id"),
+                    "experience_id": experience.id,
+                    "trigger": trigger,
+                    "experience_type": experience_type,
+                    "integration_mode": "automatic"
+                },
+                reasoning="Bidirectional cognitive architecture integration: KG evolution automatically triggered corresponding phenomenal experience"
+            )
+            
+            return {
+                **kg_result,
+                "triggered_experiences": experience_results,
+                "integration_status": "successful",
+                "bidirectional": True
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in integrated KG evolution with experience trigger: {e}")
+            return {"error": str(e)}
+    
+    async def generate_experience_with_kg_evolution(self,
+                                                  experience_type: str,
+                                                  trigger_context: str,
+                                                  desired_intensity: float = 0.5,
+                                                  context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Generate phenomenal experience and automatically trigger corresponding KG evolution"""
+        try:
+            # Create trigger context for the experience
+            experience_trigger_context = {
+                "description": trigger_context,
+                "trigger_source": "external_request",
+                "desired_intensity": desired_intensity,
+                **(context or {})
+            }
+            
+            # Convert string experience type to enum
+            from backend.core.phenomenal_experience import ExperienceType
+            if isinstance(experience_type, str):
+                try:
+                    experience_type_enum = ExperienceType(experience_type.lower())
+                except ValueError:
+                    # Fallback to cognitive if invalid type
+                    experience_type_enum = ExperienceType.COGNITIVE
+            else:
+                experience_type_enum = experience_type
+            
+            # First generate the phenomenal experience with proper type
+            experience = await phenomenal_experience_generator.generate_experience(
+                trigger_context=experience_trigger_context,
+                experience_type=experience_type_enum,
+                desired_intensity=desired_intensity
+            )
+            
+            # Automatically trigger corresponding KG evolution
+            kg_results = []
+            
+            # Map experience types to KG evolution triggers
+            experience_to_kg_map = {
+                "cognitive": "new_information",
+                "metacognitive": "emergent_concept", 
+                "attention": "pattern_recognition",  # Fixed: was pattern_discovery
+                "memory": "learning_feedback",       # Fixed: was memory_consolidation
+                "imaginative": "emergent_concept",   # Fixed: was novel_connection
+                "emotional": "usage_frequency",     # Fixed: was relationship_strengthening
+                "social": "new_information",        # Fixed: was knowledge_integration
+                "temporal": "temporal_decay",
+                "spatial": "pattern_recognition",   # Fixed: was pattern_discovery
+                "sensory": "new_information"
+            }
+            
+            # Get appropriate KG trigger
+            kg_trigger = experience_to_kg_map.get(experience_type, "new_information")
+            
+            # Create KG evolution context from experience
+            kg_context = {
+                "trigger_source": "phenomenal_experience",
+                "experience_id": experience.id,
+                "experience_narrative": experience.narrative_description,
+                "associated_concepts": experience.associated_concepts,
+                "causal_triggers": experience.causal_triggers,
+                "experience_context": context or {}
+            }
+            
+            # Trigger KG evolution
+            kg_result = await self.evolve_knowledge_graph(kg_trigger, kg_context)
+            
+            if not kg_result.get("error"):
+                kg_results.append({
+                    "evolution_id": kg_result.get("evolution_id"),
+                    "trigger": kg_trigger,
+                    "triggered_by_experience": experience.id,
+                    "concepts_involved": kg_result.get("concepts_involved", [])
+                })
+            
+            # Log integrated cognitive event
+            await transparency_engine.log_cognitive_event(
+                event_type="integrated_pe_kg_evolution",
+                content=f"Phenomenal experience '{experience_type}' triggered knowledge graph evolution '{kg_trigger}'",
+                metadata={
+                    "experience_id": experience.id,
+                    "kg_evolution_id": kg_result.get("evolution_id"),
+                    "experience_type": experience_type,
+                    "kg_trigger": kg_trigger,
+                    "integration_mode": "automatic"
+                },
+                reasoning="Bidirectional cognitive architecture integration: phenomenal experience automatically triggered corresponding KG evolution"
+            )
+            
+            return {
+                "experience": {
+                    "id": experience.id,
+                    "type": experience.experience_type.value,
+                    "narrative": experience.narrative_description,
+                    "vividness": experience.vividness,
+                    "coherence": experience.coherence
+                },
+                "triggered_kg_evolutions": kg_results,
+                "integration_status": "successful",
+                "bidirectional": True
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in integrated experience generation with KG evolution: {e}")
+            return {"error": str(e)}
+    
+    async def process_cognitive_loop(self,
+                                   initial_trigger: str,
+                                   trigger_type: str = "knowledge",  # "knowledge" or "experience"
+                                   loop_depth: int = 3,
+                                   context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Execute a full cognitive loop with bidirectional KG-PE integration"""
+        try:
+            loop_results = []
+            current_context = context or {}
+            
+            for step in range(loop_depth):
+                step_result = {
+                    "step": step + 1,
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+                if trigger_type == "knowledge" or step % 2 == 0:
+                    # KG evolution step that triggers experiences
+                    kg_trigger = initial_trigger if step == 0 else "knowledge_integration"
+                    result = await self.evolve_knowledge_graph_with_experience_trigger(
+                        kg_trigger, current_context
+                    )
+                    step_result["type"] = "kg_evolution_with_experience"
+                    step_result["primary_trigger"] = kg_trigger
+                    
+                else:
+                    # Experience generation step that triggers KG evolution
+                    exp_type = "metacognitive" if step > 1 else "cognitive" 
+                    result = await self.generate_experience_with_kg_evolution(
+                        exp_type, f"Cognitive loop step {step + 1}", 0.6, current_context
+                    )
+                    step_result["type"] = "experience_with_kg_evolution"
+                    step_result["primary_trigger"] = exp_type
+                
+                step_result["result"] = result
+                step_result["integration_successful"] = not result.get("error") and result.get("bidirectional")
+                
+                # Update context for next iteration
+                if result.get("triggered_experiences"):
+                    current_context["previous_experiences"] = [
+                        exp["experience_id"] for exp in result["triggered_experiences"]
+                    ]
+                if result.get("triggered_kg_evolutions"):
+                    current_context["previous_evolutions"] = [
+                        evo["evolution_id"] for evo in result["triggered_kg_evolutions"]
+                    ]
+                
+                loop_results.append(step_result)
+                
+                # Break if there was an error
+                if result.get("error"):
+                    break
+            
+            # Calculate overall cognitive coherence
+            successful_steps = sum(1 for step in loop_results if step["integration_successful"])
+            coherence_score = successful_steps / len(loop_results) if loop_results else 0
+            
+            # Log cognitive loop completion
+            await transparency_engine.log_cognitive_event(
+                event_type="cognitive_loop_completion",
+                content=f"Completed cognitive loop with {successful_steps}/{len(loop_results)} successful integrations",
+                metadata={
+                    "initial_trigger": initial_trigger,
+                    "trigger_type": trigger_type,
+                    "loop_depth": loop_depth,
+                    "successful_steps": successful_steps,
+                    "coherence_score": coherence_score,
+                    "total_steps": len(loop_results)
+                },
+                reasoning="Full bidirectional cognitive architecture loop demonstrating integrated KG-PE functioning"
+            )
+            
+            return {
+                "loop_id": f"cognitive_loop_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                "steps": loop_results,
+                "coherence_score": coherence_score,
+                "successful_integrations": successful_steps,
+                "total_steps": len(loop_results),
+                "status": "completed" if coherence_score > 0.5 else "degraded"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in cognitive loop processing: {e}")
             return {"error": str(e)}
 
 

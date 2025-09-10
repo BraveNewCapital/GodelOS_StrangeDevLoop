@@ -780,7 +780,7 @@ async def get_learning_summary():
 
 @app.post("/api/v1/knowledge-graph/evolve")
 async def evolve_knowledge_graph(evolution_data: Dict[str, Any]):
-    """Trigger knowledge graph evolution based on new information or patterns"""
+    """Trigger knowledge graph evolution with automatic phenomenal experience integration"""
     try:
         if not cognitive_manager:
             raise HTTPException(status_code=503, detail="Cognitive manager not available")
@@ -791,7 +791,8 @@ async def evolve_knowledge_graph(evolution_data: Dict[str, Any]):
         if not trigger:
             raise HTTPException(status_code=400, detail="Trigger is required")
         
-        result = await cognitive_manager.evolve_knowledge_graph(
+        # Use integrated method that automatically triggers corresponding experiences
+        result = await cognitive_manager.evolve_knowledge_graph_with_experience_trigger(
             trigger=trigger,
             context=context
         )
@@ -894,51 +895,33 @@ async def get_knowledge_graph_summary():
 
 @app.post("/api/v1/phenomenal/generate-experience")
 async def generate_phenomenal_experience(experience_data: Dict[str, Any]):
-    """Generate a phenomenal experience based on context and type"""
+    """Generate a phenomenal experience with automatic knowledge graph evolution integration"""
     try:
         if not cognitive_manager:
             raise HTTPException(status_code=503, detail="Cognitive manager not available")
         
-        from backend.core.phenomenal_experience import phenomenal_experience_generator, ExperienceType
-        
         experience_type = experience_data.get("experience_type", "cognitive")
+        trigger_context = experience_data.get("trigger_context", experience_data.get("context", ""))
+        desired_intensity = experience_data.get("desired_intensity", experience_data.get("intensity", 0.7))
         context = experience_data.get("context", {})
-        intensity = experience_data.get("intensity", 0.7)
         
-        # Convert string to enum if needed
-        if isinstance(experience_type, str):
-            try:
-                experience_type = ExperienceType(experience_type.lower())
-            except ValueError:
-                experience_type = ExperienceType.COGNITIVE
-        
-        experience = await phenomenal_experience_generator.generate_experience(
-            trigger_context=context,
+        # Use integrated method that automatically triggers corresponding KG evolution
+        result = await cognitive_manager.generate_experience_with_kg_evolution(
             experience_type=experience_type,
-            desired_intensity=intensity
+            trigger_context=trigger_context,
+            desired_intensity=desired_intensity,
+            context=context
         )
+        
+        if result.get("error"):
+            raise HTTPException(status_code=500, detail=result["error"])
         
         return JSONResponse(content={
             "status": "success",
-            "experience": {
-                "id": experience.id,
-                "type": experience.experience_type.value,
-                "narrative": experience.narrative_description,
-                "vividness": experience.vividness,
-                "coherence": experience.coherence,
-                "attention_focus": experience.attention_focus,
-                "qualia_patterns": [
-                    {
-                        "id": q.id,
-                        "modality": q.modality.value,
-                        "intensity": q.intensity,
-                        "valence": q.valence,
-                        "complexity": q.complexity
-                    } for q in experience.qualia_patterns
-                ],
-                "temporal_extent": experience.temporal_extent,
-                "triggers": experience.causal_triggers
-            }
+            "experience": result["experience"],
+            "triggered_kg_evolutions": result.get("triggered_kg_evolutions", []),
+            "integration_status": result.get("integration_status"),
+            "bidirectional": result.get("bidirectional", False)
         })
     except Exception as e:
         logger.error(f"Error generating phenomenal experience: {e}")
@@ -1003,7 +986,9 @@ async def get_experience_history(limit: Optional[int] = 10):
                     "attention_focus": exp.attention_focus,
                     "temporal_extent": exp.temporal_extent,
                     "triggers": exp.causal_triggers,
-                    "concepts": exp.associated_concepts
+                    "concepts": exp.associated_concepts,
+                    "background_context": exp.background_context,
+                    "metadata": exp.metadata
                 } for exp in experiences
             ],
             "total_count": len(experiences)
@@ -1123,6 +1108,36 @@ async def get_available_experience_types():
         })
     except Exception as e:
         logger.error(f"Error getting available experience types: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Cognitive Architecture Integration Endpoints
+
+@app.post("/api/v1/cognitive/loop")
+async def execute_cognitive_loop(loop_data: Dict[str, Any]):
+    """Execute a full bidirectional cognitive loop with KG-PE integration"""
+    try:
+        if not cognitive_manager:
+            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+        
+        initial_trigger = loop_data.get("initial_trigger", "new_information")
+        trigger_type = loop_data.get("trigger_type", "knowledge")  # "knowledge" or "experience"
+        loop_depth = min(loop_data.get("loop_depth", 3), 10)  # Max 10 steps for safety
+        context = loop_data.get("context", {})
+        
+        result = await cognitive_manager.process_cognitive_loop(
+            initial_trigger=initial_trigger,
+            trigger_type=trigger_type,
+            loop_depth=loop_depth,
+            context=context
+        )
+        
+        return JSONResponse(content={
+            "status": "success",
+            "cognitive_loop": result
+        })
+    except Exception as e:
+        logger.error(f"Error executing cognitive loop: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Knowledge endpoints

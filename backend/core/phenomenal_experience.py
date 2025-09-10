@@ -962,13 +962,36 @@ class PhenomenalExperienceGenerator:
         
         count = len(self.experience_history)
         
+        def serialize_conscious_state(state: ConsciousState) -> Dict[str, Any]:
+            """Convert ConsciousState to JSON-serializable dict"""
+            if not state:
+                return None
+            
+            def serialize_experience(exp: PhenomenalExperience) -> Dict[str, Any]:
+                """Convert PhenomenalExperience to JSON-serializable dict"""
+                exp_dict = asdict(exp)
+                # Convert enum to string value
+                exp_dict['experience_type'] = exp.experience_type.value
+                # Convert qualia patterns
+                for pattern in exp_dict['qualia_patterns']:
+                    if 'modality' in pattern and hasattr(pattern['modality'], 'value'):
+                        pattern['modality'] = pattern['modality'].value
+                return exp_dict
+            
+            state_dict = asdict(state)
+            # Convert active experiences with proper enum serialization
+            state_dict['active_experiences'] = [
+                serialize_experience(exp) for exp in state.active_experiences
+            ]
+            return state_dict
+        
         return {
             "total_experiences": count,
             "experience_types": experience_types,
             "average_intensity": total_intensity / count,
             "average_valence": total_valence / count,
             "average_coherence": total_coherence / count,
-            "current_state": asdict(self.current_conscious_state) if self.current_conscious_state else None
+            "current_state": serialize_conscious_state(self.current_conscious_state)
         }
 
 
