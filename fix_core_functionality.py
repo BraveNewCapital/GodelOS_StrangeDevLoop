@@ -269,12 +269,12 @@ def fix_reasoning_session_progression():
     # This happens because the live_reasoning_tracker is not properly integrated
     # with the actual query processing flow
     
-    backend_main_path = Path("backend/main.py")
+    backend_main_path = Path("backend/unified_server.py")
     if not backend_main_path.exists():
-        print("❌ Backend main.py not found")
+        print("❌ Backend unified_server.py not found")
         return False
     
-    # Read the current main.py file
+    # Read the current unified_server.py file
     main_content = backend_main_path.read_text()
     
     # Check if the reasoning tracker is properly connected
@@ -301,7 +301,7 @@ def fix_knowledge_graph_data_source():
     print("\n🔧 FIXING KNOWLEDGE GRAPH DATA SOURCE...")
     
     # The knowledge graph endpoint needs to prioritize dynamic data over fallback
-    backend_main_path = Path("backend/main.py")
+    backend_main_path = Path("backend/unified_server.py")
     main_content = backend_main_path.read_text()
     
     # Look for the knowledge graph endpoint
@@ -331,7 +331,7 @@ def fix_stream_of_consciousness():
         print("✅ Stream of consciousness component exists")
         
         # Check backend endpoint
-        backend_main_path = Path("backend/main.py")
+        backend_main_path = Path("backend/unified_server.py")
         main_content = backend_main_path.read_text()
         
         if "consciousness-stream" in main_content:

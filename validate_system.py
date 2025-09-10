@@ -20,7 +20,7 @@ project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
 try:
-    from backend.main import app
+    from backend.unified_server import app
     from backend.knowledge_pipeline_service import KnowledgePipelineService
     from backend.transparency_endpoints import router as transparency_router
     import requests

@@ -22,7 +22,7 @@ echo -e "${BLUE}=============================${NC}"
 echo ""
 
 # Check if we're in the right directory
-if [ ! -f "$BACKEND_DIR/main.py" ]; then
+if [ ! -f "$BACKEND_DIR/unified_server.py" ]; then
     echo -e "${RED}❌ Error: Backend directory not found at $BACKEND_DIR${NC}"
     echo -e "${YELLOW}   Please run this script from the GödelOS root directory${NC}"
     exit 1

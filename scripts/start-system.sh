@@ -73,7 +73,7 @@ pip install -r requirements.txt
 
 # Step 2: Start the backend server
 print_status "Starting GödelOS backend server..."
-python main.py &
+python unified_server.py &
 BACKEND_PID=$!
 
 # Wait for backend to start
