@@ -138,7 +138,51 @@ class CognitiveManager:
         self.enable_self_reflection = True
         
         logger.info("CognitiveManager initialized")
-    
+
+    async def _with_retries(self, op_fn, *, retries: int = 2, delay: float = 0.5, backoff: float = 2.0, op_name: str = "operation"):
+        """Run an async operation with simple retry/backoff.
+
+        Args:
+            op_fn: zero-arg callable returning an awaitable
+            retries: number of retries (not counting first attempt)
+            delay: initial delay between attempts (seconds)
+            backoff: multiplier for delay after each failure
+            op_name: label used for logging/telemetry
+        Returns:
+            Result of the awaited operation
+        Raises:
+            Last exception if all attempts fail
+        """
+        attempt = 0
+        last_exc = None
+        current_delay = delay
+        while attempt <= retries:
+            try:
+                return await op_fn()
+            except Exception as e:
+                last_exc = e
+                attempt += 1
+                logger.warning(f"{op_name} failed (attempt {attempt}/{retries + 1}): {e}")
+                # Broadcast non-fatal failure event to WS clients if available
+                try:
+                    if self.websocket_manager and attempt <= retries:
+                        await self.websocket_manager.broadcast_cognitive_update({
+                            "type": "recoverable_error",
+                            "operation": op_name,
+                            "attempt": attempt,
+                            "max_attempts": retries + 1,
+                            "message": str(e)
+                        })
+                except Exception:
+                    # Do not let telemetry failures bubble up
+                    pass
+                if attempt <= retries:
+                    await asyncio.sleep(current_delay)
+                    current_delay *= backoff
+        # Exhausted retries
+        assert last_exc is not None
+        raise last_exc
+
     async def initialize(self) -> bool:
         """Initialize the cognitive manager and all subsystems."""
         try:
@@ -574,8 +618,11 @@ class CognitiveManager:
                         "context": context,
                         "knowledge_context": knowledge_context
                     }
-                    
-                    llm_result = await self.llm_driver.assess_consciousness_and_direct(llm_state)
+
+                    async def _run_llm():
+                        return await self.llm_driver.assess_consciousness_and_direct(llm_state)
+
+                    llm_result = await self._with_retries(_run_llm, retries=2, delay=0.4, backoff=1.8, op_name="llm_assess_consciousness_and_direct")
                     reasoning_result.update({
                         "response": llm_result.get("response", reasoning_result["response"]),
                         "confidence": llm_result.get("confidence", reasoning_result["confidence"]),
@@ -583,7 +630,7 @@ class CognitiveManager:
                         "llm_directives": llm_result.get("directives_executed", [])
                     })
                 except Exception as e:
-                    logger.warning(f"LLM reasoning failed, using fallback: {e}")
+                    logger.warning(f"LLM reasoning failed after retries, using fallback: {e}")
             
             # Use GodelOS integration as fallback
             elif self.godelos_integration:
