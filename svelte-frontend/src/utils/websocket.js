@@ -10,7 +10,7 @@ const MAX_RECONNECT_ATTEMPTS = 10;
 const RECONNECT_DELAY = 2000;
 
 // API client for fetching initial data
-import { API_BASE_URL, WS_BASE_URL } from '$lib/config.js';
+import { API_BASE_URL, WS_BASE_URL } from '../config.js';
 
 async function fetchFromAPI(endpoint) {
   try {

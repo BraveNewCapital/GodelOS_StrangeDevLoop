@@ -212,7 +212,7 @@ export const pendingProposals = derived(
 
 // WebSocket integration for real-time cognitive updates
 let cognitiveWebSocket = null;
-import { WS_BASE_URL } from '$lib/config.js';
+import { WS_BASE_URL } from '../config.js';
 
 export function initCognitiveStream() {
   if (cognitiveWebSocket?.readyState === WebSocket.OPEN) {

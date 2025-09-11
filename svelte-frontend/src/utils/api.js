@@ -3,7 +3,7 @@
  * Real data fetching functions to replace mock data
  */
 
-import { API_BASE_URL } from '$lib/config.js';
+import { API_BASE_URL } from '../config.js';
 
 // Log the backend URL for debugging
 console.log('🔗 GödelOS API connecting to:', API_BASE_URL);

@@ -11,7 +11,7 @@
 
 import { writable, derived, get } from 'svelte/store';
 import { cognitiveState } from './cognitive.js';
-import { API_BASE_URL, WS_BASE_URL } from '$lib/config.js';
+import { API_BASE_URL, WS_BASE_URL } from '../config.js';
 
 // API Configuration (centralized)
 // API_BASE_URL imported from $lib/config.js

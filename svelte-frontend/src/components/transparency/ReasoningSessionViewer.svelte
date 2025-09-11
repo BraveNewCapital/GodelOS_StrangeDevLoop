@@ -16,7 +16,7 @@
   // WebSocket for live reasoning stream
   let reasoningSocket = null;
   // API configuration
-  import { API_BASE_URL as API_BASE, WS_BASE_URL as WS_BASE } from '$lib/config.js';
+  import { API_BASE_URL as API_BASE, WS_BASE_URL as WS_BASE } from '../../config.js';
 
   onMount(() => {
     loadActiveSessions();
