@@ -188,10 +188,15 @@ ERROR: bad operand type for abs(): 'str'
 
 ### Next Actionable Subtasks (Cognitive Manager)
 - Define cross-component coordination interface in `backend/core/cognitive_manager.py` (scoped)
-- Add retry/backoff wrappers around external calls (LLM/Vector DB)
+- Add retry/backoff wrappers around external calls (LLM/Vector DB) — LLM complete
 - Centralize structured error objects + propagation rules
-- Emit standardized WebSocket events on recoverable failures
+- Emit standardized WebSocket events on recoverable failures — added `recoverable_error` broadcast in LLM retry path
 - Add lightweight health probes for subsystems and surface via `/api/health`
+
+### Changelog (Today)
+- Added retry/backoff wrapper in `backend/core/cognitive_manager.py` for LLM calls with exponential backoff
+- Broadcasts `recoverable_error` WebSocket events on retry attempts
+- Updated this Todo to align progress and archive resolved errors
 
 ---
 
