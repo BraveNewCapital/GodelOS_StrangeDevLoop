@@ -212,6 +212,7 @@ export const pendingProposals = derived(
 
 // WebSocket integration for real-time cognitive updates
 let cognitiveWebSocket = null;
+import { WS_BASE_URL } from '$lib/config.js';
 
 export function initCognitiveStream() {
   if (cognitiveWebSocket?.readyState === WebSocket.OPEN) {
@@ -219,7 +220,7 @@ export function initCognitiveStream() {
   }
 
   try {
-    cognitiveWebSocket = new WebSocket('ws://localhost:8000/ws/cognitive-stream');
+    cognitiveWebSocket = new WebSocket(`${WS_BASE_URL}/ws/cognitive-stream`);
     
     cognitiveWebSocket.onopen = () => {
       console.log('🧠 Cognitive state stream connected');

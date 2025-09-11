@@ -275,17 +275,19 @@ async def initialize_optional_services():
         except Exception as e:
             logger.error(f"❌ Failed to initialize knowledge services: {e}")
     
-    # Initialize production vector database
-    try:
-        from backend.core.vector_service import vector_db_service
-        
-        logger.info("🗃️ UNIFIED_SERVER: Initializing production vector database...")
-        await vector_db_service.initialize()
-        logger.info("✅ Production vector database initialized successfully!")
-    except Exception as e:
-        logger.error(f"❌ Failed to initialize vector database: {e}")
-        import traceback
-        logger.error(f"❌ Detailed error: {traceback.format_exc()}")
+    # Initialize production vector database (synchronous initialization)
+    if VECTOR_DATABASE_AVAILABLE:
+        try:
+            # Ensure the global service is created/ready
+            if init_vector_database:
+                init_vector_database()
+            elif get_vector_database:
+                get_vector_database()
+            logger.info("✅ Production vector database initialized successfully!")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize vector database: {e}")
+            import traceback
+            logger.error(f"❌ Detailed error: {traceback.format_exc()}")
 
     # Initialize cognitive transparency API - CRITICAL FOR UNIFIED KG!
     if ENHANCED_APIS_AVAILABLE:
@@ -2093,6 +2095,27 @@ async def process_query(request: QueryRequest):
         response=f"I received your query: '{request.query}'. However, I'm currently running in fallback mode.",
         confidence=0.5
     )
+
+# Back-compat: knowledge search wrapper using the vector database
+@app.get("/api/knowledge/search")
+async def knowledge_search(query: str, k: int = 5):
+    """Compatibility endpoint that proxies to the vector database search.
+
+    Returns a minimal structure compatible with existing frontend expectations.
+    """
+    try:
+        if VECTOR_DATABASE_AVAILABLE and get_vector_database:
+            service = get_vector_database()
+            results = service.search(query, k=k) or []  # List[(id, score)]
+            return {
+                "query": query,
+                "results": [{"id": rid, "score": float(score)} for rid, score in results],
+                "total": len(results)
+            }
+    except Exception as e:
+        logger.error(f"Knowledge search wrapper failed: {e}")
+    # Fallback: empty result
+    return {"query": query, "results": [], "total": 0}
 
 # WebSocket endpoint for real-time streaming
 @app.websocket("/ws/cognitive-stream")

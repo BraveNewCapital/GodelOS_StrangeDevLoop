@@ -11,9 +11,10 @@
 
 import { writable, derived, get } from 'svelte/store';
 import { cognitiveState } from './cognitive.js';
+import { API_BASE_URL, WS_BASE_URL } from '$lib/config.js';
 
-// API Configuration
-const API_BASE_URL = 'http://localhost:8000';
+// API Configuration (centralized)
+// API_BASE_URL imported from $lib/config.js
 
 // Core cognitive state (existing)
 export const enhancedCognitiveState = writable({
@@ -212,10 +213,8 @@ class EnhancedCognitiveStateManager {
         subscriptions: config.cognitiveStreaming.subscriptions?.join(',') || ''
       });
 
-      // Derive WebSocket URL dynamically from API_BASE_URL
-      const apiUrl = new URL(API_BASE_URL);
-      const wsProtocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${wsProtocol}//${apiUrl.host}/ws/cognitive-stream?${params}`;
+      // Derive WebSocket URL dynamically from central WS base
+      const wsUrl = `${WS_BASE_URL}/ws/cognitive-stream?${params}`;
       
       console.log('🔗 Connecting to cognitive stream:', wsUrl);
       cognitiveWebSocket = new WebSocket(wsUrl);

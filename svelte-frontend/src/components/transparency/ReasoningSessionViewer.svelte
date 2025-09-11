@@ -16,8 +16,7 @@
   // WebSocket for live reasoning stream
   let reasoningSocket = null;
   // API configuration
-  const API_BASE = 'http://localhost:8000';
-  const WS_BASE = 'ws://localhost:8000';
+  import { API_BASE_URL as API_BASE, WS_BASE_URL as WS_BASE } from '$lib/config.js';
 
   onMount(() => {
     loadActiveSessions();

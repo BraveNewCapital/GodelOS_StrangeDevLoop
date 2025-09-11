@@ -10,7 +10,7 @@ const MAX_RECONNECT_ATTEMPTS = 10;
 const RECONNECT_DELAY = 2000;
 
 // API client for fetching initial data
-const API_BASE_URL = 'http://localhost:8000';
+import { API_BASE_URL, WS_BASE_URL } from '$lib/config.js';
 
 async function fetchFromAPI(endpoint) {
   try {
@@ -222,7 +222,7 @@ export async function setupWebSocket() {
 
   try {
     // Connect to GödelOS backend WebSocket endpoint
-    ws = new WebSocket('ws://localhost:8000/ws/cognitive-stream');
+    ws = new WebSocket(`${WS_BASE_URL}/ws/cognitive-stream`);
     
     ws.onopen = (event) => {
       console.log('Connected to GödelOS cognitive stream');

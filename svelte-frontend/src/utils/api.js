@@ -3,10 +3,7 @@
  * Real data fetching functions to replace mock data
  */
 
-// Get backend URL from environment or use default
-const DEFAULT_BACKEND_PORT = '8000';
-const BACKEND_PORT = window.GODELOS_BACKEND_PORT || import.meta.env.VITE_BACKEND_PORT || DEFAULT_BACKEND_PORT;
-const API_BASE_URL = `http://localhost:${BACKEND_PORT}`;
+import { API_BASE_URL } from '$lib/config.js';
 
 // Log the backend URL for debugging
 console.log('🔗 GödelOS API connecting to:', API_BASE_URL);
@@ -61,6 +58,19 @@ export class GödelOSAPI {
 
   static async searchKnowledge(query, category = null) {
     try {
+      // Prefer new vector DB search if available
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/v1/vector-db/search`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query, k: 10 })
+        });
+        if (response.ok) {
+          const data = await response.json();
+          return { results: data?.data?.results || [], total: data?.data?.total_results || 0 };
+        }
+      } catch (_) { /* fall back to legacy */ }
+
       const url = new URL(`${API_BASE_URL}/api/knowledge/search`);
       url.searchParams.append('query', query);
       if (category) url.searchParams.append('category', category);
@@ -71,6 +81,23 @@ export class GödelOSAPI {
     } catch (error) {
       console.warn('Failed to search knowledge:', error);
       return { results: [], total: 0 };
+    }
+  }
+
+  // Explicit vector DB search helper (for new UI usage)
+  static async vectorSearch(query, k = 10, model_name = null, similarity_threshold = 0.0) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/vector-db/search`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, k, model_name, similarity_threshold })
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      return data?.data?.results || [];
+    } catch (error) {
+      console.warn('Vector search failed:', error);
+      return [];
     }
   }
 
