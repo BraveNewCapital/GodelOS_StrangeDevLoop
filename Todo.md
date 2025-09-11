@@ -197,6 +197,10 @@ ERROR: bad operand type for abs(): 'str'
 - Added retry/backoff wrapper in `backend/core/cognitive_manager.py` for LLM calls with exponential backoff
 - Broadcasts `recoverable_error` WebSocket events on retry attempts
 - Updated this Todo to align progress and archive resolved errors
+- Smoke-tested real API: `/health`, `/api/health`, `/cognitive/state` — all healthy
+
+### Observations from Smoke Test
+- Warning during startup: failed to load `knowledge_storage/categories.json` due to `KnowledgeItem() argument after ** must be a mapping, not list` — track as low-priority cleanup.
 
 ---
 
