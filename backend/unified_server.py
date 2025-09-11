@@ -153,6 +153,19 @@ except ImportError as e:
     knowledge_pipeline_service = None
     KNOWLEDGE_SERVICES_AVAILABLE = False
 
+# Import production vector database
+try:
+    from backend.core.vector_service import get_vector_database, init_vector_database
+    from backend.core.vector_endpoints import router as vector_db_router
+    VECTOR_DATABASE_AVAILABLE = True
+    logger.info("Production vector database available")
+except ImportError as e:
+    logger.warning(f"Production vector database not available, using fallback: {e}")
+    get_vector_database = None
+    init_vector_database = None
+    vector_db_router = None
+    VECTOR_DATABASE_AVAILABLE = False
+
 try:
     from backend.enhanced_cognitive_api import router as enhanced_cognitive_router
     from backend.transparency_endpoints import router as transparency_router, initialize_transparency_system
@@ -262,6 +275,18 @@ async def initialize_optional_services():
         except Exception as e:
             logger.error(f"❌ Failed to initialize knowledge services: {e}")
     
+    # Initialize production vector database
+    try:
+        from backend.core.vector_service import vector_db_service
+        
+        logger.info("🗃️ UNIFIED_SERVER: Initializing production vector database...")
+        await vector_db_service.initialize()
+        logger.info("✅ Production vector database initialized successfully!")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize vector database: {e}")
+        import traceback
+        logger.error(f"❌ Detailed error: {traceback.format_exc()}")
+
     # Initialize cognitive transparency API - CRITICAL FOR UNIFIED KG!
     if ENHANCED_APIS_AVAILABLE:
         try:
@@ -416,6 +441,10 @@ if ENHANCED_APIS_AVAILABLE:
     #     app.include_router(enhanced_cognitive_router, prefix="/api/enhanced-cognitive", tags=["Enhanced Cognitive API"])
     if transparency_router:
         app.include_router(transparency_router)
+
+# Include vector database router
+if VECTOR_DATABASE_AVAILABLE and vector_db_router:
+    app.include_router(vector_db_router, tags=["Vector Database Management"])
 
 # Root and health endpoints
 @app.get("/")

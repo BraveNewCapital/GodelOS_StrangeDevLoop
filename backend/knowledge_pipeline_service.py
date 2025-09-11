@@ -115,6 +115,11 @@ class KnowledgePipelineService:
                 "content_length": len(content)
             })
             
+            # ENHANCED: Process through NLP first to get raw extracted data
+            logger.info(f"🔍 PIPELINE SERVICE: Processing content through NLP processor")
+            processed_data = await self.nlp_processor.process(content)
+            logger.info(f"🔍 PIPELINE SERVICE: NLP processing complete, extracted {len(processed_data.get('entities', []))} entities and {len(processed_data.get('relationships', []))} relationships")
+            
             # Process through the extraction pipeline
             created_items = await self.pipeline.process_documents([content])
             
@@ -169,7 +174,8 @@ class KnowledgePipelineService:
                 "entities_extracted": entities_count,
                 "relationships_extracted": relationships_count,
                 "processing_time_seconds": processing_time,
-                "knowledge_items": [{"id": item.id, "type": item.type.value} for item in created_items]
+                "knowledge_items": [{"id": item.id, "type": item.type.value} for item in created_items],
+                "processed_data": processed_data  # CRITICAL: Include the raw processed data
             }
             
         except Exception as e:
