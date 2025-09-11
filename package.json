@@ -8,7 +8,10 @@
     "test:critical": "playwright test tests/critical_functionality_validation.spec.js",
     "test:comprehensive": "playwright test tests/comprehensive_ui_backend_validation.spec.js",
     "test:full": "./run_comprehensive_ui_tests.sh",
-    "test:debug": "playwright test --debug"
+    "test:debug": "playwright test --debug",
+    "test:e2e": "npm --prefix svelte-frontend run test",
+    "test:e2e:headed": "npm --prefix svelte-frontend run test:headed",
+    "test:e2e:ui": "npm --prefix svelte-frontend run test:ui"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",

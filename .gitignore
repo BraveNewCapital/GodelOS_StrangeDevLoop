@@ -186,6 +186,9 @@ coverage/
 *.tgz
 .yarn-integrity
 
+# Allow root E2E runner scripts
+!run-e2e-headed.sh
+
 # TypeScript
 *.tsbuildinfo
 typings/
