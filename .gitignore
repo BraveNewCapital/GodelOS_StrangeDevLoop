@@ -150,6 +150,8 @@ jspm_packages/
 svelte-frontend/node_modules/.package-lock.json
 svelte-frontend/node_modules/.vite/deps/_metadata.json
 svelte-frontend/test-results/
+svelte-frontend/playwright-report/
+svelte-frontend/screenshots/
 
 # Build artifacts
 dist/
@@ -186,8 +188,9 @@ coverage/
 *.tgz
 .yarn-integrity
 
-# Allow root E2E runner scripts
+# Allow runner scripts
 !run-e2e-headed.sh
+!scripts/run-ui-probes-test.sh
 
 # TypeScript
 *.tsbuildinfo
