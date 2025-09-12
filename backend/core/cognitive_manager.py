@@ -34,6 +34,7 @@ from .metacognitive_monitor import metacognitive_monitor
 from .autonomous_learning import autonomous_learning_system
 from .knowledge_graph_evolution import knowledge_graph_evolution
 from .phenomenal_experience import phenomenal_experience_generator
+from .query_replay_harness import replay_harness, ProcessingStep
 
 logger = logging.getLogger(__name__)
 
@@ -418,7 +419,9 @@ class CognitiveManager:
     async def process_query(self, 
                           query: str, 
                           context: Optional[Dict] = None,
-                          process_type: CognitiveProcessType = CognitiveProcessType.QUERY_PROCESSING) -> CognitiveResponse:
+                          process_type: CognitiveProcessType = CognitiveProcessType.QUERY_PROCESSING,
+                          correlation_id: Optional[str] = None,
+                          enable_recording: bool = True) -> CognitiveResponse:
         """
         Process a query through the complete cognitive pipeline.
         
@@ -426,6 +429,8 @@ class CognitiveManager:
             query: The input query or prompt
             context: Optional context information
             process_type: Type of cognitive processing to perform
+            correlation_id: Optional correlation ID for tracking
+            enable_recording: Whether to enable replay recording
             
         Returns:
             CognitiveResponse with results and reasoning trace
@@ -434,8 +439,33 @@ class CognitiveManager:
         start_time = time.time()
         context = context or {}
         
+        # Generate correlation ID if not provided
+        if correlation_id is None:
+            correlation_id = f"cog_{uuid.uuid4().hex[:12]}"
+        
+        # Start recording if enabled
+        recording_id = None
+        if enable_recording:
+            recording_id = replay_harness.start_recording(
+                query=query,
+                context=context,
+                correlation_id=correlation_id,
+                tags=[process_type.value, "cognitive_processing"]
+            )
+        
         try:
             logger.info(f"🧠 Processing query (session: {session_id[:8]}...): {query[:100]}...")
+            
+            # Record query received step
+            if enable_recording:
+                replay_harness.record_step(
+                    correlation_id=correlation_id,
+                    step_type=ProcessingStep.QUERY_RECEIVED,
+                    input_data={"query": query, "context": context, "process_type": process_type.value},
+                    output_data={"session_id": session_id},
+                    duration_ms=0,
+                    metadata={"recording_id": recording_id}
+                )
             
             # Initialize session
             self.active_sessions[session_id] = {
@@ -443,32 +473,58 @@ class CognitiveManager:
                 "context": context,
                 "process_type": process_type,
                 "start_time": start_time,
-                "status": "processing"
+                "status": "processing",
+                "correlation_id": correlation_id,
+                "recording_id": recording_id
             }
             
             reasoning_trace = []
             
             # Step 1: Context gathering
+            step_start = time.time()
             reasoning_trace.append({
                 "step": 1,
                 "action": "context_gathering",
-                "timestamp": time.time(),
+                "timestamp": step_start,
                 "description": "Gathering knowledge context for query"
             })
             
             knowledge_context = await self._gather_knowledge_context(query, context)
             reasoning_trace[-1]["result"] = knowledge_context
             
+            # Record context gathering step
+            if enable_recording:
+                replay_harness.record_step(
+                    correlation_id=correlation_id,
+                    step_type=ProcessingStep.KNOWLEDGE_RETRIEVAL,
+                    input_data={"query": query, "context": context},
+                    output_data=knowledge_context,
+                    duration_ms=(time.time() - step_start) * 1000,
+                    metadata={"step": 1, "action": "context_gathering"}
+                )
+            
             # Step 2: Initial reasoning
+            step_start = time.time()
             reasoning_trace.append({
                 "step": 2,
                 "action": "initial_reasoning",
-                "timestamp": time.time(),
+                "timestamp": step_start,
                 "description": "Performing initial cognitive processing"
             })
             
             initial_response = await self._perform_initial_reasoning(query, knowledge_context, context)
             reasoning_trace[-1]["result"] = initial_response
+            
+            # Record initial reasoning step
+            if enable_recording:
+                replay_harness.record_step(
+                    correlation_id=correlation_id,
+                    step_type=ProcessingStep.COGNITIVE_ANALYSIS,
+                    input_data={"query": query, "knowledge_context": knowledge_context},
+                    output_data=initial_response,
+                    duration_ms=(time.time() - step_start) * 1000,
+                    metadata={"step": 2, "action": "initial_reasoning"}
+                )
 
             # Step 3: Enhanced coordination evaluation
             reasoning_trace.append({
@@ -633,11 +689,37 @@ class CognitiveManager:
                 })
             
             logger.info(f"✅ Query processed successfully (session: {session_id[:8]}...) in {processing_time:.2f}s")
+            
+            # Finish recording
+            if enable_recording and recording_id:
+                replay_harness.record_step(
+                    correlation_id=correlation_id,
+                    step_type=ProcessingStep.QUERY_COMPLETED,
+                    input_data={"session_id": session_id},
+                    output_data=final_response,
+                    duration_ms=processing_time * 1000,
+                    metadata={"total_steps": len(reasoning_trace)}
+                )
+                replay_harness.finish_recording(correlation_id, final_response)
+            
             return cognitive_response
             
         except Exception as e:
             logger.error(f"❌ Error processing query (session: {session_id[:8]}...): {e}")
             self.processing_metrics["total_queries"] += 1
+            
+            # Record error if recording was enabled
+            if enable_recording and correlation_id:
+                replay_harness.record_step(
+                    correlation_id=correlation_id,
+                    step_type=ProcessingStep.QUERY_COMPLETED,
+                    input_data={"session_id": session_id},
+                    output_data={"error": str(e)},
+                    duration_ms=(time.time() - start_time) * 1000,
+                    metadata={"error": True},
+                    error=str(e)
+                )
+                replay_harness.finish_recording(correlation_id, {"error": str(e), "status": "error"})
             
             # Update session status
             if session_id in self.active_sessions:

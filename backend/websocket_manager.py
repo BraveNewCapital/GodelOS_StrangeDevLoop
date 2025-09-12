@@ -95,10 +95,155 @@ class WebSocketManager:
         self.cognitive_granularity: Dict[str, str] = {}  # client_id -> granularity
         self.cognitive_metadata: Dict[str, Dict[str, Any]] = {}  # client_id -> metadata
         
+        # Heartbeat and timeout management
+        self.heartbeat_interval = 30  # Send heartbeat every 30 seconds
+        self.idle_timeout = 300  # Disconnect after 5 minutes of inactivity
+        self.heartbeat_task = None
+        self.connection_cleanup_task = None
+        
+        # Backpressure handling
+        self._recent_events_per_connection: Dict[WebSocket, List[Dict]] = {}
+        self._priority_queues: Dict[WebSocket, List[Dict]] = {}
+        
+        # Subscription optimization - indexed by event type
+        self._event_type_subscribers: Dict[str, Set[WebSocket]] = {}
+        self._subscription_filters: Dict[WebSocket, Dict[str, Any]] = {}
+        
+        # Recovery/resync protocol
+        self._message_sequence: int = 0
+        self._connection_last_sequence: Dict[WebSocket, int] = {}
+        self._message_history: List[Dict[str, Any]] = []
+        self._max_history_size = 1000
+        
         # Stream coordination
         self.stream_coordinator = None  # Will be set by enhanced metacognition manager
         
         logger.info("Enhanced WebSocket manager initialized with security controls")
+        
+        # Start background tasks
+        self._start_background_tasks()
+    
+    def _start_background_tasks(self):
+        """Start background tasks for heartbeat and connection cleanup."""
+        # Start heartbeat task
+        self.heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+        self.connection_cleanup_task = asyncio.create_task(self._connection_cleanup_loop())
+        logger.info("WebSocket background tasks started")
+    
+    async def _heartbeat_loop(self):
+        """Send periodic heartbeat messages to all connections."""
+        while True:
+            try:
+                await asyncio.sleep(self.heartbeat_interval)
+                
+                if self.active_connections:
+                    heartbeat_message = {
+                        "type": "heartbeat",
+                        "timestamp": time.time(),
+                        "priority": "system"  # Bypass rate limiting
+                    }
+                    
+                    logger.debug(f"Sending heartbeat to {len(self.active_connections)} connections")
+                    await self.broadcast(heartbeat_message)
+                    
+            except asyncio.CancelledError:
+                logger.info("Heartbeat loop cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in heartbeat loop: {e}")
+                await asyncio.sleep(5)  # Brief pause before retrying
+    
+    async def _connection_cleanup_loop(self):
+        """Periodically check for and clean up idle connections."""
+        while True:
+            try:
+                await asyncio.sleep(60)  # Check every minute
+                
+                current_time = time.time()
+                idle_connections = []
+                
+                for websocket in list(self.active_connections):
+                    if websocket in self.connection_metadata:
+                        metadata = self.connection_metadata[websocket]
+                        last_activity = metadata.get("last_activity", current_time)
+                        
+                        if current_time - last_activity > self.idle_timeout:
+                            idle_connections.append(websocket)
+                
+                # Disconnect idle connections
+                for websocket in idle_connections:
+                    try:
+                        logger.info(f"Disconnecting idle connection (idle for {self.idle_timeout}s)")
+                        await websocket.close(code=1001, reason="Connection idle timeout")
+                        self.disconnect(websocket)
+                    except Exception as e:
+                        logger.error(f"Error disconnecting idle connection: {e}")
+                        
+                # Process queued high-priority messages
+                await self._process_priority_queues()
+                        
+            except asyncio.CancelledError:
+                logger.info("Connection cleanup loop cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in connection cleanup loop: {e}")
+                await asyncio.sleep(30)  # Brief pause before retrying
+    
+    async def _process_priority_queues(self):
+        """Process queued high-priority messages when rate limits allow."""
+        if not hasattr(self, '_priority_queues'):
+            return
+            
+        for websocket, queue in list(self._priority_queues.items()):
+            if not queue or websocket not in self.active_connections:
+                continue
+                
+            # Try to send up to 5 queued messages per cleanup cycle
+            messages_to_send = queue[:5]
+            for message in messages_to_send:
+                if self._check_rate_limit(websocket, message):
+                    try:
+                        await self._send_to_connection(websocket, message)
+                        self._update_rate_limit_counters(websocket)
+                        queue.remove(message)
+                        logger.debug("Sent queued high-priority message")
+                    except Exception as e:
+                        logger.error(f"Error sending queued message: {e}")
+                        break  # Stop trying for this connection
+                else:
+                    break  # Rate limit still exceeded, try later
+    
+    async def shutdown(self):
+        """Gracefully shutdown the WebSocket manager."""
+        logger.info("Shutting down WebSocket manager...")
+        
+        # Cancel background tasks
+        if self.heartbeat_task:
+            self.heartbeat_task.cancel()
+            try:
+                await self.heartbeat_task
+            except asyncio.CancelledError:
+                pass
+                
+        if self.connection_cleanup_task:
+            self.connection_cleanup_task.cancel()
+            try:
+                await self.connection_cleanup_task
+            except asyncio.CancelledError:
+                pass
+        
+        # Disconnect all active connections
+        for websocket in list(self.active_connections):
+            try:
+                await websocket.close(code=1001, reason="Server shutdown")
+            except Exception:
+                pass
+            
+        self.active_connections.clear()
+        self.connection_metadata.clear()
+        self.connection_subscriptions.clear()
+        
+        logger.info("WebSocket manager shutdown complete")
     
     def set_stream_coordinator(self, coordinator):
         """Set the stream coordinator for cognitive streaming."""
@@ -181,10 +326,31 @@ class WebSocketManager:
                 self.active_connections.remove(websocket)
             
             if websocket in self.connection_subscriptions:
+                # Clean up indexed subscriptions
+                subscriptions = self.connection_subscriptions[websocket]
+                for event_type in subscriptions:
+                    if event_type in self._event_type_subscribers:
+                        self._event_type_subscribers[event_type].discard(websocket)
+                        if not self._event_type_subscribers[event_type]:
+                            del self._event_type_subscribers[event_type]
+                
                 del self.connection_subscriptions[websocket]
             
             if websocket in self.connection_metadata:
                 del self.connection_metadata[websocket]
+            
+            # Clean up new data structures
+            if websocket in self._subscription_filters:
+                del self._subscription_filters[websocket]
+            
+            if websocket in self._connection_last_sequence:
+                del self._connection_last_sequence[websocket]
+            
+            if hasattr(self, '_recent_events_per_connection') and websocket in self._recent_events_per_connection:
+                del self._recent_events_per_connection[websocket]
+            
+            if hasattr(self, '_priority_queues') and websocket in self._priority_queues:
+                del self._priority_queues[websocket]
             
             # Update IP tracking
             if client_ip and client_ip in self.connection_ips:
@@ -221,16 +387,48 @@ class WebSocketManager:
         finally:
             self.disconnect(websocket)
     
-    async def subscribe_to_events(self, websocket: WebSocket, event_types: List[str]):
-        """Subscribe a connection to specific event types."""
+    async def subscribe_to_events(self, websocket: WebSocket, event_types: List[str], filters: Dict[str, Any] = None):
+        """Subscribe a connection to specific event types with optional filters."""
         if websocket in self.connection_subscriptions:
+            # Update subscription set
             self.connection_subscriptions[websocket].update(event_types)
-            logger.info(f"WebSocket subscribed to events: {event_types}")
+            
+            # Update indexed subscriptions for faster lookup
+            for event_type in event_types:
+                if event_type not in self._event_type_subscribers:
+                    self._event_type_subscribers[event_type] = set()
+                self._event_type_subscribers[event_type].add(websocket)
+            
+            # Store filters if provided
+            if filters:
+                if websocket not in self._subscription_filters:
+                    self._subscription_filters[websocket] = {}
+                self._subscription_filters[websocket].update(filters)
+            
+            logger.info(f"WebSocket subscribed to events: {event_types} with filters: {filters}")
     
     async def unsubscribe_from_events(self, websocket: WebSocket, event_types: List[str]):
         """Unsubscribe a connection from specific event types."""
         if websocket in self.connection_subscriptions:
+            # Update subscription set
             self.connection_subscriptions[websocket].difference_update(event_types)
+            
+            # Update indexed subscriptions
+            for event_type in event_types:
+                if event_type in self._event_type_subscribers:
+                    self._event_type_subscribers[event_type].discard(websocket)
+                    # Clean up empty sets
+                    if not self._event_type_subscribers[event_type]:
+                        del self._event_type_subscribers[event_type]
+            
+            # Remove filters for unsubscribed events
+            if websocket in self._subscription_filters:
+                for event_type in event_types:
+                    self._subscription_filters[websocket].pop(event_type, None)
+                # Clean up empty filter dict
+                if not self._subscription_filters[websocket]:
+                    del self._subscription_filters[websocket]
+            
             logger.info(f"WebSocket unsubscribed from events: {event_types}")
     
     def has_connections(self) -> bool:
@@ -296,7 +494,7 @@ class WebSocketManager:
                 logger.error(f"Error disconnecting websocket after failed send: {e}")
     
     def _should_send_event(self, websocket: WebSocket, event: Dict[str, Any]) -> bool:
-        """Determine if an event should be sent to a specific connection."""
+        """Determine if an event should be sent to a specific connection with optimized filtering."""
         # If no subscriptions, send all events
         if websocket not in self.connection_subscriptions:
             return True
@@ -306,23 +504,181 @@ class WebSocketManager:
             return True
         
         event_type = event.get("type", "")
-        return event_type in subscriptions or "all" in subscriptions
+        
+        # Quick check using indexed subscriptions
+        if event_type and event_type in self._event_type_subscribers:
+            if websocket not in self._event_type_subscribers[event_type]:
+                # Not subscribed to this specific event type
+                if "all" not in subscriptions:
+                    return False
+        else:
+            # Event type not found in index, fallback to basic check
+            if event_type not in subscriptions and "all" not in subscriptions:
+                return False
+        
+        # Apply subscription filters if any
+        if websocket in self._subscription_filters:
+            filters = self._subscription_filters[websocket]
+            
+            # Apply event-type specific filters
+            event_filters = filters.get(event_type, {})
+            if event_filters and not self._event_matches_filters(event, event_filters):
+                return False
+            
+            # Apply global filters
+            global_filters = filters.get("global", {})
+            if global_filters and not self._event_matches_filters(event, global_filters):
+                return False
+        
+        return True
+    
+    def _event_matches_filters(self, event: Dict[str, Any], filters: Dict[str, Any]) -> bool:
+        """Check if an event matches the specified filters."""
+        for filter_key, filter_value in filters.items():
+            event_value = event.get(filter_key)
+            
+            if filter_key == "min_priority":
+                # Priority filtering (critical > high > normal > low)
+                priority_levels = {"low": 1, "normal": 2, "high": 3, "critical": 4}
+                event_priority = priority_levels.get(event.get("priority", "normal"), 2)
+                min_priority = priority_levels.get(filter_value, 2)
+                if event_priority < min_priority:
+                    return False
+                    
+            elif filter_key == "source_filter":
+                # Source filtering
+                if isinstance(filter_value, list):
+                    if event.get("source") not in filter_value:
+                        return False
+                else:
+                    if event.get("source") != filter_value:
+                        return False
+                        
+            elif filter_key == "data_size_limit":
+                # Data size filtering (approximate)
+                data_size = len(str(event.get("data", "")))
+                if data_size > filter_value:
+                    return False
+                    
+            elif filter_key == "timestamp_after":
+                # Timestamp filtering
+                event_timestamp = event.get("timestamp", 0)
+                if event_timestamp < filter_value:
+                    return False
+                    
+            else:
+                # Generic equality filter
+                if event_value != filter_value:
+                    return False
+        
+        return True
+    
+    async def handle_resync_request(self, websocket: WebSocket, last_sequence_id: int):
+        """Handle client request to resync missed messages."""
+        try:
+            if websocket not in self.active_connections:
+                return
+            
+            # Find messages after the last sequence ID
+            missed_messages = [
+                msg for msg in self._message_history 
+                if msg.get("sequence_id", 0) > last_sequence_id
+            ]
+            
+            if not missed_messages:
+                # No missed messages
+                await self._send_to_connection(websocket, {
+                    "type": "resync_complete",
+                    "timestamp": time.time(),
+                    "missed_count": 0,
+                    "message": "No messages missed"
+                })
+                return
+            
+            # Send missed messages
+            logger.info(f"Resyncing {len(missed_messages)} missed messages for connection")
+            
+            # Send resync start notification
+            await self._send_to_connection(websocket, {
+                "type": "resync_start",
+                "timestamp": time.time(),
+                "missed_count": len(missed_messages)
+            })
+            
+            # Send missed messages (in chunks to avoid overwhelming)
+            chunk_size = 10
+            for i in range(0, len(missed_messages), chunk_size):
+                chunk = missed_messages[i:i + chunk_size]
+                for message in chunk:
+                    # Only send if it passes current subscription filters
+                    if self._should_send_event(websocket, message):
+                        await self._send_to_connection(websocket, {
+                            **message,
+                            "resync": True  # Mark as resync message
+                        })
+                
+                # Small delay between chunks
+                if i + chunk_size < len(missed_messages):
+                    await asyncio.sleep(0.1)
+            
+            # Send resync complete notification
+            await self._send_to_connection(websocket, {
+                "type": "resync_complete",
+                "timestamp": time.time(),
+                "missed_count": len(missed_messages),
+                "message": "Resync completed successfully"
+            })
+            
+        except Exception as e:
+            logger.error(f"Error handling resync request: {e}")
+            await self._send_to_connection(websocket, {
+                "type": "resync_error",
+                "timestamp": time.time(),
+                "error": str(e)
+            })
     
     async def _send_to_connection(self, websocket: WebSocket, data: Dict[str, Any]):
-        """Send data to a specific WebSocket connection."""
+        """Send data to a specific WebSocket connection with sequence tracking."""
         try:
-            await websocket.send_json(data)
+            # Add sequence ID for recovery protocol
+            self._message_sequence += 1
+            data_with_sequence = {
+                **data,
+                "sequence_id": self._message_sequence,
+                "timestamp": data.get("timestamp", time.time())
+            }
+            
+            await websocket.send_json(data_with_sequence)
+            
+            # Track sequence ID for this connection
+            self._connection_last_sequence[websocket] = self._message_sequence
+            
+            # Store in message history for recovery
+            self._message_history.append(data_with_sequence)
+            
+            # Maintain history size limit
+            if len(self._message_history) > self._max_history_size:
+                self._message_history = self._message_history[-self._max_history_size:]
+                
         except Exception as e:
             logger.error(f"Failed to send data to WebSocket: {e}")
             raise
 
     async def _safe_send(self, websocket: WebSocket, data: Dict[str, Any], timeout: float = 2.0):
-        """Safely send data to a websocket with a timeout and metadata updates.
+        """Safely send data to a websocket with a timeout, rate limiting, and metadata updates.
 
         Returns: (websocket, success: bool, duration_seconds: float, exception or None)
         """
         start = time.perf_counter()
         try:
+            # Check rate limiting before sending
+            if not self._check_rate_limit(websocket, data):
+                # Rate limit exceeded - implement backpressure
+                dropped_reason = await self._handle_backpressure(websocket, data)
+                duration = time.perf_counter() - start
+                logger.debug(f"Message dropped due to rate limit: {dropped_reason}")
+                return (websocket, True, duration, None)  # Success=True because drop is intentional
+                
             # Use asyncio.wait_for to bound the send time so slow clients don't block
             await asyncio.wait_for(self._send_to_connection(websocket, data), timeout=timeout)
             duration = time.perf_counter() - start
@@ -332,6 +688,8 @@ class WebSocketManager:
                 try:
                     self.connection_metadata[websocket]["events_sent"] += 1
                     self.connection_metadata[websocket]["last_activity"] = time.time()
+                    # Update rate limit counters
+                    self._update_rate_limit_counters(websocket)
                 except Exception:
                     # Non-fatal metadata update failures should not block sending
                     logger.debug("Failed to update connection metadata after send")
@@ -350,6 +708,112 @@ class WebSocketManager:
             duration = time.perf_counter() - start
             logger.error(f"Error sending to websocket: {e}")
             return (websocket, False, duration, e)
+    
+    def _check_rate_limit(self, websocket: WebSocket, data: Dict[str, Any]) -> bool:
+        """Check if sending this message would exceed rate limits."""
+        if websocket not in self.connection_metadata:
+            return True  # Allow if no metadata (shouldn't happen)
+            
+        metadata = self.connection_metadata[websocket]
+        current_time = time.time()
+        
+        # Reset rate limit window if needed
+        if current_time >= metadata["rate_limit_reset"]:
+            metadata["events_this_window"] = 0
+            metadata["rate_limit_reset"] = current_time + self.rate_limit_window
+            
+        # Check if under rate limit
+        if metadata["events_this_window"] >= self.max_events_per_window:
+            # Check if this is a high priority message that should override rate limit
+            message_priority = data.get("priority", "normal")
+            if message_priority in ["critical", "system"]:
+                logger.debug(f"Rate limit bypassed for {message_priority} priority message")
+                return True
+            return False
+            
+        return True
+    
+    def _update_rate_limit_counters(self, websocket: WebSocket):
+        """Update rate limiting counters after successful send."""
+        if websocket in self.connection_metadata:
+            self.connection_metadata[websocket]["events_this_window"] += 1
+    
+    async def _handle_backpressure(self, websocket: WebSocket, data: Dict[str, Any]) -> str:
+        """Handle backpressure when rate limits are exceeded."""
+        message_type = data.get("type", "unknown")
+        
+        # Implement priority-based dropping
+        if message_type in ["heartbeat", "status_update"]:
+            # Drop low-priority messages first
+            return f"dropped_low_priority_{message_type}"
+        elif message_type in ["cognitive_event", "reasoning_trace"]:
+            # For cognitive events, try to coalesce or sample
+            return await self._coalesce_cognitive_events(websocket, data)
+        else:
+            # For other messages, queue or drop based on importance
+            return await self._queue_or_drop_message(websocket, data)
+    
+    async def _coalesce_cognitive_events(self, websocket: WebSocket, data: Dict[str, Any]) -> str:
+        """Coalesce similar cognitive events to reduce message volume."""
+        # Simple coalescing: if we have recent similar events, drop this one
+        if hasattr(self, '_recent_events_per_connection'):
+            if websocket not in self._recent_events_per_connection:
+                self._recent_events_per_connection[websocket] = []
+                
+            recent_events = self._recent_events_per_connection[websocket]
+            event_type = data.get("event_type", "")
+            
+            # Check if we have a similar event in the last 5 seconds
+            current_time = time.time()
+            similar_events = [
+                e for e in recent_events 
+                if e["event_type"] == event_type and (current_time - e["timestamp"]) < 5.0
+            ]
+            
+            if len(similar_events) >= 3:  # If 3+ similar events in 5 seconds, start dropping
+                return f"coalesced_{event_type}"
+                
+            # Track this event
+            recent_events.append({
+                "event_type": event_type,
+                "timestamp": current_time
+            })
+            
+            # Keep only last 10 events per connection
+            if len(recent_events) > 10:
+                self._recent_events_per_connection[websocket] = recent_events[-10:]
+        else:
+            # Initialize tracking
+            self._recent_events_per_connection = {websocket: []}
+            
+        return "processed_with_coalescing"
+    
+    async def _queue_or_drop_message(self, websocket: WebSocket, data: Dict[str, Any]) -> str:
+        """Queue important messages or drop less important ones."""
+        message_priority = data.get("priority", "normal")
+        
+        if message_priority in ["high", "critical"]:
+            # Queue high priority messages (implement simple per-connection queue)
+            if not hasattr(self, '_priority_queues'):
+                self._priority_queues = {}
+            
+            if websocket not in self._priority_queues:
+                self._priority_queues[websocket] = []
+                
+            queue = self._priority_queues[websocket]
+            
+            # Add to queue if not full
+            if len(queue) < 10:  # Max 10 queued messages per connection
+                queue.append(data)
+                return "queued_high_priority"
+            else:
+                # Queue full, drop oldest
+                queue.pop(0)
+                queue.append(data)
+                return "queued_high_priority_dropped_oldest"
+        else:
+            # Drop normal priority messages when under backpressure
+            return f"dropped_normal_priority_{data.get('type', 'unknown')}"
     
     def _add_to_event_queue(self, event: Dict[str, Any]):
         """Add event to the queue for replay to new connections."""
