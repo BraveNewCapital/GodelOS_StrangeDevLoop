@@ -192,6 +192,7 @@ ERROR: bad operand type for abs(): 'str'
 - Centralize structured error objects + propagation rules — complete (added `backend/core/errors.py`, integrated)
 - Emit standardized WebSocket events on recoverable failures — added `recoverable_error` broadcast in LLM retry path
 - Add lightweight health probes for subsystems and surface via `/api/health` — complete
+- Implement best-effort context augmentation path when confidence low — complete
 
 ### Changelog (Today)
 - Added retry/backoff wrapper in `backend/core/cognitive_manager.py` for LLM calls with exponential backoff
@@ -200,6 +201,8 @@ ERROR: bad operand type for abs(): 'str'
 - Smoke-tested real API: `/health`, `/api/health`, `/cognitive/state` — all healthy
  - Enhanced `/api/health` with subsystem probes (vector DB, knowledge pipeline, ingestion, cognitive manager, enhanced APIs)
  - Introduced `backend/core/errors.py` (structured errors) and `backend/core/coordination.py` (simple coordinator), integrated into CognitiveManager
+ - Fixed CognitiveManager instantiation in `backend/unified_server.py` and wired knowledge_pipeline after optional services init
+ - Added best-effort context augmentation in CognitiveManager when coordination suggests it
 
 ### Observations from Smoke Test
 - Warning during startup: failed to load `knowledge_storage/categories.json` due to `KnowledgeItem() argument after ** must be a mapping, not list` — track as low-priority cleanup.
