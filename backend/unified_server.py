@@ -1109,6 +1109,24 @@ async def get_conscious_state():
     except Exception as e:
         logger.error(f"Error getting conscious state: {e}")
         raise _structured_http_error(500, code="phenomenal_state_error", message=str(e), service="phenomenal")
+    
+@app.get("/api/v1/cognitive/coordination/recent")
+async def get_recent_coordination_decisions(limit: int = Query(default=20, le=100)):
+    """Surface recent coordination decisions for observability (no PII)."""
+    try:
+        if not cognitive_manager:
+            raise _structured_http_error(503, code="cognitive_manager_unavailable", message="Cognitive manager not available", service="coordination")
+        decisions = cognitive_manager.get_recent_coordination_decisions(limit=limit)
+        return JSONResponse(content={
+            "count": len(decisions),
+            "limit": limit,
+            "decisions": decisions
+        })
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting coordination decisions: {e}")
+        raise _structured_http_error(500, code="coordination_telemetry_error", message=str(e), service="coordination")
 
 @app.get("/api/v1/phenomenal/experience-history")
 async def get_experience_history(limit: Optional[int] = 10):

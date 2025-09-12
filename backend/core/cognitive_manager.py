@@ -12,6 +12,7 @@ import logging
 import time
 import uuid
 from datetime import datetime, timedelta
+from collections import deque
 from dataclasses import dataclass, asdict, field
 from typing import Dict, List, Optional, Any, Union, Tuple
 from enum import Enum
@@ -122,6 +123,7 @@ class CognitiveManager:
         self.active_sessions: Dict[str, Dict[str, Any]] = {}
         self.reasoning_traces: Dict[str, List[Dict[str, Any]]] = {}
         self.knowledge_gaps: Dict[str, KnowledgeGap] = {}
+        self.coordination_events = deque(maxlen=200)
         
         # Performance metrics
         self.processing_metrics = {
@@ -301,6 +303,18 @@ class CognitiveManager:
                             "added_entities": len(augmented.get("entities", []) or []),
                             "added_relationships": len(augmented.get("relationships", []) or []),
                         }
+                    # Record coordination event telemetry
+                    try:
+                        self.coordination_events.append({
+                            "timestamp": time.time(),
+                            "session_id": session_id,
+                            "decision": decision.to_dict(),
+                            "confidence": float(initial_response.get("confidence", 0.0) or 0.0),
+                            "augmentation": bool(reasoning_trace[-1].get("context_augmentation", {}).get("performed", False)),
+                            "query_preview": (query or "")[:120],
+                        })
+                    except Exception:
+                        pass
             except Exception:
                 # Non-fatal: coordination is advisory
                 pass
@@ -724,6 +738,16 @@ class CognitiveManager:
         except Exception as e:
             logger.warning(f"Context augmentation failed: {e}")
         return {"augmentation": False}
+
+    # Public: coordination telemetry
+    def get_recent_coordination_decisions(self, limit: int = 20) -> List[Dict[str, Any]]:
+        try:
+            if limit <= 0:
+                return []
+            data = list(self.coordination_events)
+            return data[-limit:]
+        except Exception:
+            return []
     
     async def _integrate_knowledge(self, reasoning_result: Dict[str, Any], session_id: str) -> Dict[str, Any]:
         """Integrate new knowledge from reasoning results."""
