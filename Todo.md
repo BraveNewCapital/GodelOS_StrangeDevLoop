@@ -1,5 +1,16 @@
 # GödelOS Development Todo
 
+## Executive Summary
+- ✅ Phase 1 critical issues resolved (5/5)
+- ✅ API consolidated to `unified_server.py`
+- ✅ LLM resiliency (retry/backoff + WS `recoverable_error`)
+- ✅ Vector DB resiliency (retry/backoff + WS telemetry), probe timestamps added
+- ✅ Health probes integrated and validated (`/api/health.probes`)
+- ✅ Coordination interface + structured error model + context augmentation
+- ✅ Unit tests passing for vector DB retries and health probes
+- ❌ Structured error propagation across endpoints (next)
+- ❌ Coordination telemetry endpoint (`/api/v1/cognitive/coordination/recent`) (next)
+
 ## 🎉 PHASE 1 COMPLETE - All Critical Issues Resolved! 
 
 ### ✅ Critical Issues (ALL RESOLVED!)
@@ -187,15 +198,15 @@ ERROR: bad operand type for abs(): 'str'
 - **Target Completion**: 95% architectural goals
 
 ### Next Actionable Subtasks (Cognitive Manager)
-- Define cross-component coordination interface in `backend/core/cognitive_manager.py` (scoped) — complete (added `backend/core/coordination.py`, integrated)
-- Add retry/backoff wrappers around external calls (LLM/Vector DB) — LLM complete
-- Centralize structured error objects + propagation rules — complete (added `backend/core/errors.py`, integrated)
-- Emit standardized WebSocket events on recoverable failures — added `recoverable_error` broadcast in LLM retry path
-- Add lightweight health probes for subsystems and surface via `/api/health` — complete
-- Implement best-effort context augmentation path when confidence low — complete
+- ✅ Define cross-component coordination interface in `backend/core/cognitive_manager.py` (added `backend/core/coordination.py`, integrated)
+- ✅ Add retry/backoff wrappers around external calls (LLM complete; Vector DB handled under infrastructure)
+- ✅ Centralize structured error objects (added `backend/core/errors.py`, integrated)
+- ✅ Emit standardized WebSocket events on recoverable failures (`recoverable_error` in LLM + vector DB paths)
+- ✅ Add lightweight health probes for subsystems and surface via `/api/health`
+- ✅ Implement best-effort context augmentation when confidence low
 
 ### Downstream Required Tasks
-- Vector DB resilience: add retry/backoff to `backend/core/vector_service.py` operations; emit `recoverable_error` WS events with `service: "vector_db"` and integrate probe timestamps in `/api/health` — complete.
+- ✅ Vector DB resilience: add retry/backoff to `backend/core/vector_service.py` operations; emit `recoverable_error` WS events with `service: "vector_db"`; add probe timestamps in `/api/health`.
 - Structured error propagation: return `CognitiveError` shapes from high-surface endpoints (consciousness, phenomenal, KG) instead of raw strings; standardize 4xx/5xx mapping.
 - Coordination telemetry: add `GET /api/v1/cognitive/coordination/recent` to surface last N coordination decisions for observability (no PII, ephemeral memory only).
 - Frontend updates: 
@@ -207,6 +218,11 @@ ERROR: bad operand type for abs(): 'str'
   - UI: Playwright spec for health widget and recoverable error toast.
 - Data guard: fix/guard `knowledge_storage/categories.json` loader to accept mapping or list; log and skip invalid entries.
 - Tooling: prefer `scripts/smoke_api.sh` for start→probe→exit local checks; document in README.
+
+### Testing Status
+- ✅ Unit: vector DB retry/backoff and `/api/health` probes
+- ❌ Unit/API: structured error propagation coverage (pending)
+- ❌ API: coordination telemetry endpoint coverage (pending)
 
 ### Changelog (Today)
 - Added retry/backoff wrapper in `backend/core/cognitive_manager.py` for LLM calls with exponential backoff
