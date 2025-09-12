@@ -1,6 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { cognitiveState, knowledgeState, evolutionState, uiState, apiHelpers } from './stores/cognitive.js';
+  import { cognitiveState, knowledgeState, evolutionState, uiState, apiHelpers, systemHealthScore } from './stores/cognitive.js';
   import { enhancedCognitiveState, autonomousLearningState, streamState, enhancedCognitive } from './stores/enhanced-cognitive.js';
   import { setupWebSocket, connectToCognitiveStream } from './utils/websocket.js';
   import { GödelOSAPI } from './utils/api.js';
@@ -385,6 +385,9 @@
       </div>
       
       <div class="header-right">
+        <div class="health-chip" data-testid="system-health" title="System health score">
+          {Math.round($systemHealthScore * 100)}%
+        </div>
         <ConnectionStatus />
         <button class="fullscreen-toggle" on:click={toggleFullscreen}>
           <span>{fullscreenMode ? '🗗' : '⛶'}</span>
@@ -985,6 +988,16 @@
     display: flex;
     align-items: center;
     gap: 1rem;
+  }
+  .health-chip {
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+    padding: 0.25rem 0.6rem;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    min-width: 48px;
+    text-align: center;
   }
 
   .connection-status {

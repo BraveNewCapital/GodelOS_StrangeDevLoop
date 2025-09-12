@@ -269,6 +269,21 @@ export async function setupWebSocket() {
 // Handle incoming cognitive updates
 function handleCognitiveUpdate(message) {
   switch (message.type) {
+    case 'recoverable_error':
+      try {
+        handleSystemAlert({
+          severity: 'warning',
+          title: 'Recoverable Error',
+          message: `${message.operation || 'operation'}: ${message.error?.message || message.message || 'transient issue'}`,
+          context: {
+            operation: message.operation,
+            attempt: message.attempt,
+            max_attempts: message.max_attempts,
+            service: message.service || 'system'
+          }
+        });
+      } catch (e) { /* ignore */ }
+      break;
     case 'initial_state':
     case 'state_update':
     case 'cognitive_update':
