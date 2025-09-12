@@ -16,6 +16,8 @@
     // Local state
     let cognitiveState = null;
     let systemHealth = null;
+    let healthProbes = null;
+    let probesError = '';
     let activeTab = 'overview';
     let isConnected = false;
     let lastUpdate = null;
@@ -23,6 +25,30 @@
 
     // Subscriptions
     let unsubscribe;
+
+    import { API_BASE_URL } from '../../config.js';
+
+    function fmtBool(v) { return typeof v === 'boolean' ? (v ? 'true' : 'false') : String(v); }
+    function fmtTS(ts) {
+        try {
+            if (!ts) return '';
+            const d = new Date(ts > 10_000_000_000 ? ts : ts * 1000);
+            return d.toLocaleTimeString();
+        } catch { return String(ts); }
+    }
+
+    async function fetchHealthProbes() {
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/health`, { signal: AbortSignal.timeout(6000) });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            healthProbes = data?.probes || null;
+            probesError = '';
+        } catch (e) {
+            probesError = String(e?.message || e);
+            healthProbes = null;
+        }
+    }
 
     function getHealthStatus() {
         if (!systemHealth) return { status: 'unknown', color: 'gray', score: 0 };
@@ -59,6 +85,7 @@
         
         // Start automatic data fetching
         startAutoRefresh();
+        fetchHealthProbes();
     });
     
     function startAutoRefresh() {
@@ -103,7 +130,7 @@
         enhancedCognitive.updateHealthStatus();
         enhancedCognitive.updateAutonomousLearningState();
         enhancedCognitive.updateStreamingStatus();
-        
+        fetchHealthProbes();
         setTimeout(() => isLoading = false, 1000);
     }
 
@@ -230,7 +257,88 @@
                     </div>
                 </div>
             </div>
-            
+
+            <!-- Subsystem Health Probes -->
+            <div class="probes" data-testid="health-probes">
+                <h3 class="probes-title">Subsystem Probes</h3>
+                {#if probesError}
+                    <div class="probes-error">Failed to load probes: {probesError}</div>
+                {:else if healthProbes}
+                    <div class="probes-grid">
+                        {#each Object.entries(healthProbes) as [key, probe]}
+                            <div class="probe-card" data-testid={`probe-${key}`}>
+                                <div class="probe-header">
+                                    <div class="probe-name">{key}</div>
+                                    <div class="status-indicator status-{(probe.status || 'unknown') === 'healthy' ? 'healthy' : (probe.status === 'unavailable' ? 'unhealthy' : (probe.status === 'error' ? 'unhealthy' : 'warning'))}">
+                                        <div class="status-dot"></div>
+                                        <span class="status-text">{probe.status || 'unknown'}</span>
+                                    </div>
+                                </div>
+                                <div class="probe-body">
+                                    {#if probe.timestamp}
+                                        <div class="probe-row"><span>timestamp:</span> <code>{fmtTS(probe.timestamp)}</code></div>
+                                    {/if}
+                                    {#if probe.production_db !== undefined}
+                                        <div class="probe-row"><span>production_db:</span> <code>{fmtBool(probe.production_db)}</code></div>
+                                    {/if}
+                                    {#if probe.legacy_fallback !== undefined}
+                                        <div class="probe-row"><span>legacy_fallback:</span> <code>{fmtBool(probe.legacy_fallback)}</code></div>
+                                    {/if}
+                                    {#if probe.total_vectors !== undefined}
+                                        <div class="probe-row"><span>total_vectors:</span> <code>{probe.total_vectors}</code></div>
+                                    {/if}
+                                    {#if probe.initialized !== undefined}
+                                        <div class="probe-row"><span>initialized:</span> <code>{fmtBool(probe.initialized)}</code></div>
+                                    {/if}
+                                    {#if probe.queue_size !== undefined}
+                                        <div class="probe-row"><span>queue_size:</span> <code>{probe.queue_size}</code></div>
+                                    {/if}
+                                    {#if probe.active_sessions !== undefined}
+                                        <div class="probe-row"><span>active_sessions:</span> <code>{probe.active_sessions}</code></div>
+                                    {/if}
+                                    {#if probe.available !== undefined}
+                                        <div class="probe-row"><span>available:</span> <code>{fmtBool(probe.available)}</code></div>
+                                    {/if}
+                                    {#if probe.components_active !== undefined}
+                                        <div class="probe-row"><span>components:</span> <code>{probe.components_active}/{probe.total_components}</code></div>
+                                    {/if}
+                                    {#if probe.processing_metrics}
+                                        <div class="probe-subtitle">processing_metrics</div>
+                                        <div class="probe-row"><span>documents_processed:</span> <code>{probe.processing_metrics.documents_processed}</code></div>
+                                        <div class="probe-row"><span>entities_extracted:</span> <code>{probe.processing_metrics.entities_extracted}</code></div>
+                                        <div class="probe-row"><span>relationships_extracted:</span> <code>{probe.processing_metrics.relationships_extracted}</code></div>
+                                        <div class="probe-row"><span>queries_processed:</span> <code>{probe.processing_metrics.queries_processed}</code></div>
+                                    {/if}
+                                    {#if probe.knowledge_store}
+                                        <div class="probe-subtitle">knowledge_store</div>
+                                        <div class="probe-row"><span>total_items:</span> <code>{probe.knowledge_store.total_knowledge_items}</code></div>
+                                        <div class="probe-row"><span>active_connections:</span> <code>{probe.knowledge_store.active_connections}</code></div>
+                                    {/if}
+                                    {#if probe.vector_store}
+                                        <div class="probe-subtitle">vector_store</div>
+                                        <div class="probe-row"><span>total_embeddings:</span> <code>{probe.vector_store.total_embeddings}</code></div>
+                                        <div class="probe-row"><span>dimensions:</span> <code>{probe.vector_store.dimensions}</code></div>
+                                    {/if}
+                                    {#if Array.isArray(probe.errors) && probe.errors.length}
+                                        <div class="probe-subtitle">errors</div>
+                                        <div class="probe-errors">
+                                            {#each probe.errors.slice(0,3) as err}
+                                                <div class="probe-error">{err}</div>
+                                            {/each}
+                                            {#if probe.errors.length > 3}
+                                                <div class="probe-error-more">+{probe.errors.length - 3} more…</div>
+                                            {/if}
+                                        </div>
+                                    {/if}
+                                </div>
+                            </div>
+                        {/each}
+                    </div>
+                {:else}
+                    <div class="probes-loading">Loading probes…</div>
+                {/if}
+            </div>
+
             <div class="health-footer">
                 <div class="uptime-info">
                     <span class="uptime-label">System Uptime:</span>
@@ -509,6 +617,22 @@
         color: white;
         font-weight: 500;
     }
+
+    /* Probes */
+    .probes { margin-top: 1.5rem; }
+    .probes-title { margin: 0 0 0.5rem 0; font-size: 1.1rem; opacity: 0.9; }
+    .probes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+    .probe-card { background: rgba(0,0,0,0.2); border: 1px solid rgba(100,120,150,0.2); border-radius: 10px; padding: 10px; }
+    .probe-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    .probe-name { font-weight: 600; font-size: 0.95rem; }
+    .probe-body { font-size: 0.85rem; display: grid; gap: 6px; }
+    .probe-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .probe-row span { opacity: 0.8; }
+    .probes-loading, .probes-error { font-size: 0.9rem; opacity: 0.8; padding: 6px 0; }
+    .probe-subtitle { margin-top: 4px; font-weight: 600; font-size: 0.8rem; opacity: 0.8; }
+    .probe-errors { display: grid; gap: 2px; }
+    .probe-error { font-size: 0.8rem; opacity: 0.9; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 6px; padding: 4px 6px; }
+    .probe-error-more { font-size: 0.8rem; opacity: 0.7; }
 
     .header-actions {
         display: flex;
