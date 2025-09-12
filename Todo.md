@@ -207,7 +207,7 @@ ERROR: bad operand type for abs(): 'str'
 
 ### Downstream Required Tasks
 - ✅ Vector DB resilience: add retry/backoff to `backend/core/vector_service.py` operations; emit `recoverable_error` WS events with `service: "vector_db"`; add probe timestamps in `/api/health`.
-- Structured error propagation: return `CognitiveError` shapes from high-surface endpoints (consciousness, phenomenal, KG) instead of raw strings; standardize 4xx/5xx mapping.
+ - ✅ Structured error propagation: return `CognitiveError` shapes from high-surface endpoints (consciousness, phenomenal, KG) with proper 4xx/5xx handling; unit tests added.
 - Coordination telemetry: add `GET /api/v1/cognitive/coordination/recent` to surface last N coordination decisions for observability (no PII, ephemeral memory only).
 - Frontend updates: 
   - Handle `recoverable_error` WS events with non-blocking UI banner and retry info.
@@ -221,7 +221,7 @@ ERROR: bad operand type for abs(): 'str'
 
 ### Testing Status
 - ✅ Unit: vector DB retry/backoff and `/api/health` probes
-- ❌ Unit/API: structured error propagation coverage (pending)
+- ✅ Unit/API: structured error propagation coverage for endpoint functions
 - ❌ API: coordination telemetry endpoint coverage (pending)
 
 ### Changelog (Today)
