@@ -212,13 +212,13 @@ ERROR: bad operand type for abs(): 'str'
 - ✅ Coordination telemetry: `GET /api/v1/cognitive/coordination/recent` exposes recent decisions (no PII); unit tests added.
 - ✅ Data guard: skip/guard invalid `knowledge_storage/categories.json` and non-mapping JSON in loader
 - ✅ Tooling: detached server scripts `scripts/start-backend-bg.sh` and `scripts/stop-backend-bg.sh` with readiness wait
-- Frontend updates: 
-  - Handle `recoverable_error` WS events with non-blocking UI banner and retry info.
-  - Add a health widget that visualizes `/api/health.probes` statuses.
-- Tests:
+ - Frontend updates: 
+  - ✅ Handle `recoverable_error` WS events with non-blocking alert in UI
+  - ✅ Add a health widget that visualizes `/api/health.probes` statuses (EnhancedCognitiveDashboard)
+ - Tests:
   - Unit: retry/backoff behavior (LLM + Vector DB) and coordination decisions.
   - API: assert `/api/health` exposes `probes` keys and basic shapes. (done)
-  - UI: Playwright spec for health widget and recoverable error toast. (pending)
+  - ✅ UI: Playwright spec for health widget (svelte-frontend/tests/health-probes.spec.js); recoverable error alert relies on backend WS event
 - Tooling: prefer `scripts/smoke_api.sh` for start→probe→exit local checks; document in README.
 
 ### Testing Status
