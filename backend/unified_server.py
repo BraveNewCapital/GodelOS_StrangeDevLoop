@@ -151,6 +151,14 @@ except ImportError as e:
     ToolBasedLLMIntegration = MockToolBasedLLMIntegration
     LLM_INTEGRATION_AVAILABLE = True
 
+# Import LLM cognitive driver for consciousness assessment
+try:
+    from backend.llm_cognitive_driver import LLMCognitiveDriver
+    LLM_COGNITIVE_DRIVER_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"LLM cognitive driver not available: {e}")
+    LLM_COGNITIVE_DRIVER_AVAILABLE = False
+
 # Import additional services with fallbacks
 try:
     from backend.knowledge_ingestion import knowledge_ingestion_service
@@ -259,18 +267,32 @@ async def initialize_core_services():
             logger.error(f"❌ Failed to initialize LLM integration: {e}")
             tool_based_llm = None
     
-    # Initialize cognitive manager with consciousness engine if available
-    if CONSCIOUSNESS_AVAILABLE and tool_based_llm:
+    # Initialize LLM cognitive driver for consciousness assessment
+    llm_cognitive_driver = None
+    if LLM_COGNITIVE_DRIVER_AVAILABLE:
         try:
+            llm_cognitive_driver = LLMCognitiveDriver()
+            logger.info("✅ LLM cognitive driver initialized for consciousness assessment")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize LLM cognitive driver: {e}")
+            llm_cognitive_driver = None
+    
+    # Initialize cognitive manager with consciousness engine if available
+    if CONSCIOUSNESS_AVAILABLE and (llm_cognitive_driver or tool_based_llm):
+        try:
+            # Use LLM cognitive driver for consciousness if available, otherwise fall back to tool-based LLM
+            llm_driver_for_consciousness = llm_cognitive_driver if llm_cognitive_driver else tool_based_llm
+            
             # Correct argument order: (godelos_integration, llm_driver, knowledge_pipeline, websocket_manager)
             cognitive_manager = CognitiveManager(
                 godelos_integration=godelos_integration,
-                llm_driver=tool_based_llm,
+                llm_driver=llm_driver_for_consciousness,
                 knowledge_pipeline=None,
                 websocket_manager=websocket_manager,
             )
             await cognitive_manager.initialize()
-            logger.info("✅ Cognitive manager with consciousness engine initialized successfully")
+            driver_type = "LLM cognitive driver" if llm_cognitive_driver else "tool-based LLM"
+            logger.info(f"✅ Cognitive manager with consciousness engine initialized successfully using {driver_type}")
         except Exception as e:
             logger.error(f"❌ Failed to initialize cognitive manager: {e}")
             cognitive_manager = None
