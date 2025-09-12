@@ -3,15 +3,27 @@ Vector Database Integration Service
 
 This service provides a compatibility layer between the old VectorStore interface
 and the new PersistentVectorDatabase for seamless migration.
+
+Enhancements:
+- Retry/backoff for production DB operations (add_items, search)
+- Telemetry hook for recoverable errors (emits structured info to WS)
 """
 
 import logging
-from typing import List, Tuple, Optional, Dict, Any
+import time
+from typing import List, Tuple, Optional, Dict, Any, Callable
 from pathlib import Path
 
 from .vector_database import PersistentVectorDatabase, EmbeddingModel
 
 logger = logging.getLogger(__name__)
+
+# Optional telemetry notifier (set by unified server)
+_telemetry_notify: Optional[Callable[[Dict[str, Any]], None]] = None
+
+def set_telemetry_notifier(notify: Optional[Callable[[Dict[str, Any]], None]]):
+    global _telemetry_notify
+    _telemetry_notify = notify
 
 
 class VectorDatabaseService:
@@ -61,6 +73,49 @@ class VectorDatabaseService:
         # Perform migration if enabled
         if enable_migration and self.use_production:
             self._attempt_migration()
+
+    # -----------------
+    # Internal helpers
+    # -----------------
+
+    def _notify_recoverable_error(self, *, operation: str, attempt: int, max_attempts: int, message: str):
+        try:
+            if _telemetry_notify is not None:
+                _telemetry_notify({
+                    "type": "recoverable_error",
+                    "service": "vector_db",
+                    "operation": operation,
+                    "attempt": attempt,
+                    "max_attempts": max_attempts,
+                    "message": message,
+                    "timestamp": time.time(),
+                })
+        except Exception:
+            # Never raise from telemetry
+            pass
+
+    def _with_retries(self, fn, *, retries: int = 2, delay: float = 0.4, backoff: float = 1.8, op_name: str = "vector_op"):
+        attempt = 0
+        current_delay = delay
+        last_exc = None
+        while attempt <= retries:
+            try:
+                return fn()
+            except Exception as e:
+                last_exc = e
+                attempt += 1
+                logger.warning(f"{op_name} failed (attempt {attempt}/{retries + 1}): {e}")
+                if attempt <= retries:
+                    self._notify_recoverable_error(operation=op_name, attempt=attempt, max_attempts=retries + 1, message=str(e))
+                    try:
+                        time.sleep(current_delay)
+                    except Exception:
+                        pass
+                    current_delay *= backoff
+        # Exhausted retries
+        if last_exc is not None:
+            raise last_exc
+        return None
     
     def _attempt_migration(self):
         """Attempt to migrate data from legacy vector store."""
@@ -87,10 +142,12 @@ class VectorDatabaseService:
         """
         if self.use_production and self.production_db:
             try:
-                result = self.production_db.add_items(items, **kwargs)
-                return result.get("success", False)
+                def _op():
+                    return self.production_db.add_items(items, **kwargs)
+                result = self._with_retries(_op, op_name="vector_add_items")
+                return bool(result.get("success", False)) if isinstance(result, dict) else bool(result)
             except Exception as e:
-                logger.error(f"Production database add_items failed: {e}")
+                logger.error(f"Production database add_items failed after retries: {e}")
                 if not self.legacy_fallback:
                     raise
         
@@ -121,11 +178,13 @@ class VectorDatabaseService:
         """
         if self.use_production and self.production_db:
             try:
-                results = self.production_db.search(query_text, k=k, **kwargs)
+                def _op():
+                    return self.production_db.search(query_text, k=k, **kwargs)
+                results = self._with_retries(_op, op_name="vector_search")
                 # Convert to legacy format
-                return [(r["id"], r["similarity_score"]) for r in results]
+                return [(r["id"], r.get("similarity_score", r.get("score", 0.0))) for r in (results or [])]
             except Exception as e:
-                logger.error(f"Production database search failed: {e}")
+                logger.error(f"Production database search failed after retries: {e}")
                 if not self.legacy_fallback:
                     raise
         
@@ -213,7 +272,8 @@ class VectorDatabaseService:
             "production_db": False,
             "legacy_fallback": False,
             "total_vectors": 0,
-            "errors": []
+            "errors": [],
+            "timestamp": time.time(),
         }
         
         # Check production database

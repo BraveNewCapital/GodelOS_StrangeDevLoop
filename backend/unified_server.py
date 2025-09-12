@@ -293,6 +293,22 @@ async def initialize_optional_services():
             elif get_vector_database:
                 get_vector_database()
             logger.info("✅ Production vector database initialized successfully!")
+
+            # Wire telemetry notifier for vector DB recoverable errors
+            try:
+                from backend.core.vector_service import set_telemetry_notifier
+                if websocket_manager is not None:
+                    def _notify(event: dict):
+                        # Schedule async broadcast without blocking
+                        try:
+                            if websocket_manager:
+                                asyncio.create_task(websocket_manager.broadcast_cognitive_update(event))
+                        except Exception:
+                            pass
+                    set_telemetry_notifier(_notify)
+                    logger.info("✅ Vector DB telemetry notifier wired to WebSocket manager")
+            except Exception as e:
+                logger.warning(f"Could not wire Vector DB telemetry notifier: {e}")
         except Exception as e:
             logger.error(f"❌ Failed to initialize vector database: {e}")
             import traceback
@@ -548,9 +564,19 @@ async def health_check():
     except Exception:
         probes["enhanced_apis"] = {"status": "unknown"}
 
+    now_iso = datetime.now().isoformat()
+    # Stamp each probe with a timestamp to aid diagnostics
+    for key in list(probes.keys()):
+        try:
+            if isinstance(probes[key], dict) and "timestamp" not in probes[key]:
+                probes[key]["timestamp"] = time.time()
+        except Exception:
+            pass
+
     return {
         "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": now_iso,
+        "probe_timestamp": now_iso,
         "services": services,
         "probes": probes,
         "version": "2.0.0"
