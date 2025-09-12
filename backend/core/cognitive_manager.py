@@ -22,6 +22,14 @@ from .consciousness_engine import ConsciousnessEngine, ConsciousnessState
 from .cognitive_transparency import transparency_engine
 from .errors import CognitiveError, ExternalServiceError
 from .coordination import CoordinationEvent, SimpleCoordinator
+from .enhanced_coordination import (
+    EnhancedCoordinator, EnhancedCoordinationEvent, EnhancedCoordinationDecision,
+    ComponentType, ComponentStatus, CoordinationContext, CoordinationAction
+)
+from .cognitive_orchestrator import (
+    CognitiveOrchestrator, CognitiveProcess, ProcessPriority, ProcessState
+)
+from .circuit_breaker import circuit_breaker_manager, CircuitBreakerOpenException
 from .metacognitive_monitor import metacognitive_monitor
 from .autonomous_learning import autonomous_learning_system
 from .knowledge_graph_evolution import knowledge_graph_evolution
@@ -103,6 +111,20 @@ class CognitiveManager:
             websocket_manager=websocket_manager
         )
         
+        # Initialize enhanced coordination system
+        self.enhanced_coordinator = EnhancedCoordinator(
+            min_confidence=self.min_confidence_threshold,
+            websocket_manager=websocket_manager
+        )
+        
+        # Initialize cognitive orchestrator
+        self.cognitive_orchestrator = CognitiveOrchestrator(
+            websocket_manager=websocket_manager
+        )
+        
+        # Register cognitive components with enhanced coordinator
+        self._register_cognitive_components()
+        
         # Initialize meta-cognitive monitor
         metacognitive_monitor.llm_driver = llm_driver
         logger.info("Meta-cognitive monitor initialized with LLM driver")
@@ -149,8 +171,96 @@ class CognitiveManager:
         except Exception:
             self.coordinator = None
 
-    async def _with_retries(self, op_fn, *, retries: int = 2, delay: float = 0.5, backoff: float = 2.0, op_name: str = "operation"):
-        """Run an async operation with simple retry/backoff.
+    def _register_cognitive_components(self):
+        """Register cognitive components with the enhanced coordinator."""
+        try:
+            # Register core components
+            self.enhanced_coordinator.register_component(
+                ComponentType.LLM_DRIVER, "llm_driver", 
+                self.llm_driver, ["reasoning", "text_generation", "consciousness_assessment"]
+            )
+            
+            self.enhanced_coordinator.register_component(
+                ComponentType.KNOWLEDGE_PIPELINE, "knowledge_pipeline",
+                self.knowledge_pipeline, ["knowledge_retrieval", "context_integration"]
+            )
+            
+            self.enhanced_coordinator.register_component(
+                ComponentType.CONSCIOUSNESS_ENGINE, "consciousness_engine",
+                self.consciousness_engine, ["consciousness_assessment", "self_awareness"]
+            )
+            
+            self.enhanced_coordinator.register_component(
+                ComponentType.METACOGNITIVE_MONITOR, "metacognitive_monitor",
+                metacognitive_monitor, ["self_monitoring", "reflection"]
+            )
+            
+            self.enhanced_coordinator.register_component(
+                ComponentType.AUTONOMOUS_LEARNING, "autonomous_learning",
+                autonomous_learning_system, ["pattern_learning", "adaptation"]
+            )
+            
+            self.enhanced_coordinator.register_component(
+                ComponentType.KNOWLEDGE_GRAPH, "knowledge_graph_evolution",
+                knowledge_graph_evolution, ["graph_evolution", "relationship_learning"]
+            )
+            
+            self.enhanced_coordinator.register_component(
+                ComponentType.PHENOMENAL_EXPERIENCE, "phenomenal_experience",
+                phenomenal_experience_generator, ["experience_generation", "qualia_modeling"]
+            )
+            
+            logger.info("🔗 Successfully registered all cognitive components")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to register cognitive components: {e}")
+
+    async def _coordinate_cognitive_process(self, query: str, context: Dict[str, Any], 
+                                          confidence: float) -> EnhancedCoordinationDecision:
+        """Coordinate cognitive processing using enhanced coordination."""
+        try:
+            # Create component status snapshot
+            component_states = {}
+            for name, status in self.enhanced_coordinator.health_monitor.component_statuses.items():
+                component_states[name] = status
+            
+            # Create coordination context
+            coordination_context = CoordinationContext(
+                session_id=context.get("session_id", str(uuid.uuid4())),
+                query=query,
+                confidence=confidence,
+                component_states=component_states,
+                historical_data=context,
+                constraints=context.get("constraints", {}),
+                preferences=context.get("preferences", {})
+            )
+            
+            # Create coordination event
+            event = EnhancedCoordinationEvent(
+                name="cognitive_process_coordination",
+                context=coordination_context,
+                component_source="cognitive_manager",
+                urgency="normal",
+                tags=["cognitive_processing", "coordination"]
+            )
+            
+            # Get coordination decision
+            decision = await self.enhanced_coordinator.notify(event)
+            
+            logger.info(f"🎯 Coordination decision: {decision.action.value} (confidence: {decision.confidence:.2f})")
+            return decision
+            
+        except Exception as e:
+            logger.error(f"❌ Coordination error: {e}")
+            # Return safe fallback
+            return EnhancedCoordinationDecision(
+                action=CoordinationAction.PROCEED,
+                rationale=f"Fallback due to coordination error: {e}",
+                confidence=0.5
+            )
+
+    async def _with_retries(self, op_fn, *, retries: int = 2, delay: float = 0.5, backoff: float = 2.0, op_name: str = "operation", service_type: str = "default"):
+        """Run an async operation with circuit breaker protection and retry/backoff.
 
         Args:
             op_fn: zero-arg callable returning an awaitable
@@ -158,11 +268,45 @@ class CognitiveManager:
             delay: initial delay between attempts (seconds)
             backoff: multiplier for delay after each failure
             op_name: label used for logging/telemetry
+            service_type: type of service for circuit breaker config
         Returns:
             Result of the awaited operation
         Raises:
-            Last exception if all attempts fail
+            Last exception if all attempts fail or circuit breaker is open
         """
+        # Determine operation type for timeout policy
+        operation_type = "default"
+        if "llm" in op_name.lower():
+            operation_type = "llm_call"
+        elif "knowledge" in op_name.lower():
+            operation_type = "knowledge_retrieval"
+        elif "consciousness" in op_name.lower():
+            operation_type = "consciousness_assessment"
+        elif "vector" in op_name.lower():
+            operation_type = "vector_search"
+        elif "reflection" in op_name.lower():
+            operation_type = "reflection"
+        
+        # Use circuit breaker for protected execution
+        try:
+            return await circuit_breaker_manager.protected_call(
+                service_name=op_name,
+                service_type=service_type,
+                operation_type=operation_type,
+                func=self._retry_with_backoff,
+                op_fn=op_fn,
+                retries=retries,
+                delay=delay,
+                backoff=backoff,
+                op_name=op_name
+            )
+        except CircuitBreakerOpenException as e:
+            logger.error(f"🚫 Circuit breaker open for {op_name}: {e}")
+            # Try fallback if available
+            return await self._handle_circuit_breaker_open(op_name, op_fn)
+    
+    async def _retry_with_backoff(self, op_fn, retries: int, delay: float, backoff: float, op_name: str):
+        """Internal retry logic with backoff."""
         attempt = 0
         last_exc = None
         current_delay = delay
@@ -200,6 +344,56 @@ class CognitiveManager:
         # Exhausted retries
         assert last_exc is not None
         raise last_exc
+    
+    async def _handle_circuit_breaker_open(self, op_name: str, op_fn):
+        """Handle circuit breaker open scenarios with fallbacks."""
+        logger.warning(f"🔄 Attempting fallback for {op_name}")
+        
+        # Try to provide fallback responses
+        if "llm" in op_name.lower():
+            return await self._llm_fallback()
+        elif "consciousness" in op_name.lower():
+            return await self._consciousness_fallback()
+        elif "knowledge" in op_name.lower():
+            return await self._knowledge_fallback()
+        else:
+            # Generic fallback
+            raise ExternalServiceError(
+                code="circuit_breaker_open",
+                message=f"Service {op_name} is temporarily unavailable",
+                recoverable=True,
+                service=op_name,
+                operation="fallback"
+            )
+    
+    async def _llm_fallback(self) -> Dict[str, Any]:
+        """Fallback response when LLM is unavailable."""
+        return {
+            "response": "I'm currently experiencing technical difficulties with my language processing. Please try again in a moment.",
+            "confidence": 0.1,
+            "fallback": True,
+            "reasoning": "LLM service unavailable - using fallback response"
+        }
+    
+    async def _consciousness_fallback(self) -> Dict[str, Any]:
+        """Fallback consciousness assessment."""
+        return {
+            "awareness_level": 0.5,
+            "self_reflection_depth": 1,
+            "autonomous_goals": [],
+            "cognitive_integration": 0.3,
+            "manifest_behaviors": ["fallback_mode"],
+            "fallback": True
+        }
+    
+    async def _knowledge_fallback(self) -> Dict[str, Any]:
+        """Fallback knowledge retrieval."""
+        return {
+            "knowledge_items": [],
+            "context": "Knowledge retrieval temporarily unavailable",
+            "confidence": 0.1,
+            "fallback": True
+        }
 
     async def initialize(self) -> bool:
         """Initialize the cognitive manager and all subsystems."""
@@ -275,6 +469,45 @@ class CognitiveManager:
             
             initial_response = await self._perform_initial_reasoning(query, knowledge_context, context)
             reasoning_trace[-1]["result"] = initial_response
+
+            # Step 3: Enhanced coordination evaluation
+            reasoning_trace.append({
+                "step": 3,
+                "action": "coordination_evaluation",
+                "timestamp": time.time(),
+                "description": "Evaluating cognitive coordination needs"
+            })
+            
+            # Get coordination decision
+            coordination_decision = await self._coordinate_cognitive_process(
+                query, context, initial_response.get("confidence", 0.5)
+            )
+            reasoning_trace[-1]["result"] = coordination_decision.to_dict()
+            
+            # Apply coordination decision
+            if coordination_decision.action == CoordinationAction.AUGMENT_CONTEXT:
+                logger.info("🔄 Augmenting context based on coordination decision")
+                augmented_context = await self._augment_context(
+                    knowledge_context, coordination_decision.params
+                )
+                # Re-process with augmented context
+                initial_response = await self._perform_initial_reasoning(
+                    query, augmented_context, context
+                )
+                
+            elif coordination_decision.action == CoordinationAction.TRIGGER_REFLECTION:
+                logger.info("🤔 Triggering reflection based on coordination decision")
+                reflection_result = await self._trigger_self_reflection(
+                    query, initial_response, coordination_decision.params
+                )
+                initial_response["reflection"] = reflection_result
+                
+            elif coordination_decision.action == CoordinationAction.ROUTE_TO_SPECIALIST:
+                logger.info("🎯 Routing to specialist based on coordination decision")
+                specialist_result = await self._route_to_specialist(
+                    query, initial_response, coordination_decision.params
+                )
+                initial_response.update(specialist_result)
 
             # Coordination hook: evaluate initial result and record decision
             try:
@@ -1651,6 +1884,237 @@ class CognitiveManager:
         except Exception as e:
             logger.error(f"Error in cognitive loop processing: {e}")
             return {"error": str(e)}
+    
+    # Enhanced coordination helper methods
+    
+    async def _augment_context(self, knowledge_context: Dict[str, Any], 
+                             augmentation_params: Dict[str, Any]) -> Dict[str, Any]:
+        """Augment context based on coordination decision."""
+        try:
+            augmented_context = knowledge_context.copy()
+            sources = augmentation_params.get("sources", [])
+            depth = augmentation_params.get("depth", "shallow")
+            
+            logger.info(f"🔍 Augmenting context with sources: {sources}")
+            
+            # Knowledge graph augmentation
+            if "knowledge_graph" in sources:
+                try:
+                    graph_context = await knowledge_graph_evolution.get_related_concepts(
+                        knowledge_context.get("entities", [])
+                    )
+                    augmented_context["graph_relationships"] = graph_context
+                except Exception as e:
+                    logger.warning(f"Knowledge graph augmentation failed: {e}")
+            
+            # Web search augmentation
+            if "web_search" in sources and self.knowledge_pipeline:
+                try:
+                    web_results = await self.knowledge_pipeline.search_external_sources(
+                        knowledge_context.get("query", "")
+                    )
+                    augmented_context["external_sources"] = web_results
+                except Exception as e:
+                    logger.warning(f"Web search augmentation failed: {e}")
+            
+            # Deep context augmentation
+            if depth == "deep":
+                try:
+                    # Get historical context from similar queries
+                    similar_sessions = await self._find_similar_sessions(
+                        knowledge_context.get("query", "")
+                    )
+                    augmented_context["historical_context"] = similar_sessions
+                except Exception as e:
+                    logger.warning(f"Deep context augmentation failed: {e}")
+            
+            return augmented_context
+            
+        except Exception as e:
+            logger.error(f"❌ Error augmenting context: {e}")
+            return knowledge_context
+    
+    async def _trigger_self_reflection(self, query: str, initial_response: Dict[str, Any], 
+                                     reflection_params: Dict[str, Any]) -> Dict[str, Any]:
+        """Trigger self-reflection process."""
+        try:
+            depth = reflection_params.get("depth", "shallow")
+            
+            logger.info(f"🤔 Triggering self-reflection (depth: {depth})")
+            
+            reflection_context = {
+                "query": query,
+                "initial_response": initial_response,
+                "reflection_depth": depth,
+                "timestamp": time.time()
+            }
+            
+            # Use metacognitive monitor for reflection
+            if hasattr(metacognitive_monitor, 'assess_reasoning_quality'):
+                quality_assessment = await metacognitive_monitor.assess_reasoning_quality(
+                    reasoning_trace=initial_response.get("reasoning_trace", []),
+                    confidence=initial_response.get("confidence", 0.5)
+                )
+                reflection_context["quality_assessment"] = quality_assessment
+            
+            # Deep reflection involves consciousness assessment
+            if depth == "deep" and self.consciousness_engine:
+                consciousness_state = await self.consciousness_engine.assess_consciousness_state(
+                    context=reflection_context
+                )
+                reflection_context["consciousness_assessment"] = consciousness_state
+            
+            # Generate reflection insights
+            reflection_insights = []
+            
+            if initial_response.get("confidence", 0) < 0.7:
+                reflection_insights.append("Low confidence suggests need for additional knowledge or reasoning")
+            
+            if len(initial_response.get("reasoning_trace", [])) < 3:
+                reflection_insights.append("Shallow reasoning trace indicates potential for deeper analysis")
+            
+            reflection_context["insights"] = reflection_insights
+            
+            return reflection_context
+            
+        except Exception as e:
+            logger.error(f"❌ Error in self-reflection: {e}")
+            return {"error": str(e), "reflection_failed": True}
+    
+    async def _route_to_specialist(self, query: str, initial_response: Dict[str, Any], 
+                                 routing_params: Dict[str, Any]) -> Dict[str, Any]:
+        """Route query to specialist components."""
+        try:
+            specialist = routing_params.get("specialist", "general")
+            avoid_components = routing_params.get("avoid_components", [])
+            
+            logger.info(f"🎯 Routing to specialist: {specialist}")
+            
+            specialist_result = initial_response.copy()
+            
+            # Scientific reasoning specialist
+            if specialist == "scientific_reasoning":
+                try:
+                    # Use enhanced reasoning for scientific queries
+                    if self.llm_driver:
+                        scientific_prompt = f"""
+                        As a scientific reasoning specialist, analyze this query with rigorous methodology:
+                        
+                        Query: {query}
+                        
+                        Please provide:
+                        1. Scientific domain classification
+                        2. Key concepts and principles involved
+                        3. Evidence-based reasoning
+                        4. Potential hypotheses or explanations
+                        5. Experimental or observational suggestions
+                        """
+                        
+                        specialist_response = await self._with_retries(
+                            lambda: self.llm_driver.generate_response(scientific_prompt),
+                            op_name="scientific_reasoning_specialist",
+                            service_type="llm"
+                        )
+                        
+                        specialist_result["specialist_analysis"] = specialist_response
+                        specialist_result["specialist_type"] = "scientific_reasoning"
+                        
+                except Exception as e:
+                    logger.warning(f"Scientific reasoning specialist failed: {e}")
+            
+            # Mathematical reasoning specialist
+            elif specialist == "mathematical_reasoning":
+                try:
+                    if self.llm_driver:
+                        math_prompt = f"""
+                        As a mathematical reasoning specialist, analyze this query:
+                        
+                        Query: {query}
+                        
+                        Please provide:
+                        1. Mathematical concepts involved
+                        2. Formal representation if applicable
+                        3. Step-by-step logical reasoning
+                        4. Verification methods
+                        5. Alternative approaches
+                        """
+                        
+                        specialist_response = await self._with_retries(
+                            lambda: self.llm_driver.generate_response(math_prompt),
+                            op_name="mathematical_reasoning_specialist",
+                            service_type="llm"
+                        )
+                        
+                        specialist_result["specialist_analysis"] = specialist_response
+                        specialist_result["specialist_type"] = "mathematical_reasoning"
+                        
+                except Exception as e:
+                    logger.warning(f"Mathematical reasoning specialist failed: {e}")
+            
+            # Philosophical reasoning specialist
+            elif specialist == "philosophical_reasoning":
+                try:
+                    if self.llm_driver:
+                        phil_prompt = f"""
+                        As a philosophical reasoning specialist, analyze this query:
+                        
+                        Query: {query}
+                        
+                        Please provide:
+                        1. Philosophical domains and traditions relevant
+                        2. Key arguments and counterarguments
+                        3. Logical structure analysis
+                        4. Ethical considerations if applicable
+                        5. Broader implications and connections
+                        """
+                        
+                        specialist_response = await self._with_retries(
+                            lambda: self.llm_driver.generate_response(phil_prompt),
+                            op_name="philosophical_reasoning_specialist",
+                            service_type="llm"
+                        )
+                        
+                        specialist_result["specialist_analysis"] = specialist_response
+                        specialist_result["specialist_type"] = "philosophical_reasoning"
+                        
+                except Exception as e:
+                    logger.warning(f"Philosophical reasoning specialist failed: {e}")
+            
+            return specialist_result
+            
+        except Exception as e:
+            logger.error(f"❌ Error routing to specialist: {e}")
+            return initial_response
+    
+    async def _find_similar_sessions(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """Find similar historical sessions for context."""
+        try:
+            similar_sessions = []
+            query_words = set(query.lower().split())
+            
+            for session_id, session_data in self.active_sessions.items():
+                session_query = session_data.get("query", "")
+                session_words = set(session_query.lower().split())
+                
+                # Simple similarity based on word overlap
+                overlap = len(query_words.intersection(session_words))
+                if overlap > 1:  # At least 2 words in common
+                    similarity = overlap / len(query_words.union(session_words))
+                    
+                    similar_sessions.append({
+                        "session_id": session_id[:8] + "...",
+                        "query": session_query[:100] + "..." if len(session_query) > 100 else session_query,
+                        "similarity": similarity,
+                        "context": session_data.get("context", {})
+                    })
+            
+            # Sort by similarity and return top results
+            similar_sessions.sort(key=lambda x: x["similarity"], reverse=True)
+            return similar_sessions[:limit]
+            
+        except Exception as e:
+            logger.error(f"❌ Error finding similar sessions: {e}")
+            return []
 
 
 # Global instance

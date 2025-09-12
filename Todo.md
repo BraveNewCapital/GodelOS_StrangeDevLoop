@@ -5,9 +5,9 @@
 - ✅ API consolidated to `unified_server.py`
 - ✅ LLM resiliency (retry/backoff + WS `recoverable_error`)
 - ✅ Vector DB resiliency (retry/backoff + WS telemetry), probe timestamps added
-- ✅ Health probes integrated and validated (`/api/health.probes`)
+- ✅ Health probes integrated and validated (`/api/health` returning `probes`)
 - ✅ Coordination interface + structured error model + context augmentation
-- ✅ Unit tests passing for vector DB retries and health probes
+- ✅ Unit tests passing for vector DB retries (health probes validated via integration/UI tests)
 - ✅ Structured error propagation across endpoints
 - ✅ Coordination telemetry endpoint (`/api/v1/cognitive/coordination/recent`)
 - ✅ Backend integration/e2e coverage (backend-only) now passing
@@ -74,18 +74,26 @@
   - [x] Prometheus text format output for monitoring integration
   - [x] Real-time metrics for CPU, memory, disk, WebSocket, and coordination
 
-- [ ] **Enhance Centralized Cognitive Manager**
-  - [ ] Improve coordination between cognitive components
-  - [ ] Implement advanced cognitive process orchestration
-  - [ ] Add comprehensive error handling and recovery
+- [x] **Enhance Centralized Cognitive Manager** ✅
+  - [x] Improve coordination between cognitive components ✅
+  - [x] Implement advanced cognitive process orchestration ✅  
+  - [x] Add comprehensive error handling and recovery ✅
+  - [x] Add circuit breaker patterns and timeout policies ✅
+  - [x] Implement adaptive coordination policy learning ✅
   
-  Status: in progress — laying out concrete subtasks for coordination/error handling.
+  Status: **COMPLETE** — Enhanced cognitive manager implemented with:
+  - Advanced orchestration via `CognitiveOrchestrator` with state machines and dependency resolution
+  - Enhanced coordination via `EnhancedCoordinator` with ML-guided policy selection
+  - Circuit breaker protection via `CircuitBreakerManager` with adaptive timeouts
+  - Machine learning adaptation via `adaptive_learning_engine` with neural network prediction
+  - Comprehensive error handling with fallback strategies and structured error propagation
+  - Integration with existing WebSocket streaming and consciousness assessment systems
 
 ### 📡 Infrastructure Enhancement
-- [x] **Implement Production Vector Database** ✅
+- [x] **Implement Production Vector Database** ✅ *(audit clarification: core persistent + multi-model + backup present; true distributed/sharded search not yet implemented)*
   - [x] Replace in-memory FAISS with persistent storage ✅
   - [x] Add vector database backup and recovery ✅
-  - [x] Implement distributed vector search capabilities ✅
+  - [ ] Implement distributed vector search capabilities (cluster/sharding, replication, horizontal scaling) ⬅ NEW (not yet implemented; prior checkmark removed)
   - [x] Add multiple embedding model support with fallbacks ✅
   - [x] Create comprehensive management API endpoints ✅
 
@@ -144,6 +152,79 @@
   - [ ] Performance optimization and profiling
   - [ ] Security audit and hardening
   - [ ] Scalability testing and optimization
+
+---
+
+## 🔍 Audit Addendum (2025-09-12)
+Independent code audit verified most completed claims and identified several untracked architectural gaps. Additions below do NOT invalidate prior work; they extend the roadmap toward production-grade robustness, security, and operability.
+
+### ✅ Verified During Audit
+- Unified server only (`unified_server.py`); legacy `main.py` / `modernized_main.py` removed.
+- Retry/backoff present in `cognitive_manager._with_retries` and `VectorDatabaseService._with_retries`.
+- WebSocket telemetry for recoverable errors (`type: recoverable_error`) emitted from LLM + vector DB paths.
+- Coordination interface (`coordination.py`) integrated; context augmentation logic active when confidence below threshold.
+- Structured errors via `errors.py` used in numerous endpoints with `_structured_http_error` wrapper.
+- Multiple embedding models + fallback logic in `PersistentVectorDatabase`.
+- Backup/restore & management endpoints (`vector_endpoints.py`) implemented.
+- Consciousness streaming fixed (`broadcast_consciousness_update`).
+
+### ⚠ Clarifications / Adjustments
+- Health probe path is `/api/health` (not `/api/health.probes`). Updated wording.
+- “Distributed vector search” not yet present (no clustering/sharding code) — moved to future task.
+- Health probe unit test coverage is indirect (integration + UI test) — add explicit unit tests task.
+- WebSocket manager includes rate-limit metadata scaffolding but lacks active enforcement & auth gates.
+
+### 🚧 Newly Added / Missing Architectural Tasks
+
+#### Observability & Operations
+- [ ] Latency histograms (query, vector ops, consciousness assessment)
+- [ ] Error counters by service & error code
+- [ ] Structured JSON logging + correlation / trace IDs
+- [ ] OpenTelemetry export (traces + metrics) optional toggle
+- [ ] Metrics: add queue depth, retry counts, WebSocket broadcast latency
+- [ ] /metrics: add build/git SHA & semantic version provenance
+
+#### Cognitive Layer Enhancements
+- [ ] Formal state machine for cognitive pipeline phases
+- [ ] Timeout & circuit breaker policies per external call
+- [ ] Adaptive coordination policy (learned thresholds based on historical success)
+- [ ] Persistence of reasoning traces (prunable store)
+- [ ] Offline reprocessing / replay harness for queries
+
+#### WebSocket & Streaming
+- [ ] Enforced per-connection event rate limits
+- [ ] Backpressure handling (drop policy / priority queue)
+- [ ] Subscription filter optimization (indexed by event type)
+- [ ] Recovery/resync protocol (client asks for missed sequence IDs)
+- [ ] Heartbeat & idle timeout enforcement (currently passive)
+
+#### Testing Expansion
+- [ ] Unit tests for health probe shape & timestamp stamping logic
+- [ ] Property-based tests for knowledge graph invariants (acyclic constraints where required, relationship validity)
+- [ ] Fuzz tests for JSON payload endpoints (phenomenal, knowledge graph evolution)
+- [ ] WebSocket resilience tests (forced disconnect/reconnect + state continuity)
+- [ ] Load & soak test suite (Locust/k6)
+- [ ] Fault injection tests (simulate vector DB / LLM transient failures)
+- [ ] Snapshot regression tests for structured error shapes
+
+#### Documentation & DX
+- [ ] Architecture decision records (ADRs) for key subsystems (vector DB, coordination, streaming)
+- [ ] Operational runbook (startup, scaling, recovery procedures)
+- [ ] On-call troubleshooting guide (common failure signatures)
+- [ ] Performance baseline report (stored benchmark JSON)
+- [ ] Contribution guide: advanced testing & profiling sections
+
+#### Frontend / UX Advanced
+- [ ] Real-time consciousness visualization (graph/time-series composite)
+- [ ] Vector DB & coordination telemetry dashboards
+- [ ] Retry/backoff & error toast simulation test harness
+- [ ] Knowledge graph large-scale rendering performance optimization (virtualized nodes)
+
+### 📌 Follow-Up Adjustments Suggested
+- Recompute overall progress after sizing new tasks (do not claim 88% post-expansion).
+- Establish MoSCoW or priority tags for newly added backlog before sprint planning.
+
+---
 
 ---
 
