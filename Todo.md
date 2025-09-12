@@ -195,7 +195,7 @@ ERROR: bad operand type for abs(): 'str'
 - Implement best-effort context augmentation path when confidence low — complete
 
 ### Downstream Required Tasks
-- Vector DB resilience: add retry/backoff to `backend/core/vector_service.py` operations; emit `recoverable_error` WS events with `service: "vector_db"` and integrate probe timestamps in `/api/health`.
+- Vector DB resilience: add retry/backoff to `backend/core/vector_service.py` operations; emit `recoverable_error` WS events with `service: "vector_db"` and integrate probe timestamps in `/api/health` — complete.
 - Structured error propagation: return `CognitiveError` shapes from high-surface endpoints (consciousness, phenomenal, KG) instead of raw strings; standardize 4xx/5xx mapping.
 - Coordination telemetry: add `GET /api/v1/cognitive/coordination/recent` to surface last N coordination decisions for observability (no PII, ephemeral memory only).
 - Frontend updates: 
@@ -218,6 +218,7 @@ ERROR: bad operand type for abs(): 'str'
  - Fixed CognitiveManager instantiation in `backend/unified_server.py` and wired knowledge_pipeline after optional services init
  - Added best-effort context augmentation in CognitiveManager when coordination suggests it
  - Added `scripts/smoke_api.sh` for ephemeral server smoke tests that exit cleanly
+ - Vector DB: added retry/backoff + recoverable_error telemetry; wired notifier; added probe timestamps to `/api/health`
 
 ### Observations from Smoke Test
 - Warning during startup: failed to load `knowledge_storage/categories.json` due to `KnowledgeItem() argument after ** must be a mapping, not list` — track as low-priority cleanup.
