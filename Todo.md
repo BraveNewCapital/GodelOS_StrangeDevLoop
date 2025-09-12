@@ -187,9 +187,9 @@ ERROR: bad operand type for abs(): 'str'
 - **Target Completion**: 95% architectural goals
 
 ### Next Actionable Subtasks (Cognitive Manager)
-- Define cross-component coordination interface in `backend/core/cognitive_manager.py` (scoped)
+- Define cross-component coordination interface in `backend/core/cognitive_manager.py` (scoped) — complete (added `backend/core/coordination.py`, integrated)
 - Add retry/backoff wrappers around external calls (LLM/Vector DB) — LLM complete
-- Centralize structured error objects + propagation rules
+- Centralize structured error objects + propagation rules — complete (added `backend/core/errors.py`, integrated)
 - Emit standardized WebSocket events on recoverable failures — added `recoverable_error` broadcast in LLM retry path
 - Add lightweight health probes for subsystems and surface via `/api/health` — complete
 
@@ -199,6 +199,7 @@ ERROR: bad operand type for abs(): 'str'
 - Updated this Todo to align progress and archive resolved errors
 - Smoke-tested real API: `/health`, `/api/health`, `/cognitive/state` — all healthy
  - Enhanced `/api/health` with subsystem probes (vector DB, knowledge pipeline, ingestion, cognitive manager, enhanced APIs)
+ - Introduced `backend/core/errors.py` (structured errors) and `backend/core/coordination.py` (simple coordinator), integrated into CognitiveManager
 
 ### Observations from Smoke Test
 - Warning during startup: failed to load `knowledge_storage/categories.json` due to `KnowledgeItem() argument after ** must be a mapping, not list` — track as low-priority cleanup.
