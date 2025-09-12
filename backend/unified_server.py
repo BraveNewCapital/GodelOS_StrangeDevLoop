@@ -29,14 +29,21 @@ from dotenv import load_dotenv
 # Ensure repository root is on sys.path before importing backend.* packages
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from backend.core.errors import CognitiveError, from_exception
+from backend.core.structured_logging import (
+    setup_structured_logging, correlation_context, CorrelationTracker,
+    api_logger, performance_logger, track_operation
+)
+from backend.core.enhanced_metrics import metrics_collector, operation_timer, collect_metrics
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+# Setup enhanced logging
+setup_structured_logging(
+    log_level=os.getenv("LOG_LEVEL", "INFO"),
+    log_file=os.getenv("LOG_FILE"),
+    enable_json=os.getenv("ENABLE_JSON_LOGGING", "true").lower() == "true",
+    enable_console=True
 )
 logger = logging.getLogger(__name__)
 
@@ -207,12 +214,15 @@ except ImportError as e:
     CognitiveManager = None
     CONSCIOUSNESS_AVAILABLE = False
 
-# Global service instances
-godelos_integration: Optional[GödelOSIntegration] = None
-websocket_manager: Optional[WebSocketManager] = None
-tool_based_llm: Optional[ToolBasedLLMIntegration] = None
-cognitive_manager: Optional[CognitiveManager] = None
-cognitive_streaming_task: Optional[asyncio.Task] = None
+# Global service instances - using Any to avoid type annotation issues
+godelos_integration = None
+websocket_manager = None
+tool_based_llm = None
+cognitive_manager = None
+cognitive_streaming_task = None
+
+# Observability instances
+correlation_tracker = CorrelationTracker()
 
 # Simulated cognitive state for fallback
 cognitive_state = {
@@ -293,6 +303,15 @@ async def initialize_core_services():
             await cognitive_manager.initialize()
             driver_type = "LLM cognitive driver" if llm_cognitive_driver else "tool-based LLM"
             logger.info(f"✅ Cognitive manager with consciousness engine initialized successfully using {driver_type}")
+            
+            # Update replay endpoints with cognitive manager
+            try:
+                from backend.api.replay_endpoints import setup_replay_endpoints
+                setup_replay_endpoints(app, cognitive_manager)
+                logger.info("✅ Replay endpoints updated with cognitive manager")
+            except Exception as e:
+                logger.warning(f"Failed to update replay endpoints: {e}")
+                
         except Exception as e:
             logger.error(f"❌ Failed to initialize cognitive manager: {e}")
             cognitive_manager = None
@@ -509,6 +528,16 @@ if ENHANCED_APIS_AVAILABLE:
 if VECTOR_DATABASE_AVAILABLE and vector_db_router:
     app.include_router(vector_db_router, tags=["Vector Database Management"])
 
+# Setup replay harness endpoints
+try:
+    from backend.api.replay_endpoints import setup_replay_endpoints
+    setup_replay_endpoints(app, None)  # Will be updated with cognitive_manager once available
+    logger.info("Replay harness endpoints initialized")
+except ImportError as e:
+    logger.warning(f"Replay endpoints not available: {e}")
+except Exception as e:
+    logger.error(f"Failed to setup replay endpoints: {e}")
+
 # Root and health endpoints
 @app.get("/")
 async def root():
@@ -620,21 +649,30 @@ async def health_check():
 
 @app.get("/metrics")
 async def get_metrics():
-    """Prometheus-style metrics endpoint for monitoring and observability."""
+    """Enhanced Prometheus-style metrics endpoint with comprehensive observability."""
     try:
-        import psutil
+        # Use enhanced metrics collector
+        prometheus_output = metrics_collector.export_prometheus()
+        
+        return Response(
+            content=prometheus_output,
+            media_type="text/plain; version=0.0.4; charset=utf-8"
+        )
+        
+    except Exception as e:
+        logger.error(f"Error generating metrics: {e}")
+        # Fallback to basic metrics
+        return await get_basic_metrics()
+
+async def get_basic_metrics():
+    """Fallback basic metrics when enhanced metrics fail."""
+    try:
+        # Basic system metrics without psutil dependency
         import os
         from datetime import datetime
         
-        # Basic system metrics
-        cpu_percent = psutil.cpu_percent(interval=1)
-        memory = psutil.virtual_memory()
-        disk = psutil.disk_usage('/')
-        
         # Process metrics
-        process = psutil.Process(os.getpid())
-        process_memory = process.memory_info()
-        process_cpu = process.cpu_percent()
+        process_start_time = time.time() - 3600  # Approximate
         
         # Cognitive manager metrics
         cognitive_metrics = {}
@@ -676,21 +714,6 @@ async def get_metrics():
                 pass
         
         metrics = {
-            # System metrics
-            "system_cpu_percent": cpu_percent,
-            "system_memory_total_bytes": memory.total,
-            "system_memory_used_bytes": memory.used,
-            "system_memory_percent": memory.percent,
-            "system_disk_total_bytes": disk.total,
-            "system_disk_used_bytes": disk.used,
-            "system_disk_percent": (disk.used / disk.total) * 100,
-            
-            # Process metrics
-            "process_cpu_percent": process_cpu,
-            "process_memory_rss_bytes": process_memory.rss,
-            "process_memory_vms_bytes": process_memory.vms,
-            "process_uptime_seconds": time.time() - process.create_time(),
-            
             # Application metrics
             "godelos_version": "2.0.0",
             "godelos_start_time": server_start_time,
@@ -1461,29 +1484,49 @@ async def get_available_experience_types():
 @app.post("/api/v1/cognitive/loop")
 async def execute_cognitive_loop(loop_data: Dict[str, Any]):
     """Execute a full bidirectional cognitive loop with KG-PE integration"""
-    try:
-        if not cognitive_manager:
-            raise HTTPException(status_code=503, detail="Cognitive manager not available")
-        
-        initial_trigger = loop_data.get("initial_trigger", "new_information")
-        trigger_type = loop_data.get("trigger_type", "knowledge")  # "knowledge" or "experience"
-        loop_depth = min(loop_data.get("loop_depth", 3), 10)  # Max 10 steps for safety
-        context = loop_data.get("context", {})
-        
-        result = await cognitive_manager.process_cognitive_loop(
-            initial_trigger=initial_trigger,
-            trigger_type=trigger_type,
-            loop_depth=loop_depth,
-            context=context
-        )
-        
-        return JSONResponse(content={
-            "status": "success",
-            "cognitive_loop": result
-        })
-    except Exception as e:
-        logger.error(f"Error executing cognitive loop: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    correlation_id = correlation_tracker.generate_id()
+    
+    with correlation_tracker.request_context(correlation_id):
+        with operation_timer("cognitive_loop"):
+            try:
+                logger.info("Starting cognitive loop execution", extra={
+                    "operation": "cognitive_loop",
+                    "trigger_type": loop_data.get("trigger_type", "knowledge"),
+                    "loop_depth": loop_data.get("loop_depth", 3)
+                })
+                
+                if not cognitive_manager:
+                    logger.error("Cognitive manager not available")
+                    raise HTTPException(status_code=503, detail="Cognitive manager not available")
+                
+                initial_trigger = loop_data.get("initial_trigger", "new_information")
+                trigger_type = loop_data.get("trigger_type", "knowledge")  # "knowledge" or "experience"
+                loop_depth = min(loop_data.get("loop_depth", 3), 10)  # Max 10 steps for safety
+                context = loop_data.get("context", {})
+                
+                result = await cognitive_manager.process_cognitive_loop(
+                    initial_trigger=initial_trigger,
+                    trigger_type=trigger_type,
+                    loop_depth=loop_depth,
+                    context=context
+                )
+                
+                logger.info("Cognitive loop completed successfully", extra={
+                    "operation": "cognitive_loop",
+                    "result_steps": len(result.get("steps", [])) if isinstance(result, dict) else 0
+                })
+                
+                return JSONResponse(content={
+                    "status": "success",
+                    "cognitive_loop": result
+                })
+                
+            except Exception as e:
+                logger.error(f"Error executing cognitive loop: {e}", extra={
+                    "operation": "cognitive_loop",
+                    "error_type": type(e).__name__
+                })
+                raise HTTPException(status_code=500, detail=str(e))
 
 # Knowledge endpoints
 @app.get("/api/knowledge/concepts")
@@ -1729,44 +1772,71 @@ async def enhanced_cognitive_health():
 @app.post("/api/llm-chat/message")
 async def llm_chat_message(request: ChatMessage):
     """Process LLM chat message with tool integration."""
-    if not tool_based_llm:
-        # Provide fallback response using GödelOS integration
-        try:
-            if godelos_integration:
-                response = await godelos_integration.process_query(request.message, context={"source": "chat"})
-                return ChatResponse(
-                    response=response.get("response", f"I understand you're asking: '{request.message}'. While the advanced LLM system is initializing, I can provide basic responses using the core cognitive architecture. Full chat capabilities will be available once the LLM integration is properly configured."),
-                    tool_calls=[],
-                    reasoning=["Using basic cognitive processing", "LLM integration unavailable", "Fallback to core architecture"]
-                )
-            else:
-                # Final fallback
-                return ChatResponse(
-                    response=f"I received your message: '{request.message}'. The LLM chat system is currently initializing. Basic cognitive functions are operational, but advanced conversational AI requires LLM integration setup.",
-                    tool_calls=[],
-                    reasoning=["System initializing", "LLM integration not configured", "Basic response mode active"]
-                )
-        except Exception as e:
-            logger.warning(f"Fallback processing failed: {e}")
-            return ChatResponse(
-                response=f"I acknowledge your message: '{request.message}'. The system is currently starting up and full chat capabilities will be available shortly.",
-                tool_calls=[],
-                reasoning=["System startup in progress", "Temporary limited functionality"]
-            )
+    correlation_id = correlation_tracker.generate_id()
     
-    try:
-        # Use the correct method name
-        response = await tool_based_llm.process_query(request.message)
-        
-        return ChatResponse(
-            response=response.get("response", "I apologize, but I couldn't process your request."),
-            tool_calls=response.get("tool_calls", []),
-            reasoning=response.get("reasoning", [])
-        )
-        
-    except Exception as e:
-        logger.error(f"Error in LLM chat: {e}")
-        raise HTTPException(status_code=500, detail=f"LLM processing error: {str(e)}")
+    with correlation_tracker.request_context(correlation_id):
+        with operation_timer("llm_chat"):
+            logger.info("Processing LLM chat message", extra={
+                "operation": "llm_chat",
+                "message_length": len(request.message),
+                "has_context": hasattr(request, 'context') and request.context is not None
+            })
+            
+            if not tool_based_llm:
+                logger.warning("LLM not available, using fallback", extra={
+                    "operation": "llm_chat",
+                    "fallback_reason": "tool_based_llm_unavailable"
+                })
+                
+                # Provide fallback response using GödelOS integration
+                try:
+                    if godelos_integration:
+                        response = await godelos_integration.process_query(request.message, context={"source": "chat"})
+                        return ChatResponse(
+                            response=response.get("response", f"I understand you're asking: '{request.message}'. While the advanced LLM system is initializing, I can provide basic responses using the core cognitive architecture. Full chat capabilities will be available once the LLM integration is properly configured."),
+                            tool_calls=[],
+                            reasoning=["Using basic cognitive processing", "LLM integration unavailable", "Fallback to core architecture"]
+                        )
+                    else:
+                        # Final fallback
+                        return ChatResponse(
+                            response=f"I received your message: '{request.message}'. The LLM chat system is currently initializing. Basic cognitive functions are operational, but advanced conversational AI requires LLM integration setup.",
+                            tool_calls=[],
+                            reasoning=["System initializing", "LLM integration not configured", "Basic response mode active"]
+                        )
+                except Exception as e:
+                    logger.warning(f"Fallback processing failed: {e}", extra={
+                        "operation": "llm_chat",
+                        "error_type": type(e).__name__
+                    })
+                    return ChatResponse(
+                        response=f"I acknowledge your message: '{request.message}'. The system is currently starting up and full chat capabilities will be available shortly.",
+                        tool_calls=[],
+                        reasoning=["System startup in progress", "Temporary limited functionality"]
+                    )
+            
+            try:
+                # Use the correct method name
+                response = await tool_based_llm.process_query(request.message)
+                
+                logger.info("LLM chat completed successfully", extra={
+                    "operation": "llm_chat",
+                    "response_length": len(response.get("response", "")),
+                    "tool_calls_count": len(response.get("tool_calls", []))
+                })
+                
+                return ChatResponse(
+                    response=response.get("response", "I apologize, but I couldn't process your request."),
+                    tool_calls=response.get("tool_calls", []),
+                    reasoning=response.get("reasoning", [])
+                )
+                
+            except Exception as e:
+                logger.error(f"Error in LLM chat: {e}", extra={
+                    "operation": "llm_chat",
+                    "error_type": type(e).__name__
+                })
+                raise HTTPException(status_code=500, detail=f"LLM processing error: {str(e)}")
 
 @app.get("/api/llm-chat/capabilities")
 async def llm_chat_capabilities():
@@ -2471,45 +2541,74 @@ async def import_knowledge_batch(request: dict):
 @app.websocket("/ws/cognitive-stream")
 async def websocket_cognitive_stream(websocket: WebSocket):
     """WebSocket endpoint for real-time cognitive state streaming."""
-    if not websocket_manager:
-        await websocket.close(code=1011, reason="WebSocket manager not available")
-        return
-        
-    await websocket_manager.connect(websocket)
-    logger.info(f"WebSocket connected. Active connections: {len(websocket_manager.active_connections)}")
+    correlation_id = correlation_tracker.generate_id()
     
-    try:
-        # Send an initial state message for compatibility
+    with correlation_tracker.request_context(correlation_id):
+        logger.info("WebSocket connection initiated", extra={
+            "operation": "websocket_connect",
+            "endpoint": "/ws/cognitive-stream"
+        })
+        
+        if not websocket_manager:
+            logger.warning("WebSocket manager not available")
+            await websocket.close(code=1011, reason="WebSocket manager not available")
+            return
+            
+        await websocket_manager.connect(websocket)
+        logger.info(f"WebSocket connected. Active connections: {len(websocket_manager.active_connections)}", extra={
+            "operation": "websocket_connect",
+            "active_connections": len(websocket_manager.active_connections)
+        })
+        
         try:
-            await websocket_manager._send_to_connection(websocket, {"type": "initial_state", "data": {}})
-        except Exception:
-            pass
-        while True:
-            # Keep the connection alive and listen for messages
+            # Send an initial state message for compatibility
             try:
-                data = await websocket.receive_text()
-                logger.debug(f"Received WebSocket message: {data}")
-                # Try to parse subscription messages
+                await websocket_manager._send_to_connection(websocket, {"type": "initial_state", "data": {}})
+            except Exception:
+                pass
+            while True:
+                # Keep the connection alive and listen for messages
                 try:
-                    msg = json.loads(data)
-                    if msg.get("type") == "subscribe":
-                        events = msg.get("event_types", [])
-                        await websocket_manager.subscribe_to_events(websocket, events)
-                        await websocket_manager._send_to_connection(websocket, {"type": "subscription_confirmed", "event_types": events})
-                        continue
-                except Exception:
-                    pass
-                # Default ack
-                await websocket_manager._send_to_connection(websocket, {"type": "ack"})
-                
-            except WebSocketDisconnect:
-                break
-                
-    except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-    finally:
-        websocket_manager.disconnect(websocket)
-        logger.info(f"WebSocket disconnected. Active connections: {len(websocket_manager.active_connections)}")
+                    data = await websocket.receive_text()
+                    logger.debug(f"Received WebSocket message: {data}", extra={
+                        "operation": "websocket_message",
+                        "message_size": len(data)
+                    })
+                    # Try to parse subscription messages
+                    try:
+                        msg = json.loads(data)
+                        if msg.get("type") == "subscribe":
+                            events = msg.get("event_types", [])
+                            await websocket_manager.subscribe_to_events(websocket, events)
+                            await websocket_manager._send_to_connection(websocket, {"type": "subscription_confirmed", "event_types": events})
+                            logger.info("WebSocket subscription confirmed", extra={
+                                "operation": "websocket_subscribe",
+                                "event_types": events
+                            })
+                            continue
+                    except Exception:
+                        pass
+                    # Default ack
+                    await websocket_manager._send_to_connection(websocket, {"type": "ack"})
+                    
+                except WebSocketDisconnect:
+                    logger.info("WebSocket disconnected by client", extra={
+                        "operation": "websocket_disconnect",
+                        "reason": "client_initiated"
+                    })
+                    break
+                    
+        except Exception as e:
+            logger.error(f"WebSocket error: {e}", extra={
+                "operation": "websocket_error",
+                "error_type": type(e).__name__
+            })
+        finally:
+            websocket_manager.disconnect(websocket)
+            logger.info(f"WebSocket disconnected. Active connections: {len(websocket_manager.active_connections)}", extra={
+                "operation": "websocket_disconnect",
+                "active_connections": len(websocket_manager.active_connections)
+            })
 
 # Enhanced WebSocket endpoint for cognitive transparency
 @app.websocket("/ws/transparency")
