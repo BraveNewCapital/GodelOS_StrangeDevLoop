@@ -179,11 +179,11 @@ ERROR: bad operand type for abs(): 'str'
 
 ## Progress Tracking
 
-- **Overall Progress**: 82% (post-critical fixes + consolidation)
+- **Overall Progress**: 85% (post-critical fixes + consolidation)
 - **Critical Issues Resolved**: 5/5
 - **Phase 1 Completion**: 100%
 - **API Consolidation**: 100%
-- **Cognitive Manager Enhancements**: 5% (planning + scoping)
+- **Cognitive Manager Enhancements**: 35% (coordination, structured errors, health probes, augmentation)
 - **Target Completion**: 95% architectural goals
 
 ### Next Actionable Subtasks (Cognitive Manager)
@@ -194,6 +194,20 @@ ERROR: bad operand type for abs(): 'str'
 - Add lightweight health probes for subsystems and surface via `/api/health` — complete
 - Implement best-effort context augmentation path when confidence low — complete
 
+### Downstream Required Tasks
+- Vector DB resilience: add retry/backoff to `backend/core/vector_service.py` operations; emit `recoverable_error` WS events with `service: "vector_db"` and integrate probe timestamps in `/api/health`.
+- Structured error propagation: return `CognitiveError` shapes from high-surface endpoints (consciousness, phenomenal, KG) instead of raw strings; standardize 4xx/5xx mapping.
+- Coordination telemetry: add `GET /api/v1/cognitive/coordination/recent` to surface last N coordination decisions for observability (no PII, ephemeral memory only).
+- Frontend updates: 
+  - Handle `recoverable_error` WS events with non-blocking UI banner and retry info.
+  - Add a health widget that visualizes `/api/health.probes` statuses.
+- Tests:
+  - Unit: retry/backoff behavior (LLM + Vector DB) and coordination decisions.
+  - API: assert `/api/health` exposes `probes` keys and basic shapes.
+  - UI: Playwright spec for health widget and recoverable error toast.
+- Data guard: fix/guard `knowledge_storage/categories.json` loader to accept mapping or list; log and skip invalid entries.
+- Tooling: prefer `scripts/smoke_api.sh` for start→probe→exit local checks; document in README.
+
 ### Changelog (Today)
 - Added retry/backoff wrapper in `backend/core/cognitive_manager.py` for LLM calls with exponential backoff
 - Broadcasts `recoverable_error` WebSocket events on retry attempts
@@ -203,6 +217,7 @@ ERROR: bad operand type for abs(): 'str'
  - Introduced `backend/core/errors.py` (structured errors) and `backend/core/coordination.py` (simple coordinator), integrated into CognitiveManager
  - Fixed CognitiveManager instantiation in `backend/unified_server.py` and wired knowledge_pipeline after optional services init
  - Added best-effort context augmentation in CognitiveManager when coordination suggests it
+ - Added `scripts/smoke_api.sh` for ephemeral server smoke tests that exit cleanly
 
 ### Observations from Smoke Test
 - Warning during startup: failed to load `knowledge_storage/categories.json` due to `KnowledgeItem() argument after ** must be a mapping, not list` — track as low-priority cleanup.
