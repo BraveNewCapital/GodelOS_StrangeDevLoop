@@ -191,13 +191,14 @@ ERROR: bad operand type for abs(): 'str'
 - Add retry/backoff wrappers around external calls (LLM/Vector DB) — LLM complete
 - Centralize structured error objects + propagation rules
 - Emit standardized WebSocket events on recoverable failures — added `recoverable_error` broadcast in LLM retry path
-- Add lightweight health probes for subsystems and surface via `/api/health`
+- Add lightweight health probes for subsystems and surface via `/api/health` — complete
 
 ### Changelog (Today)
 - Added retry/backoff wrapper in `backend/core/cognitive_manager.py` for LLM calls with exponential backoff
 - Broadcasts `recoverable_error` WebSocket events on retry attempts
 - Updated this Todo to align progress and archive resolved errors
 - Smoke-tested real API: `/health`, `/api/health`, `/cognitive/state` — all healthy
+ - Enhanced `/api/health` with subsystem probes (vector DB, knowledge pipeline, ingestion, cognitive manager, enhanced APIs)
 
 ### Observations from Smoke Test
 - Warning during startup: failed to load `knowledge_storage/categories.json` due to `KnowledgeItem() argument after ** must be a mapping, not list` — track as low-priority cleanup.

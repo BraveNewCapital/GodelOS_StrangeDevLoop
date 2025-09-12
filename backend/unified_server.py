@@ -482,15 +482,68 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """Comprehensive health check endpoint."""
+    """Comprehensive health check endpoint with subsystem probes."""
+    # Base service status
+    services = {
+        "godelos": "active" if godelos_integration else "inactive",
+        "llm_tools": "active" if tool_based_llm else "inactive",
+        "websockets": f"{len(websocket_manager.active_connections) if websocket_manager and hasattr(websocket_manager, 'active_connections') else 0} connections"
+    }
+
+    # Subsystem probes (best-effort; never raise)
+    probes = {}
+
+    # Vector DB probe
+    try:
+        if VECTOR_DATABASE_AVAILABLE and get_vector_database is not None:
+            vdb = get_vector_database()
+            probes["vector_database"] = vdb.health_check() if hasattr(vdb, "health_check") else {"status": "unknown"}
+        else:
+            probes["vector_database"] = {"status": "unavailable"}
+    except Exception as e:
+        probes["vector_database"] = {"status": "error", "message": str(e)}
+
+    # Knowledge pipeline probe (sync stats)
+    try:
+        if KNOWLEDGE_SERVICES_AVAILABLE and knowledge_pipeline_service is not None:
+            probes["knowledge_pipeline"] = knowledge_pipeline_service.get_statistics()
+        else:
+            probes["knowledge_pipeline"] = {"status": "unavailable"}
+    except Exception as e:
+        probes["knowledge_pipeline"] = {"status": "error", "message": str(e)}
+
+    # Knowledge ingestion probe (queue size, initialized)
+    try:
+        if KNOWLEDGE_SERVICES_AVAILABLE and knowledge_ingestion_service is not None:
+            initialized = getattr(knowledge_ingestion_service, "processing_task", None) is not None
+            queue_size = getattr(getattr(knowledge_ingestion_service, "import_queue", None), "qsize", lambda: 0)()
+            probes["knowledge_ingestion"] = {"initialized": initialized, "queue_size": queue_size, "status": "healthy" if initialized else "initializing"}
+        else:
+            probes["knowledge_ingestion"] = {"status": "unavailable"}
+    except Exception as e:
+        probes["knowledge_ingestion"] = {"status": "error", "message": str(e)}
+
+    # Cognitive manager probe
+    try:
+        if cognitive_manager is not None:
+            active_sessions = len(getattr(cognitive_manager, "active_sessions", {}) or {})
+            probes["cognitive_manager"] = {"initialized": True, "active_sessions": active_sessions, "status": "healthy"}
+        else:
+            probes["cognitive_manager"] = {"status": "unavailable"}
+    except Exception as e:
+        probes["cognitive_manager"] = {"status": "error", "message": str(e)}
+
+    # Enhanced APIs / transparency
+    try:
+        probes["enhanced_apis"] = {"available": ENHANCED_APIS_AVAILABLE, "status": "healthy" if ENHANCED_APIS_AVAILABLE else "unavailable"}
+    except Exception:
+        probes["enhanced_apis"] = {"status": "unknown"}
+
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "services": {
-            "godelos": "active" if godelos_integration else "inactive",
-            "llm_tools": "active" if tool_based_llm else "inactive",
-            "websockets": f"{len(websocket_manager.active_connections) if websocket_manager else 0} connections"
-        },
+        "services": services,
+        "probes": probes,
         "version": "2.0.0"
     }
 
