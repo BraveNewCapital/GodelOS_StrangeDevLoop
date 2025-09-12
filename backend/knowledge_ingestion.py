@@ -213,7 +213,10 @@ class KnowledgeIngestionService:
         self.active_imports[import_id] = progress
         
         # Save file temporarily
-        temp_file_path = self.storage_path / f"temp_{import_id}_{request.filename}"
+        # Ensure we do not accidentally preserve any client-side path components
+        # that may be present in the uploaded filename (e.g., "tmp/test_upload.txt").
+        safe_name = Path(request.filename).name
+        temp_file_path = self.storage_path / f"temp_{import_id}_{safe_name}"
         async with aiofiles.open(temp_file_path, 'wb') as f:
             await f.write(file_content)
         
@@ -594,12 +597,20 @@ class KnowledgeIngestionService:
         """Load existing knowledge items from storage."""
         try:
             for item_file in self.storage_path.glob("*.json"):
-                if item_file.name.startswith("temp_"):
+                # Skip temp files and category listings
+                if item_file.name.startswith("temp_") or item_file.name == "categories.json":
                     continue
                 
                 try:
                     async with aiofiles.open(item_file, 'r') as f:
                         item_data = json.loads(await f.read())
+                        # Guard: some legacy files may contain a list; skip invalid shapes
+                        if isinstance(item_data, list):
+                            logger.warning(f"Skipping non-mapping knowledge file {item_file} (list detected)")
+                            continue
+                        if not isinstance(item_data, dict):
+                            logger.warning(f"Skipping invalid knowledge file {item_file} (type={type(item_data)})")
+                            continue
                         knowledge_item = KnowledgeItem(**item_data)
                         self.knowledge_store[knowledge_item.id] = knowledge_item
                 except Exception as e:

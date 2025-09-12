@@ -8,8 +8,9 @@
 - ✅ Health probes integrated and validated (`/api/health.probes`)
 - ✅ Coordination interface + structured error model + context augmentation
 - ✅ Unit tests passing for vector DB retries and health probes
-- ❌ Structured error propagation across endpoints (next)
-- ❌ Coordination telemetry endpoint (`/api/v1/cognitive/coordination/recent`) (next)
+- ✅ Structured error propagation across endpoints
+- ✅ Coordination telemetry endpoint (`/api/v1/cognitive/coordination/recent`)
+- ✅ Backend integration/e2e coverage (backend-only) now passing
 
 ## 🎉 PHASE 1 COMPLETE - All Critical Issues Resolved! 
 
@@ -207,23 +208,33 @@ ERROR: bad operand type for abs(): 'str'
 
 ### Downstream Required Tasks
 - ✅ Vector DB resilience: add retry/backoff to `backend/core/vector_service.py` operations; emit `recoverable_error` WS events with `service: "vector_db"`; add probe timestamps in `/api/health`.
- - ✅ Structured error propagation: return `CognitiveError` shapes from high-surface endpoints (consciousness, phenomenal, KG) with proper 4xx/5xx handling; unit tests added.
-- Coordination telemetry: add `GET /api/v1/cognitive/coordination/recent` to surface last N coordination decisions for observability (no PII, ephemeral memory only).
- - ✅ Coordination telemetry: `GET /api/v1/cognitive/coordination/recent` exposes recent decisions (no PII); unit tests added.
+- ✅ Structured error propagation: return `CognitiveError` shapes from high-surface endpoints (consciousness, phenomenal, KG) with proper 4xx/5xx handling; unit tests added.
+- ✅ Coordination telemetry: `GET /api/v1/cognitive/coordination/recent` exposes recent decisions (no PII); unit tests added.
+- ✅ Data guard: skip/guard invalid `knowledge_storage/categories.json` and non-mapping JSON in loader
+- ✅ Tooling: detached server scripts `scripts/start-backend-bg.sh` and `scripts/stop-backend-bg.sh` with readiness wait
 - Frontend updates: 
   - Handle `recoverable_error` WS events with non-blocking UI banner and retry info.
   - Add a health widget that visualizes `/api/health.probes` statuses.
 - Tests:
   - Unit: retry/backoff behavior (LLM + Vector DB) and coordination decisions.
-  - API: assert `/api/health` exposes `probes` keys and basic shapes.
-  - UI: Playwright spec for health widget and recoverable error toast.
-- Data guard: fix/guard `knowledge_storage/categories.json` loader to accept mapping or list; log and skip invalid entries.
+  - API: assert `/api/health` exposes `probes` keys and basic shapes. (done)
+  - UI: Playwright spec for health widget and recoverable error toast. (pending)
 - Tooling: prefer `scripts/smoke_api.sh` for start→probe→exit local checks; document in README.
 
 ### Testing Status
 - ✅ Unit: vector DB retry/backoff and `/api/health` probes
 - ✅ Unit/API: structured error propagation coverage for endpoint functions
 - ✅ API: coordination telemetry endpoint coverage
+- ✅ Integration: backend-only e2e suite passing (`tests/integration/test_end_to_end_workflows.py -k "not frontend"`)
+
+### Recent Changes
+- Compatibility updates to align with integration specs:
+  - `/api/query` now includes `inference_time_ms` and `knowledge_used`
+  - `/api/cognitive-state` exposes legacy fields for monitoring tests
+  - `/api/knowledge` simple add route returns success
+  - `/api/knowledge/import/*` standardized to `status: queued`; Wikipedia accepts `topic` or `title`
+  - WebSocket `/ws/cognitive-stream` sends `initial_state` and supports `subscribe` messages
+- Added background server scripts with readiness wait for reliable integration runs
 
 ### Changelog (Today)
 - Added retry/backoff wrapper in `backend/core/cognitive_manager.py` for LLM calls with exponential backoff
