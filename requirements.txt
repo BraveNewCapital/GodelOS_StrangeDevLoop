@@ -28,6 +28,7 @@ beautifulsoup4>=4.12.0
 lxml>=4.9.0
 html2text>=2020.1.16
 markdown>=3.4.0
+textstat>=0.7.3
 
 # Document processing dependencies
 pypdf>=4.0.0
