@@ -3,6 +3,8 @@ Production Vector Database for GödelOS
 
 This module implements a production-grade vector database with persistent storage,
 backup/recovery capabilities, and multiple embedding model support.
+
+Based on stable FAISS + sentence-transformers patterns for Intel macOS.
 """
 
 import os
@@ -11,6 +13,8 @@ import pickle
 import logging
 import hashlib
 import asyncio
+import time
+import numpy as np
 from pathlib import Path
 from typing import Dict, List, Tuple, Any, Optional, Union
 from datetime import datetime, timedelta
@@ -18,9 +22,22 @@ from dataclasses import dataclass, asdict
 from concurrent.futures import ThreadPoolExecutor
 import threading
 
+# 1) Cap threads early to avoid OpenMP conflicts (CRITICAL for macOS stability)
+for var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
+    os.environ.setdefault(var, "1")
+
 import numpy as np
-import faiss
 from sentence_transformers import SentenceTransformer
+from sklearn.neighbors import NearestNeighbors
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import atexit
+import signal
+import sys
+
+# Import FAISS *after* other heavy libs on macOS (prevents conflicts)
+import faiss
+faiss.omp_set_num_threads(1)  # Force single-threaded FAISS
 
 logger = logging.getLogger(__name__)
 
@@ -95,9 +112,9 @@ class PersistentVectorDatabase:
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.backup_dir.mkdir(parents=True, exist_ok=True)
         
-        # Thread safety
+        # Thread safety - disable ThreadPoolExecutor to prevent segfaults
         self.lock = threading.RLock()
-        self.executor = ThreadPoolExecutor(max_workers=4)
+        # self.executor = ThreadPoolExecutor(max_workers=4)  # Disabled due to FAISS threading issues
         
         # Initialize embedding models
         self.embedding_models: Dict[str, EmbeddingModel] = {}
@@ -117,6 +134,11 @@ class PersistentVectorDatabase:
         if auto_backup_interval > 0:
             self._start_auto_backup()
         
+        # Register cleanup handlers for FAISS segfault prevention
+        atexit.register(self._cleanup_faiss)
+        signal.signal(signal.SIGTERM, self._signal_cleanup)
+        signal.signal(signal.SIGINT, self._signal_cleanup)
+        
         logger.info(f"PersistentVectorDatabase initialized with storage at {self.storage_dir}")
     
     def _initialize_embedding_models(self):
@@ -126,20 +148,20 @@ class PersistentVectorDatabase:
                 name="sentence-transformers/all-MiniLM-L6-v2",
                 model_path="all-MiniLM-L6-v2",
                 dimension=384,
-                is_primary=True,
-                fallback_order=1
+                fallback_order=2
             ),
             EmbeddingModel(
                 name="sentence-transformers/all-mpnet-base-v2",
                 model_path="all-mpnet-base-v2", 
                 dimension=768,
-                fallback_order=2
+                fallback_order=3
             ),
             EmbeddingModel(
                 name="sentence-transformers/distilbert-base-nli-mean-tokens",
                 model_path="distilbert-base-nli-mean-tokens",
                 dimension=768,
-                fallback_order=3
+                is_primary=True,
+                fallback_order=1
             )
         ]
         
@@ -193,13 +215,17 @@ class PersistentVectorDatabase:
                 logger.info(f"Loaded FAISS index for {model_name}: {self.indices[model_name].ntotal} vectors")
             except Exception as e:
                 logger.error(f"Failed to load FAISS index for {model_name}: {e}")
-                # Initialize empty index
+                # Initialize empty index with stable IndexHNSWFlat (robust on CPU)
                 dimension = self.embedding_models[model_name].dimension
-                self.indices[model_name] = faiss.IndexFlatL2(dimension)
+                index = faiss.IndexHNSWFlat(dimension, 32)  # M=32 connections
+                index.hnsw.efSearch = 64  # Search parameter
+                self.indices[model_name] = index
         else:
-            # Initialize empty index
+            # Initialize empty index with stable IndexHNSWFlat (robust on CPU)
             dimension = self.embedding_models[model_name].dimension
-            self.indices[model_name] = faiss.IndexFlatL2(dimension)
+            index = faiss.IndexHNSWFlat(dimension, 32)  # M=32 connections
+            index.hnsw.efSearch = 64  # Search parameter
+            self.indices[model_name] = index
         
         # Load metadata
         metadata_path = model_dir / "metadata.json"
@@ -243,10 +269,13 @@ class PersistentVectorDatabase:
             
             # Save metadata
             metadata_path = model_dir / "metadata.json"
-            metadata_data = {
-                id_: meta.to_dict() 
-                for id_, meta in self.metadata[model_name].items()
-            }
+            metadata_data = {}
+            for id_, meta in self.metadata[model_name].items():
+                if isinstance(meta, VectorMetadata):
+                    metadata_data[id_] = meta.to_dict()
+                else:
+                    # Already a dictionary
+                    metadata_data[id_] = meta
             with open(metadata_path, 'w') as f:
                 json.dump(metadata_data, f, indent=2)
             
@@ -260,6 +289,44 @@ class PersistentVectorDatabase:
         except Exception as e:
             logger.error(f"Failed to save vector data for {model_name}: {e}")
             raise
+    
+    def safe_cleanup(self):
+        """Safe cleanup of FAISS resources with proper threading"""
+        try:
+            if hasattr(self, 'indices'):
+                for model_name, index in self.indices.items():
+                    if index is not None:
+                        try:
+                            # Serialize/deserialize for safe cleanup
+                            serialized = faiss.serialize_index(index)
+                            del serialized
+                        except Exception as e:
+                            logger.warning(f"Error during index cleanup for {model_name}: {e}")
+                        finally:
+                            index = None
+                self.indices.clear()
+            
+            if hasattr(self, 'embedding_models'):
+                self.embedding_models.clear()
+                
+            # Force garbage collection
+            import gc
+            gc.collect()
+            
+        except Exception as e:
+            logger.warning(f"Error during safe cleanup: {e}")
+    
+    def __del__(self):
+        """Destructor with safe cleanup"""
+        try:
+            self.safe_cleanup()
+        except:
+            pass  # Suppress errors during destruction
+
+    async def close(self):
+        """Async close method for proper resource cleanup"""
+        self.safe_cleanup()
+        await asyncio.sleep(0.1)  # Allow cleanup to complete
     
     def add_items(self, 
                   items: List[Tuple[str, str]], 
@@ -323,6 +390,89 @@ class PersistentVectorDatabase:
             
             return results
     
+    async def add_vectors(self, 
+                         embeddings: List[np.ndarray], 
+                         metadata: Optional[List[Dict[str, Any]]] = None,
+                         model_name: Optional[str] = None) -> List[str]:
+        """
+        Add pre-computed embeddings to the vector database.
+        
+        Args:
+            embeddings: Pre-computed embedding vectors
+            metadata: Metadata for each vector
+            model_name: Model name to use (defaults to primary)
+            
+        Returns:
+            List of vector IDs that were added
+        """
+        
+        if not embeddings:
+            return []
+            
+        # Use primary model if not specified
+        if model_name is None:
+            model_name = self.get_primary_model_name()
+            if not model_name:
+                raise ValueError("No embedding models available")
+        
+        if model_name not in self.indices:
+            raise ValueError(f"Model {model_name} not found in database")
+        
+        # Prepare metadata
+        if metadata is None:
+            metadata = [{}] * len(embeddings)
+        elif len(metadata) != len(embeddings):
+            raise ValueError("Metadata length must match embeddings length")
+        
+        try:
+            # Convert embeddings to numpy array
+            embeddings_array = np.array(embeddings, dtype=np.float32)
+            
+            # Generate IDs for the vectors
+            vector_ids = []
+            for i in range(len(embeddings)):
+                # Handle both VectorMetadata objects and dictionary metadata
+                meta_item = metadata[i]
+                if isinstance(meta_item, VectorMetadata):
+                    # Use the ID from VectorMetadata object
+                    vector_id = meta_item.id
+                elif isinstance(meta_item, dict) and 'content_hash' in meta_item:
+                    vector_id = meta_item['content_hash']
+                else:
+                    vector_id = f"vec_{int(time.time() * 1000000)}_{i}"
+                vector_ids.append(vector_id)
+            
+            # Add to FAISS index
+            self.indices[model_name].add(embeddings_array)
+            
+            # Update metadata and ID mapping
+            start_idx = len(self.id_maps[model_name])
+            for i, (vector_id, meta_item) in enumerate(zip(vector_ids, metadata)):
+                idx = start_idx + i
+                self.id_maps[model_name].append(vector_id)
+                
+                # Store metadata - convert VectorMetadata to dict if needed
+                if model_name not in self.metadata:
+                    self.metadata[model_name] = {}
+                
+                if isinstance(meta_item, VectorMetadata):
+                    # Convert VectorMetadata to dictionary
+                    self.metadata[model_name][vector_id] = meta_item.to_dict()
+                else:
+                    # Already a dictionary
+                    self.metadata[model_name][vector_id] = meta_item
+            
+            # Save to disk
+            self._save_to_disk(model_name)
+            
+            logger.info(f"Added {len(embeddings)} vectors to {model_name}")
+            return vector_ids
+            
+        except Exception as e:
+            logger.error(f"Failed to add embeddings to FAISS index for {model_name}: {type(e).__name__}: {e}")
+            logger.debug(f"Full exception details for model {model_name}", exc_info=True)
+            raise
+    
     def _process_batch(self, 
                        model_name: str,
                        model_instance: SentenceTransformer,
@@ -377,9 +527,33 @@ class PersistentVectorDatabase:
         
         # Add new embeddings to FAISS index
         if new_embeddings:
-            embeddings_array = np.array(new_embeddings).astype('float32')
-            self.indices[model_name].add(embeddings_array)
-            self.id_maps[model_name].extend(new_ids)
+            try:
+                embeddings_array = np.array(new_embeddings).astype('float32')
+                
+                # Validate embedding dimensions
+                expected_dim = self.embedding_models[model_name].dimension
+                if embeddings_array.shape[1] != expected_dim:
+                    raise ValueError(f"Embedding dimension mismatch: expected {expected_dim}, got {embeddings_array.shape[1]}")
+                
+                # Ensure embeddings are contiguous and properly formatted
+                if not embeddings_array.flags['C_CONTIGUOUS']:
+                    embeddings_array = np.ascontiguousarray(embeddings_array)
+                
+                # Thread-safe FAISS operations with explicit locking
+                with self.lock:
+                    # Add to FAISS index with error handling
+                    self.indices[model_name].add(embeddings_array)
+                    self.id_maps[model_name].extend(new_ids)
+                
+                logger.debug(f"Successfully added {len(new_embeddings)} embeddings to {model_name} index")
+                
+            except Exception as e:
+                logger.error(f"Failed to add embeddings to FAISS index for {model_name}: {e}")
+                # Rollback metadata for failed embeddings
+                for new_id in new_ids:
+                    if new_id in self.metadata[model_name]:
+                        del self.metadata[model_name][new_id]
+                raise
     
     def search(self, 
                query_text: str, 
@@ -600,6 +774,84 @@ class PersistentVectorDatabase:
         except Exception:
             return 0.0
     
+    async def initialize(self):
+        """Initialize the vector database asynchronously."""
+        # The actual initialization happens in __init__, this is for compatibility
+        logger.info("Vector database initialization complete")
+        return True
+    
+    async def add_embedding_model(self, model_or_name, **kwargs):
+        """Add a new embedding model to the database."""
+        try:
+            # Handle both EmbeddingModel objects and string names
+            if isinstance(model_or_name, EmbeddingModel):
+                # Extract attributes from EmbeddingModel object
+                model_config = EmbeddingModel(
+                    name=model_or_name.name,
+                    model_path=model_or_name.model_path,
+                    dimension=model_or_name.dimension,
+                    is_primary=model_or_name.is_primary,
+                    fallback_order=model_or_name.fallback_order
+                )
+                model_name = model_config.name
+            else:
+                model_name = model_or_name
+                # Create model configuration from string name
+                model_config = EmbeddingModel(
+                    name=model_name,
+                    model_path=kwargs.get('model_path', model_name),
+                    dimension=kwargs.get('dimension', 384),
+                    is_primary=kwargs.get('is_primary', False),
+                    fallback_order=kwargs.get('fallback_order', 999)
+                )
+            
+            # Skip if model already exists
+            if model_name in self.embedding_models:
+                logger.warning(f"Embedding model {model_name} already exists")
+                return
+            
+            # Test model availability
+            try:
+                # Ensure we're using the string path, not the object
+                model_path = str(model_config.model_path)
+                model_instance = SentenceTransformer(model_path)
+                
+                # Get actual dimension from the model
+                actual_dimension = model_instance.get_sentence_embedding_dimension()
+                
+                # Update the model config with correct dimension
+                model_config = EmbeddingModel(
+                    name=model_config.name,
+                    model_path=model_config.model_path,
+                    dimension=actual_dimension,  # Use actual dimension from model
+                    is_primary=model_config.is_primary,
+                    fallback_order=model_config.fallback_order
+                )
+                
+                self.model_instances[model_name] = model_instance
+                model_config.is_available = True
+                logger.info(f"Successfully loaded embedding model: {model_name}")
+            except Exception as e:
+                logger.warning(f"Failed to load embedding model {model_name}: {e}")
+                model_config.is_available = False
+            
+            # Add to models
+            self.embedding_models[model_name] = model_config
+            
+            # Initialize storage structures if model is available
+            if model_config.is_available:
+                self.indices[model_name] = faiss.IndexFlatIP(model_config.dimension)
+                self.metadata[model_name] = {}
+                self.id_maps[model_name] = []
+                
+                # Set as primary if none exists
+                if not self.primary_model:
+                    self.primary_model = model_name
+                    model_config.is_primary = True
+            
+        except Exception as e:
+            logger.error(f"Error adding embedding model {getattr(model_or_name, 'name', model_or_name)}: {e}")
+    
     def close(self):
         """Clean shutdown of the vector database."""
         with self.lock:
@@ -613,7 +865,84 @@ class PersistentVectorDatabase:
                     except Exception as e:
                         logger.error(f"Error saving {model_name} on shutdown: {e}")
             
-            # Shutdown executor
-            self.executor.shutdown(wait=True)
+            # Clean up FAISS resources
+            self._cleanup_faiss()
+            
+            # Shutdown executor (disabled due to threading issues)
+            # self.executor.shutdown(wait=True)
             
             logger.info("Vector database shutdown complete")
+    
+    def _cleanup_faiss(self):
+        """Clean up FAISS resources to prevent segfault on shutdown."""
+        try:
+            logger.debug("Cleaning up FAISS resources...")
+            
+            # Disable FAISS threading before cleanup
+            faiss.omp_set_num_threads(1)
+            
+            # Clear all indices explicitly with aggressive cleanup
+            for model_name in list(self.indices.keys()):
+                try:
+                    index = self.indices[model_name]
+                    if hasattr(index, 'reset'):
+                        index.reset()
+                    if hasattr(index, 'ntotal'):
+                        logger.debug(f"Cleaning index {model_name} with {index.ntotal} vectors")
+                    
+                    # Force immediate deletion
+                    del self.indices[model_name]
+                    
+                except Exception as e:
+                    logger.warning(f"Error cleaning up FAISS index for {model_name}: {e}")
+            
+            # Clear the indices dictionary
+            self.indices.clear()
+            
+            # Force Python garbage collection multiple times
+            import gc
+            for _ in range(3):
+                gc.collect()
+            
+            # Try to force FAISS internal cleanup
+            try:
+                # Create and immediately destroy a dummy index to flush FAISS state
+                dummy = faiss.IndexFlatIP(128)
+                dummy.reset()
+                del dummy
+                gc.collect()
+            except:
+                pass
+            
+            logger.debug("FAISS cleanup completed successfully")
+            
+        except Exception as e:
+            logger.warning(f"Error during FAISS cleanup: {e}")
+    
+    def get_primary_model_name(self) -> Optional[str]:
+        """Get the name of the primary embedding model."""
+        for model_name, model in self.embedding_models.items():
+            if model.is_primary:
+                return model_name
+        
+        # If no primary model found, return the first available model
+        if self.embedding_models:
+            return next(iter(self.embedding_models.keys()))
+        
+        return None
+    
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+        
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit with guaranteed cleanup."""
+        self.close()
+        return False
+    
+    def _signal_cleanup(self, signum, frame):
+        """Handle cleanup for signal termination."""
+        logger.info(f"Received signal {signum}, cleaning up...")
+        self._cleanup_faiss()
+        self.close()
+        sys.exit(0)

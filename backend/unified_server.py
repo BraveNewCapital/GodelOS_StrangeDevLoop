@@ -192,6 +192,16 @@ except ImportError as e:
     vector_db_router = None
     VECTOR_DATABASE_AVAILABLE = False
 
+# Import distributed vector database
+try:
+    from backend.api.distributed_vector_router import router as distributed_vector_router
+    DISTRIBUTED_VECTOR_AVAILABLE = True
+    logger.info("Distributed vector database available")
+except ImportError as e:
+    logger.warning(f"Distributed vector database not available: {e}")
+    distributed_vector_router = None
+    DISTRIBUTED_VECTOR_AVAILABLE = False
+
 try:
     from backend.enhanced_cognitive_api import router as enhanced_cognitive_router
     from backend.transparency_endpoints import router as transparency_router, initialize_transparency_system
@@ -527,6 +537,10 @@ if ENHANCED_APIS_AVAILABLE:
 # Include vector database router
 if VECTOR_DATABASE_AVAILABLE and vector_db_router:
     app.include_router(vector_db_router, tags=["Vector Database Management"])
+
+# Include distributed vector database router
+if DISTRIBUTED_VECTOR_AVAILABLE and distributed_vector_router:
+    app.include_router(distributed_vector_router, prefix="/api/distributed-vector", tags=["Distributed Vector Search"])
 
 # Setup replay harness endpoints
 try:

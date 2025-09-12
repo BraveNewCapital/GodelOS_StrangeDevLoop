@@ -177,26 +177,44 @@ Independent code audit verified most completed claims and identified several unt
 ### 🚧 Newly Added / Missing Architectural Tasks
 
 #### Observability & Operations
-- [ ] Latency histograms (query, vector ops, consciousness assessment)
-- [ ] Error counters by service & error code
-- [ ] Structured JSON logging + correlation / trace IDs
+- [x] Latency histograms (query, vector ops, consciousness assessment) ✅
+- [x] Error counters by service & error code ✅
+- [x] Structured JSON logging + correlation / trace IDs ✅
 - [ ] OpenTelemetry export (traces + metrics) optional toggle
-- [ ] Metrics: add queue depth, retry counts, WebSocket broadcast latency
-- [ ] /metrics: add build/git SHA & semantic version provenance
+- [x] Metrics: add queue depth, retry counts, WebSocket broadcast latency ✅
+- [x] /metrics: add build/git SHA & semantic version provenance ✅
+
+  **Status: ENHANCED OBSERVABILITY COMPLETE** — Full implementation includes:
+  - Comprehensive structured logging with JSON format and correlation tracking
+  - Latency histograms for all major operations (cognitive_loop, llm_chat, websocket, etc.)
+  - Enhanced metrics with build information, git commit, and system telemetry
+  - Operation timing decorators and context managers
+  - Prometheus-compatible metrics export with histogram buckets
+  - WebSocket observability with connection lifecycle and message flow tracking
+  - Error categorization and detailed logging for troubleshooting
 
 #### Cognitive Layer Enhancements
-- [ ] Formal state machine for cognitive pipeline phases
-- [ ] Timeout & circuit breaker policies per external call
-- [ ] Adaptive coordination policy (learned thresholds based on historical success)
+- [x] Formal state machine for cognitive pipeline phases ✅ *(via CognitiveOrchestrator)*
+- [x] Timeout & circuit breaker policies per external call ✅ *(via CircuitBreakerManager)*
+- [x] Adaptive coordination policy (learned thresholds based on historical success) ✅ *(via adaptive_learning_engine)*
 - [ ] Persistence of reasoning traces (prunable store)
-- [ ] Offline reprocessing / replay harness for queries
+- [x] Offline reprocessing / replay harness for queries ✅
 
 #### WebSocket & Streaming
-- [ ] Enforced per-connection event rate limits
-- [ ] Backpressure handling (drop policy / priority queue)
-- [ ] Subscription filter optimization (indexed by event type)
-- [ ] Recovery/resync protocol (client asks for missed sequence IDs)
-- [ ] Heartbeat & idle timeout enforcement (currently passive)
+- [x] Enforced per-connection event rate limits ✅
+- [x] Backpressure handling (drop policy / priority queue) ✅
+- [x] Subscription filter optimization (indexed by event type) ✅
+- [x] Recovery/resync protocol (client asks for missed sequence IDs) ✅
+- [x] Heartbeat & idle timeout enforcement (currently passive) ✅
+
+  **Status: ENHANCED WEBSOCKET & STREAMING COMPLETE** — Full implementation includes:
+  - Comprehensive rate limiting with per-connection windows (1000 events/60s)
+  - Intelligent backpressure with priority-based dropping and message coalescing
+  - Optimized subscription filtering with indexed event types and advanced filters
+  - Complete recovery/resync protocol with sequence IDs and chunked delivery
+  - Active heartbeat system (30s intervals) and idle timeout enforcement (5min)
+  - Background task management for connection cleanup and priority queue processing
+  - Enhanced connection management with proper cleanup of all data structures
 
 #### Testing Expansion
 - [ ] Unit tests for health probe shape & timestamp stamping logic
