@@ -19,6 +19,8 @@ from enum import Enum
 # Import consciousness engine
 from .consciousness_engine import ConsciousnessEngine, ConsciousnessState
 from .cognitive_transparency import transparency_engine
+from .errors import CognitiveError, ExternalServiceError
+from .coordination import CoordinationEvent, SimpleCoordinator
 from .metacognitive_monitor import metacognitive_monitor
 from .autonomous_learning import autonomous_learning_system
 from .knowledge_graph_evolution import knowledge_graph_evolution
@@ -139,6 +141,12 @@ class CognitiveManager:
         
         logger.info("CognitiveManager initialized")
 
+        # Lightweight coordinator for cross-component nudges
+        try:
+            self.coordinator = SimpleCoordinator(min_confidence=self.min_confidence_threshold)
+        except Exception:
+            self.coordinator = None
+
     async def _with_retries(self, op_fn, *, retries: int = 2, delay: float = 0.5, backoff: float = 2.0, op_name: str = "operation"):
         """Run an async operation with simple retry/backoff.
 
@@ -166,12 +174,20 @@ class CognitiveManager:
                 # Broadcast non-fatal failure event to WS clients if available
                 try:
                     if self.websocket_manager and attempt <= retries:
+                        err = ExternalServiceError(
+                            code=op_name,
+                            message=str(e),
+                            recoverable=True,
+                            details={"attempt": attempt, "max_attempts": retries + 1},
+                            service="llm" if "llm" in op_name else "external",
+                            operation=op_name,
+                        )
                         await self.websocket_manager.broadcast_cognitive_update({
                             "type": "recoverable_error",
                             "operation": op_name,
                             "attempt": attempt,
                             "max_attempts": retries + 1,
-                            "message": str(e)
+                            "error": err.to_dict(),
                         })
                 except Exception:
                     # Do not let telemetry failures bubble up
@@ -257,6 +273,22 @@ class CognitiveManager:
             
             initial_response = await self._perform_initial_reasoning(query, knowledge_context, context)
             reasoning_trace[-1]["result"] = initial_response
+
+            # Coordination hook: evaluate initial result and record decision
+            try:
+                if self.coordinator is not None:
+                    event = CoordinationEvent(
+                        name="initial_reasoning_complete",
+                        data={
+                            "confidence": initial_response.get("confidence", 0.0),
+                            "knowledge_context": knowledge_context,
+                        },
+                    )
+                    decision = await self.coordinator.notify(event)
+                    reasoning_trace[-1]["coordination_decision"] = decision.to_dict()
+            except Exception:
+                # Non-fatal: coordination is advisory
+                pass
             
             # Step 3: Knowledge integration
             reasoning_trace.append({
