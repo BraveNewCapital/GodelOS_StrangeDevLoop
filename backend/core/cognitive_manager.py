@@ -286,6 +286,21 @@ class CognitiveManager:
                     )
                     decision = await self.coordinator.notify(event)
                     reasoning_trace[-1]["coordination_decision"] = decision.to_dict()
+                    # If augmentation advised, best-effort merge extra context and note it
+                    if decision.action == "augment_context":
+                        augmented = await self._augment_context(query, knowledge_context)
+                        # Merge sources/entities/relationships shallowly
+                        for key in ("sources", "entities", "relationships"):
+                            if key in augmented:
+                                base_list = knowledge_context.get(key, []) or []
+                                add_list = augmented.get(key, []) or []
+                                knowledge_context[key] = base_list + [x for x in add_list if x not in base_list]
+                        reasoning_trace[-1]["context_augmentation"] = {
+                            "performed": augmented.get("augmentation", False),
+                            "added_sources": len(augmented.get("sources", []) or []),
+                            "added_entities": len(augmented.get("entities", []) or []),
+                            "added_relationships": len(augmented.get("relationships", []) or []),
+                        }
             except Exception:
                 # Non-fatal: coordination is advisory
                 pass
@@ -691,6 +706,24 @@ class CognitiveManager:
                 "reasoning_steps": [],
                 "error": str(e)
             }
+
+    async def _augment_context(self, query: str, knowledge_context: Dict[str, Any]) -> Dict[str, Any]:
+        """Attempt to augment knowledge context when confidence is low.
+
+        Non-fatal best-effort: returns additional context dict to merge.
+        """
+        try:
+            if self.knowledge_pipeline and hasattr(self.knowledge_pipeline, 'search_knowledge'):
+                results = await self.knowledge_pipeline.search_knowledge(query)
+                return {
+                    "sources": results.get("sources", []),
+                    "entities": results.get("entities", []),
+                    "relationships": results.get("relationships", []),
+                    "augmentation": True,
+                }
+        except Exception as e:
+            logger.warning(f"Context augmentation failed: {e}")
+        return {"augmentation": False}
     
     async def _integrate_knowledge(self, reasoning_result: Dict[str, Any], session_id: str) -> Dict[str, Any]:
         """Integrate new knowledge from reasoning results."""

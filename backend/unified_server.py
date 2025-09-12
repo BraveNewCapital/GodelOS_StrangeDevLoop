@@ -251,7 +251,13 @@ async def initialize_core_services():
     # Initialize cognitive manager with consciousness engine if available
     if CONSCIOUSNESS_AVAILABLE and tool_based_llm:
         try:
-            cognitive_manager = CognitiveManager(tool_based_llm, websocket_manager)
+            # Correct argument order: (godelos_integration, llm_driver, knowledge_pipeline, websocket_manager)
+            cognitive_manager = CognitiveManager(
+                godelos_integration=godelos_integration,
+                llm_driver=tool_based_llm,
+                knowledge_pipeline=None,
+                websocket_manager=websocket_manager,
+            )
             await cognitive_manager.initialize()
             logger.info("✅ Cognitive manager with consciousness engine initialized successfully")
         except Exception as e:
@@ -271,6 +277,9 @@ async def initialize_optional_services():
             await knowledge_management_service.initialize()
             if knowledge_pipeline_service and websocket_manager:
                 await knowledge_pipeline_service.initialize(websocket_manager)
+                # Wire into cognitive manager if available
+                if cognitive_manager is not None:
+                    cognitive_manager.knowledge_pipeline = knowledge_pipeline_service
             logger.info("✅ Knowledge services initialized successfully")
         except Exception as e:
             logger.error(f"❌ Failed to initialize knowledge services: {e}")
