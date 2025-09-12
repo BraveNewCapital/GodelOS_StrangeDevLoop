@@ -8,8 +8,36 @@ set -euo pipefail
 
 PORT="${GODELOS_BACKEND_PORT:-8000}"
 HOST="${GODELOS_BACKEND_HOST:-127.0.0.1}"
-LOGS_DIR="logs"
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+LOGS_DIR="${ROOT_DIR}/logs"
+# Option parsing / defaults
+WAIT="${WAIT:-1}"   # env WAIT=0 disables readiness probe
+for arg in "$@"; do
+  case "$arg" in
+    --no-wait|-n) WAIT=0 ;;
+    --wait)       WAIT=1 ;;
+    --help|-h)
+      echo "Usage: $0 [--no-wait|--wait]"
+      echo "Env vars: GODELOS_BACKEND_PORT, GODELOS_BACKEND_HOST, WAIT(1|0), WAIT_SECS"
+      exit 0
+      ;;
+  esac
+done
 
+# Defer the success message until after readiness (so it only prints when up)
+# We intercept only the specific success echo later in the script.
+if [[ "${WAIT}" != "0" ]]; then
+  BACKEND_STARTED_MSG=""
+  echo() {
+    if [[ "$*" == "✅ Backend started"* ]]; then
+      BACKEND_STARTED_MSG="$*"
+      return 0
+    fi
+    command echo "$@"
+  }
+  # Print the stored success line at script exit (after readiness loop completes)
+  trap 'if [[ -n "${BACKEND_STARTED_MSG}" ]]; then command echo "${BACKEND_STARTED_MSG}"; fi' EXIT
+fi
 mkdir -p "$LOGS_DIR"
 
 # Kill an existing server by PID file if present
@@ -33,14 +61,18 @@ if command -v lsof >/dev/null 2>&1; then
 fi
 
 # Activate venv if present
-if [[ -d godelos_venv ]]; then
+if [[ -d "${ROOT_DIR}/godelos_venv" ]]; then
   # shellcheck disable=SC1091
-  source godelos_venv/bin/activate
+  source "${ROOT_DIR}/godelos_venv/bin/activate"
 fi
 
-# Launch detached with nohup so the shell can exit cleanly
+# Ensure repo root is on PYTHONPATH so 'backend' package resolves
+export PYTHONPATH="${ROOT_DIR}:${PYTHONPATH:-}"
+
+# Launch detached with nohup; point uvicorn at repo root to resolve package
+cd "${ROOT_DIR}" || exit 1
 nohup python -m uvicorn backend.unified_server:app \
-  --host "${HOST}" --port "${PORT}" --log-level warning \
+  --host "${HOST}" --port "${PORT}" --log-level warning --app-dir "${ROOT_DIR}" \
   >"${LOGS_DIR}/backend.bg.log" 2>&1 < /dev/null &
 
 echo $! > .server.pid

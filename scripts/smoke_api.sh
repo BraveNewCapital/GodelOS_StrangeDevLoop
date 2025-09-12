@@ -1,4 +1,14 @@
+
 #!/usr/bin/env bash
+
+# Check if jq is installed
+if ! command -v jq &>/dev/null; then
+  echo "Warning: jq is not installed. JSON output will not be pretty-printed."
+  echo "Install jq for better output formatting."
+  JQ_AVAILABLE=false
+else
+  JQ_AVAILABLE=true
+fi
 set -euo pipefail
 
 # Quick, self-cleaning smoke test of the unified server.
@@ -47,8 +57,12 @@ done
 echo "Server is ready. Probing endpoints..."
 for ep in "${ENDPOINTS[@]}"; do
   echo "==> GET ${ep}"
-  curl -sf "http://${HOST}:${PORT}${ep}" | head -c 400 || true
-  echo -e "\n---"
+  if [ "$JQ_AVAILABLE" = true ]; then
+    curl -sf "http://${HOST}:${PORT}${ep}" | jq '.' || true
+  else
+    curl -sf "http://${HOST}:${PORT}${ep}" | head -c 400 || true
+  fi
+  echo "---"
 done
 
 echo "Smoke test complete. Shutting down server."

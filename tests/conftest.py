@@ -14,6 +14,40 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+# Guard against test files polluting sys.path with test subdirectories that can
+# shadow real packages (e.g., inserting tests/unit or tests/integration ahead of
+# the repo root can break imports like `from backend ...`). Keep repo root at the
+# front and remove direct test subpaths if present.
+_tests_root = Path(__file__).parent
+_paths_to_remove = []
+for _p in list(sys.path):
+    try:
+        _pp = Path(_p).resolve()
+    except Exception:
+        continue
+    if _pp != project_root.resolve() and _tests_root in _pp.parents:
+        _paths_to_remove.append(_p)
+for _p in _paths_to_remove:
+    try:
+        sys.path.remove(_p)
+    except ValueError:
+        pass
+
+# Ensure the real project 'backend' package is the one imported, not any
+# accidental test package with the same name.
+try:
+    import importlib
+    if 'backend' in sys.modules:
+        _mod = sys.modules['backend']
+        _origin = getattr(_mod, '__file__', '') or ''
+        if 'tests/backend' in _origin:
+            del sys.modules['backend']
+    # Import the backend from the project root explicitly
+    backend = importlib.import_module('backend')  # noqa: F401
+except Exception:
+    # Safe to ignore; specific tests may not require backend
+    pass
+
 # Import common fixtures
 from tests.utils.fixtures import *
 

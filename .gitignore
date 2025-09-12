@@ -295,3 +295,5 @@ test_run_output.txt
 Thumbs.db
 modernized_architecture_test_results.json
 regression_test_results.json
+godelos_data/imports/
+*.pid

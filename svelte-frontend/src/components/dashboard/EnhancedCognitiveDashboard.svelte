@@ -22,6 +22,8 @@
     let isConnected = false;
     let lastUpdate = null;
     let isLoading = true;
+    let selectedProbe = null;  // For probe detail modal
+    let showProbeModal = false;
 
     // Subscriptions
     let unsubscribe;
@@ -48,6 +50,26 @@
             probesError = String(e?.message || e);
             healthProbes = null;
         }
+    }
+
+    function getProbeStatusColor(probe) {
+        const status = probe?.status || 'unknown';
+        switch (status) {
+            case 'healthy': return 'emerald';
+            case 'warning': return 'amber';
+            case 'error': case 'unavailable': return 'red';
+            default: return 'gray';
+        }
+    }
+
+    function openProbeModal(probeName, probeData) {
+        selectedProbe = { name: probeName, data: probeData };
+        showProbeModal = true;
+    }
+
+    function closeProbeModal() {
+        showProbeModal = false;
+        selectedProbe = null;
     }
 
     function getHealthStatus() {
@@ -266,70 +288,33 @@
                 {:else if healthProbes}
                     <div class="probes-grid">
                         {#each Object.entries(healthProbes) as [key, probe]}
-                            <div class="probe-card" data-testid={`probe-${key}`}>
+                            <div class="probe-card probe-card-clickable" 
+                                 data-testid={`probe-${key}`}
+                                 on:click={() => openProbeModal(key, probe)}
+                                 on:keydown={(e) => e.key === 'Enter' && openProbeModal(key, probe)}
+                                 tabindex="0"
+                                 role="button"
+                                 aria-label={`View details for ${key} probe`}>
                                 <div class="probe-header">
                                     <div class="probe-name">{key}</div>
-                                    <div class="status-indicator status-{(probe.status || 'unknown') === 'healthy' ? 'healthy' : (probe.status === 'unavailable' ? 'unhealthy' : (probe.status === 'error' ? 'unhealthy' : 'warning'))}">
+                                    <div class="status-indicator status-{getProbeStatusColor(probe)}">
                                         <div class="status-dot"></div>
                                         <span class="status-text">{probe.status || 'unknown'}</span>
                                     </div>
                                 </div>
                                 <div class="probe-body">
                                     {#if probe.timestamp}
-                                        <div class="probe-row"><span>timestamp:</span> <code>{fmtTS(probe.timestamp)}</code></div>
-                                    {/if}
-                                    {#if probe.production_db !== undefined}
-                                        <div class="probe-row"><span>production_db:</span> <code>{fmtBool(probe.production_db)}</code></div>
-                                    {/if}
-                                    {#if probe.legacy_fallback !== undefined}
-                                        <div class="probe-row"><span>legacy_fallback:</span> <code>{fmtBool(probe.legacy_fallback)}</code></div>
+                                        <div class="probe-row"><span>Last Check:</span> <code>{fmtTS(probe.timestamp)}</code></div>
                                     {/if}
                                     {#if probe.total_vectors !== undefined}
-                                        <div class="probe-row"><span>total_vectors:</span> <code>{probe.total_vectors}</code></div>
-                                    {/if}
-                                    {#if probe.initialized !== undefined}
-                                        <div class="probe-row"><span>initialized:</span> <code>{fmtBool(probe.initialized)}</code></div>
+                                        <div class="probe-row"><span>Vectors:</span> <code>{probe.total_vectors}</code></div>
                                     {/if}
                                     {#if probe.queue_size !== undefined}
-                                        <div class="probe-row"><span>queue_size:</span> <code>{probe.queue_size}</code></div>
+                                        <div class="probe-row"><span>Queue:</span> <code>{probe.queue_size}</code></div>
                                     {/if}
-                                    {#if probe.active_sessions !== undefined}
-                                        <div class="probe-row"><span>active_sessions:</span> <code>{probe.active_sessions}</code></div>
-                                    {/if}
-                                    {#if probe.available !== undefined}
-                                        <div class="probe-row"><span>available:</span> <code>{fmtBool(probe.available)}</code></div>
-                                    {/if}
-                                    {#if probe.components_active !== undefined}
-                                        <div class="probe-row"><span>components:</span> <code>{probe.components_active}/{probe.total_components}</code></div>
-                                    {/if}
-                                    {#if probe.processing_metrics}
-                                        <div class="probe-subtitle">processing_metrics</div>
-                                        <div class="probe-row"><span>documents_processed:</span> <code>{probe.processing_metrics.documents_processed}</code></div>
-                                        <div class="probe-row"><span>entities_extracted:</span> <code>{probe.processing_metrics.entities_extracted}</code></div>
-                                        <div class="probe-row"><span>relationships_extracted:</span> <code>{probe.processing_metrics.relationships_extracted}</code></div>
-                                        <div class="probe-row"><span>queries_processed:</span> <code>{probe.processing_metrics.queries_processed}</code></div>
-                                    {/if}
-                                    {#if probe.knowledge_store}
-                                        <div class="probe-subtitle">knowledge_store</div>
-                                        <div class="probe-row"><span>total_items:</span> <code>{probe.knowledge_store.total_knowledge_items}</code></div>
-                                        <div class="probe-row"><span>active_connections:</span> <code>{probe.knowledge_store.active_connections}</code></div>
-                                    {/if}
-                                    {#if probe.vector_store}
-                                        <div class="probe-subtitle">vector_store</div>
-                                        <div class="probe-row"><span>total_embeddings:</span> <code>{probe.vector_store.total_embeddings}</code></div>
-                                        <div class="probe-row"><span>dimensions:</span> <code>{probe.vector_store.dimensions}</code></div>
-                                    {/if}
-                                    {#if Array.isArray(probe.errors) && probe.errors.length}
-                                        <div class="probe-subtitle">errors</div>
-                                        <div class="probe-errors">
-                                            {#each probe.errors.slice(0,3) as err}
-                                                <div class="probe-error">{err}</div>
-                                            {/each}
-                                            {#if probe.errors.length > 3}
-                                                <div class="probe-error-more">+{probe.errors.length - 3} more…</div>
-                                            {/if}
-                                        </div>
-                                    {/if}
+                                    <div class="probe-row">
+                                        <span class="probe-click-hint">Click for details →</span>
+                                    </div>
                                 </div>
                             </div>
                         {/each}
@@ -473,6 +458,48 @@
         {/if}
     </main>
 </div>
+
+<!-- Probe Detail Modal -->
+{#if showProbeModal && selectedProbe}
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
+    <div class="modal-overlay" on:click={closeProbeModal}>
+        <div class="modal-content" on:click|stopPropagation>
+            <div class="modal-header">
+                <h2>Probe Details: {selectedProbe.name}</h2>
+                <button class="modal-close" on:click={closeProbeModal} aria-label="Close modal">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="probe-status-banner status-{getProbeStatusColor(selectedProbe.data)}">
+                    <div class="status-dot"></div>
+                    <span>Status: {selectedProbe.data.status || 'unknown'}</span>
+                </div>
+                
+                <div class="probe-details-grid">
+                    {#each Object.entries(selectedProbe.data) as [key, value]}
+                        <div class="detail-row">
+                            <div class="detail-label">{key}:</div>
+                            <div class="detail-value">
+                                {#if key === 'timestamp'}
+                                    <code>{fmtTS(value)}</code>
+                                {:else if typeof value === 'boolean'}
+                                    <code class="bool-{value}">{fmtBool(value)}</code>
+                                {:else if typeof value === 'object' && value !== null}
+                                    <details>
+                                        <summary>View object</summary>
+                                        <pre>{JSON.stringify(value, null, 2)}</pre>
+                                    </details>
+                                {:else}
+                                    <code>{value}</code>
+                                {/if}
+                            </div>
+                        </div>
+                    {/each}
+                </div>
+            </div>
+        </div>
+    </div>
+{/if}
 
 <style>
     .enhanced-dashboard {
@@ -622,17 +649,219 @@
     .probes { margin-top: 1.5rem; }
     .probes-title { margin: 0 0 0.5rem 0; font-size: 1.1rem; opacity: 0.9; }
     .probes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
-    .probe-card { background: rgba(0,0,0,0.2); border: 1px solid rgba(100,120,150,0.2); border-radius: 10px; padding: 10px; }
+    .probe-card { 
+        background: rgba(0,0,0,0.2); 
+        border: 1px solid rgba(100,120,150,0.2); 
+        border-radius: 10px; 
+        padding: 10px; 
+        transition: all 0.2s ease;
+    }
+    .probe-card-clickable {
+        cursor: pointer;
+        user-select: none;
+    }
+    .probe-card-clickable:hover {
+        background: rgba(0,0,0,0.3);
+        border-color: rgba(100,120,150,0.4);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+    .probe-card-clickable:focus {
+        outline: 2px solid rgba(99, 102, 241, 0.5);
+        outline-offset: 2px;
+    }
     .probe-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
     .probe-name { font-weight: 600; font-size: 0.95rem; }
     .probe-body { font-size: 0.85rem; display: grid; gap: 6px; }
     .probe-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .probe-row span { opacity: 0.8; }
+    .probe-click-hint { 
+        opacity: 0.6; 
+        font-size: 0.75rem; 
+        font-style: italic; 
+        color: #a78bfa;
+    }
     .probes-loading, .probes-error { font-size: 0.9rem; opacity: 0.8; padding: 6px 0; }
     .probe-subtitle { margin-top: 4px; font-weight: 600; font-size: 0.8rem; opacity: 0.8; }
     .probe-errors { display: grid; gap: 2px; }
     .probe-error { font-size: 0.8rem; opacity: 0.9; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 6px; padding: 4px 6px; }
     .probe-error-more { font-size: 0.8rem; opacity: 0.7; }
+
+    /* Enhanced Status Colors */
+    .status-emerald .status-dot { background: #10b981; }
+    .status-emerald .status-text { color: #10b981; }
+    .status-amber .status-dot { background: #f59e0b; }
+    .status-amber .status-text { color: #f59e0b; }
+    .status-red .status-dot { background: #ef4444; }
+    .status-red .status-text { color: #ef4444; }
+    .status-gray .status-dot { background: #6b7280; }
+    .status-gray .status-text { color: #6b7280; }
+
+    /* Modal Styles */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(4px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        padding: 1rem;
+    }
+
+    .modal-content {
+        background: linear-gradient(145deg, #1f2937, #111827);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px;
+        max-width: 600px;
+        width: 100%;
+        max-height: 80vh;
+        overflow: hidden;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+
+    .modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 1.5rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.05);
+    }
+
+    .modal-header h2 {
+        margin: 0;
+        color: white;
+        font-size: 1.25rem;
+        font-weight: 600;
+    }
+
+    .modal-close {
+        background: none;
+        border: none;
+        color: #9ca3af;
+        font-size: 1.5rem;
+        cursor: pointer;
+        padding: 0.25rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 6px;
+        transition: all 0.2s ease;
+    }
+
+    .modal-close:hover {
+        background: rgba(255, 255, 255, 0.1);
+        color: white;
+    }
+
+    .modal-body {
+        padding: 1.5rem;
+        overflow-y: auto;
+        max-height: calc(80vh - 120px);
+    }
+
+    .probe-status-banner {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 1rem;
+        border-radius: 10px;
+        margin-bottom: 1.5rem;
+        font-weight: 500;
+    }
+
+    .probe-status-banner.status-emerald {
+        background: rgba(16, 185, 129, 0.1);
+        border: 1px solid rgba(16, 185, 129, 0.3);
+        color: #10b981;
+    }
+
+    .probe-status-banner.status-amber {
+        background: rgba(245, 158, 11, 0.1);
+        border: 1px solid rgba(245, 158, 11, 0.3);
+        color: #f59e0b;
+    }
+
+    .probe-status-banner.status-red {
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        color: #ef4444;
+    }
+
+    .probe-status-banner.status-gray {
+        background: rgba(107, 114, 128, 0.1);
+        border: 1px solid rgba(107, 114, 128, 0.3);
+        color: #6b7280;
+    }
+
+    .probe-details-grid {
+        display: grid;
+        gap: 1rem;
+    }
+
+    .detail-row {
+        display: grid;
+        grid-template-columns: 1fr 2fr;
+        gap: 1rem;
+        align-items: start;
+        padding: 0.75rem;
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .detail-label {
+        font-weight: 500;
+        color: #d1d5db;
+        word-break: break-word;
+    }
+
+    .detail-value {
+        color: white;
+    }
+
+    .detail-value code {
+        background: rgba(0, 0, 0, 0.3);
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+        font-size: 0.875rem;
+    }
+
+    .detail-value .bool-true {
+        color: #10b981;
+    }
+
+    .detail-value .bool-false {
+        color: #ef4444;
+    }
+
+    .detail-value details {
+        margin-top: 0.5rem;
+    }
+
+    .detail-value summary {
+        cursor: pointer;
+        color: #a78bfa;
+        font-size: 0.875rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .detail-value pre {
+        background: rgba(0, 0, 0, 0.4);
+        padding: 1rem;
+        border-radius: 6px;
+        overflow: auto;
+        font-size: 0.8rem;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        max-height: 200px;
+    }
 
     .header-actions {
         display: flex;
