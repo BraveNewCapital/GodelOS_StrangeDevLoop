@@ -25,6 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
+from backend.core.errors import CognitiveError, from_exception
 
 # Load environment variables from .env file
 load_dotenv()
@@ -38,6 +39,12 @@ logger = logging.getLogger(__name__)
 
 # Add the parent directory to Python path for GödelOS imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+
+def _structured_http_error(status: int, *, code: str, message: str, recoverable: bool = False, service: Optional[str] = None, **details) -> HTTPException:
+    """Create a standardized HTTPException detail using CognitiveError."""
+    err = CognitiveError(code=code, message=message, recoverable=recoverable, details={**({"service": service} if service else {}), **details})
+    return HTTPException(status_code=status, detail=err.to_dict())
 
 # Core model definitions
 class QueryRequest(BaseModel):
@@ -618,20 +625,22 @@ async def get_consciousness_state():
     """Get current consciousness state assessment."""
     try:
         if not cognitive_manager:
-            raise HTTPException(status_code=503, detail="Consciousness engine not available")
+            raise _structured_http_error(503, code="cognitive_manager_unavailable", message="Consciousness engine not available", service="consciousness")
         
         consciousness_state = await cognitive_manager.assess_consciousness()
         return consciousness_state
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error getting consciousness state: {e}")
-        raise HTTPException(status_code=500, detail=f"Consciousness assessment error: {str(e)}")
+        raise _structured_http_error(500, code="consciousness_assessment_error", message=str(e), service="consciousness")
 
 @app.post("/api/v1/consciousness/assess")
 async def assess_consciousness():
     """Trigger a comprehensive consciousness assessment."""
     try:
         if not cognitive_manager:
-            raise HTTPException(status_code=503, detail="Consciousness engine not available")
+            raise _structured_http_error(503, code="cognitive_manager_unavailable", message="Consciousness engine not available", service="consciousness")
         
         assessment = await cognitive_manager.assess_consciousness()
         return {
@@ -639,29 +648,33 @@ async def assess_consciousness():
             "timestamp": datetime.now().isoformat(),
             "status": "completed"
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error assessing consciousness: {e}")
-        raise HTTPException(status_code=500, detail=f"Consciousness assessment error: {str(e)}")
+        raise _structured_http_error(500, code="consciousness_assessment_error", message=str(e), service="consciousness")
 
 @app.get("/api/v1/consciousness/summary")
 async def get_consciousness_summary():
     """Get a summary of consciousness capabilities and current state."""
     try:
         if not cognitive_manager:
-            raise HTTPException(status_code=503, detail="Consciousness engine not available")
+            raise _structured_http_error(503, code="cognitive_manager_unavailable", message="Consciousness engine not available", service="consciousness")
         
         summary = await cognitive_manager.get_consciousness_summary()
         return summary
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error getting consciousness summary: {e}")
-        raise HTTPException(status_code=500, detail=f"Consciousness summary error: {str(e)}")
+        raise _structured_http_error(500, code="consciousness_summary_error", message=str(e), service="consciousness")
 
 @app.post("/api/v1/consciousness/goals/generate")
 async def generate_autonomous_goals():
     """Generate autonomous goals based on current consciousness state."""
     try:
         if not cognitive_manager:
-            raise HTTPException(status_code=503, detail="Consciousness engine not available")
+            raise _structured_http_error(503, code="cognitive_manager_unavailable", message="Consciousness engine not available", service="consciousness")
         
         goals = await cognitive_manager.initiate_autonomous_goals()
         return {
@@ -669,16 +682,18 @@ async def generate_autonomous_goals():
             "timestamp": datetime.now().isoformat(),
             "status": "generated"
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error generating autonomous goals: {e}")
-        raise HTTPException(status_code=500, detail=f"Goal generation error: {str(e)}")
+        raise _structured_http_error(500, code="goal_generation_error", message=str(e), service="consciousness")
 
 @app.get("/api/v1/consciousness/trajectory")
 async def get_consciousness_trajectory():
     """Get consciousness trajectory and behavioral patterns."""
     try:
         if not cognitive_manager:
-            raise HTTPException(status_code=503, detail="Consciousness engine not available")
+            raise _structured_http_error(503, code="cognitive_manager_unavailable", message="Consciousness engine not available", service="consciousness")
         
         # Get current state as baseline for trajectory
         current_state = await cognitive_manager.assess_consciousness()
@@ -700,9 +715,11 @@ async def get_consciousness_trajectory():
         }
         
         return trajectory
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error getting consciousness trajectory: {e}")
-        raise HTTPException(status_code=500, detail=f"Consciousness trajectory error: {str(e)}")
+        raise _structured_http_error(500, code="consciousness_trajectory_error", message=str(e), service="consciousness")
 
 # Transparency API endpoints
 @app.get("/api/v1/transparency/metrics")
@@ -986,29 +1003,33 @@ async def get_concept_neighborhood(
     """Get the neighborhood of concepts around a given concept"""
     try:
         if not cognitive_manager:
-            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+            raise _structured_http_error(503, code="cognitive_manager_unavailable", message="Cognitive manager not available", service="knowledge_graph")
         
         result = await cognitive_manager.get_concept_neighborhood(
             concept_id=concept_id,
             depth=depth
         )
         return JSONResponse(content=result)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error getting concept neighborhood: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _structured_http_error(500, code="kg_neighborhood_error", message=str(e), service="knowledge_graph")
 
 @app.get("/api/v1/knowledge-graph/summary")
 async def get_knowledge_graph_summary():
     """Get comprehensive summary of knowledge graph evolution"""
     try:
         if not cognitive_manager:
-            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+            raise _structured_http_error(503, code="cognitive_manager_unavailable", message="Cognitive manager not available", service="knowledge_graph")
         
         result = await cognitive_manager.get_knowledge_graph_summary()
         return JSONResponse(content=result)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error getting knowledge graph summary: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _structured_http_error(500, code="kg_summary_error", message=str(e), service="knowledge_graph")
 
 # PHENOMENAL EXPERIENCE ENDPOINTS
 
@@ -1017,7 +1038,7 @@ async def generate_phenomenal_experience(experience_data: Dict[str, Any]):
     """Generate a phenomenal experience with automatic knowledge graph evolution integration"""
     try:
         if not cognitive_manager:
-            raise HTTPException(status_code=503, detail="Cognitive manager not available")
+            raise _structured_http_error(503, code="cognitive_manager_unavailable", message="Cognitive manager not available", service="phenomenal")
         
         experience_type = experience_data.get("experience_type", "cognitive")
         trigger_context = experience_data.get("trigger_context", experience_data.get("context", ""))
@@ -1033,7 +1054,7 @@ async def generate_phenomenal_experience(experience_data: Dict[str, Any]):
         )
         
         if result.get("error"):
-            raise HTTPException(status_code=500, detail=result["error"])
+            raise _structured_http_error(500, code="phenomenal_generation_error", message=str(result["error"]), service="phenomenal")
         
         return JSONResponse(content={
             "status": "success",
@@ -1042,9 +1063,11 @@ async def generate_phenomenal_experience(experience_data: Dict[str, Any]):
             "integration_status": result.get("integration_status"),
             "bidirectional": result.get("bidirectional", False)
         })
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error generating phenomenal experience: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _structured_http_error(500, code="phenomenal_generation_error", message=str(e), service="phenomenal")
 
 @app.get("/api/v1/phenomenal/conscious-state")
 async def get_conscious_state():
@@ -1081,9 +1104,11 @@ async def get_conscious_state():
                 "timestamp": conscious_state.timestamp
             }
         })
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error getting conscious state: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _structured_http_error(500, code="phenomenal_state_error", message=str(e), service="phenomenal")
 
 @app.get("/api/v1/phenomenal/experience-history")
 async def get_experience_history(limit: Optional[int] = 10):
