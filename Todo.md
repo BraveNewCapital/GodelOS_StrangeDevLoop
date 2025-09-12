@@ -11,6 +11,8 @@
 - ✅ Structured error propagation across endpoints
 - ✅ Coordination telemetry endpoint (`/api/v1/cognitive/coordination/recent`)
 - ✅ Backend integration/e2e coverage (backend-only) now passing
+- ✅ UI enhancements: header health chip + subsystem probes widget; WS error alerts
+- ✅ NVM/Node 18.19 set for UI tests
 
 ## 🎉 PHASE 1 COMPLETE - All Critical Issues Resolved! 
 
@@ -52,9 +54,9 @@
    - Fixed string input handling in qualia pattern calculations
    - Resolved "bad operand type for abs(): 'str'" errors
 
-**🚀 Next Phase: API Consolidation and Infrastructure Enhancement**
+**🚀 Current Focus: Consolidation, Observability, and UI/Tests**
 
-### 🛠️ Phase 1: API Unification and Standardization
+### 🛠️ API Unification and Standardization
 - [x] **Consolidate Multiple Server Implementations**
   - [x] Audit unified_server.py vs main.py vs modernized_main.py
   - [x] Migrate all functionality to unified_server.py  
@@ -68,7 +70,7 @@
   
   Status: in progress — laying out concrete subtasks for coordination/error handling.
 
-### 📡 Phase 2: Infrastructure Enhancement
+### 📡 Infrastructure Enhancement
 - [x] **Implement Production Vector Database** ✅
   - [x] Replace in-memory FAISS with persistent storage ✅
   - [x] Add vector database backup and recovery ✅
@@ -81,7 +83,7 @@
   - [ ] Add inter-agent communication framework
   - [ ] Create agent lifecycle management
 
-### 🧠 Phase 3: Advanced Knowledge Management
+### 🧠 Knowledge Management
 - [ ] **Structured Knowledge Gap Analysis**
   - [ ] Implement formal ontology framework
   - [ ] Add knowledge gap detection algorithms
@@ -92,7 +94,7 @@
   - [ ] Add semantic relationship inference
   - [ ] Implement knowledge validation frameworks
 
-### 🎨 Phase 4: UX Enhancement
+### 🎨 UX / UI Enhancement
 - [ ] **Real-time Consciousness Visualization**
   - [ ] Enhance consciousness state displays
   - [ ] Add interactive cognitive flow visualization
@@ -103,7 +105,7 @@
   - [ ] Add collaborative knowledge editing
   - [ ] Implement knowledge graph analytics
 
-### 🧪 Phase 5: Testing and Validation
+### 🧪 Testing and Validation
 - [ ] **Comprehensive Integration Testing**
   - [ ] Create end-to-end cognitive pipeline tests
   - [ ] Add WebSocket streaming validation
@@ -191,11 +193,11 @@ ERROR: bad operand type for abs(): 'str'
 
 ## Progress Tracking
 
-- **Overall Progress**: 85% (post-critical fixes + consolidation)
+- **Overall Progress**: 88% (post-critical fixes + consolidation + UI probes)
 - **Critical Issues Resolved**: 5/5
 - **Phase 1 Completion**: 100%
 - **API Consolidation**: 100%
-- **Cognitive Manager Enhancements**: 35% (coordination, structured errors, health probes, augmentation)
+- **Cognitive Manager Enhancements**: 40% (coordination, structured errors, health probes, augmentation)
 - **Target Completion**: 95% architectural goals
 
 ### Next Actionable Subtasks (Cognitive Manager)
@@ -206,20 +208,37 @@ ERROR: bad operand type for abs(): 'str'
 - ✅ Add lightweight health probes for subsystems and surface via `/api/health`
 - ✅ Implement best-effort context augmentation when confidence low
 
-### Downstream Required Tasks
+### Current Completed Items
 - ✅ Vector DB resilience: add retry/backoff to `backend/core/vector_service.py` operations; emit `recoverable_error` WS events with `service: "vector_db"`; add probe timestamps in `/api/health`.
 - ✅ Structured error propagation: return `CognitiveError` shapes from high-surface endpoints (consciousness, phenomenal, KG) with proper 4xx/5xx handling; unit tests added.
 - ✅ Coordination telemetry: `GET /api/v1/cognitive/coordination/recent` exposes recent decisions (no PII); unit tests added.
 - ✅ Data guard: skip/guard invalid `knowledge_storage/categories.json` and non-mapping JSON in loader
 - ✅ Tooling: detached server scripts `scripts/start-backend-bg.sh` and `scripts/stop-backend-bg.sh` with readiness wait
- - Frontend updates: 
-  - ✅ Handle `recoverable_error` WS events with non-blocking alert in UI
-  - ✅ Add a health widget that visualizes `/api/health.probes` statuses (EnhancedCognitiveDashboard)
+ - Frontend updates:
+   - ✅ Handle `recoverable_error` WS events with non-blocking alert in UI
+   - ✅ Add a health widget that visualizes `/api/health.probes` statuses (EnhancedCognitiveDashboard)
  - Tests:
-  - Unit: retry/backoff behavior (LLM + Vector DB) and coordination decisions.
-  - API: assert `/api/health` exposes `probes` keys and basic shapes. (done)
-  - ✅ UI: Playwright spec for health widget (svelte-frontend/tests/health-probes.spec.js); recoverable error alert relies on backend WS event
-- Tooling: prefer `scripts/smoke_api.sh` for start→probe→exit local checks; document in README.
+   - ✅ API: assert `/api/health` exposes `probes` keys and basic shapes
+   - ✅ UI: Playwright spec for health widget (svelte-frontend/tests/health-probes.spec.js)
+
+### Next Objectives (Prioritized)
+1) Backend
+   - Coordination: telemetry filters/pagination; add simple query params to `/api/v1/cognitive/coordination/recent`
+   - Observability: consider `/metrics` and enrich `/api/health` with durations/version
+   - Stability: refine ingestion progress/state and reduce log noise
+2) Frontend
+   - Probe detail drill-down (modal) + status colors
+   - Playwright spec to simulate recoverable_error WS alert
+   - ConnectionStatus reflects probe health in addition to WS
+3) CI / Tooling
+   - Add a CI job: backend bg + vite preview + Playwright probes test (nvm 18.19)
+
+### How to Run
+- Backend (detached): `WAIT_SECS=120 ./scripts/start-backend-bg.sh`
+- Stop backend: `./scripts/stop-backend-bg.sh`
+- UI (dev): `cd svelte-frontend && nvm use && npm install && npm run dev`
+- UI (preview): `cd svelte-frontend && npm run build && npm run preview`
+- UI E2E (probes): `./scripts/run-ui-probes-test.sh`
 
 ### Testing Status
 - ✅ Unit: vector DB retry/backoff and `/api/health` probes
