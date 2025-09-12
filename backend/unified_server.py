@@ -22,9 +22,12 @@ from typing import Dict, List, Optional, Any, Union
 import uvicorn
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, File, UploadFile, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse, Response
 from pydantic import BaseModel
 from dotenv import load_dotenv
+
+# Ensure repository root is on sys.path before importing backend.* packages
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from backend.core.errors import CognitiveError, from_exception
 
 # Load environment variables from .env file
@@ -37,8 +40,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Add the parent directory to Python path for GödelOS imports
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# (PYTHONPATH insertion is done above, before importing backend.*)
 
 
 def _structured_http_error(status: int, *, code: str, message: str, recoverable: bool = False, service: Optional[str] = None, **details) -> HTTPException:
@@ -452,6 +454,9 @@ async def lifespan(app: FastAPI):
     
     logger.info("✅ Shutdown complete")
 
+# Server start time for metrics
+server_start_time = time.time()
+
 # Create FastAPI app
 app = FastAPI(
     title="GödelOS Unified Cognitive API",
@@ -590,6 +595,110 @@ async def health_check():
         "probes": probes,
         "version": "2.0.0"
     }
+
+@app.get("/metrics")
+async def get_metrics():
+    """Prometheus-style metrics endpoint for monitoring and observability."""
+    try:
+        import psutil
+        import os
+        from datetime import datetime
+        
+        # Basic system metrics
+        cpu_percent = psutil.cpu_percent(interval=1)
+        memory = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        
+        # Process metrics
+        process = psutil.Process(os.getpid())
+        process_memory = process.memory_info()
+        process_cpu = process.cpu_percent()
+        
+        # Cognitive manager metrics
+        cognitive_metrics = {}
+        if cognitive_manager:
+            try:
+                coordination_count = len(cognitive_manager.coordination_events)
+                cognitive_metrics = {
+                    "coordination_decisions_total": coordination_count,
+                    "coordination_queue_size": coordination_count
+                }
+            except Exception:
+                pass
+        
+        # Vector DB metrics
+        vector_metrics = {}
+        if VECTOR_DATABASE_AVAILABLE and get_vector_database:
+            try:
+                vdb = get_vector_database()
+                if vdb:
+                    # Get vector DB status
+                    vector_status = getattr(vdb, '_last_probe_status', 'unknown')
+                    vector_metrics = {
+                        "vector_db_status": 1 if vector_status == 'healthy' else 0,
+                        "vector_db_last_probe": getattr(vdb, '_last_probe_time', 0)
+                    }
+            except Exception:
+                pass
+        
+        # WebSocket metrics
+        websocket_metrics = {}
+        if websocket_manager:
+            try:
+                active_connections = len(getattr(websocket_manager, 'active_connections', []))
+                websocket_metrics = {
+                    "websocket_connections_active": active_connections,
+                    "websocket_messages_sent_total": getattr(websocket_manager, '_messages_sent', 0)
+                }
+            except Exception:
+                pass
+        
+        metrics = {
+            # System metrics
+            "system_cpu_percent": cpu_percent,
+            "system_memory_total_bytes": memory.total,
+            "system_memory_used_bytes": memory.used,
+            "system_memory_percent": memory.percent,
+            "system_disk_total_bytes": disk.total,
+            "system_disk_used_bytes": disk.used,
+            "system_disk_percent": (disk.used / disk.total) * 100,
+            
+            # Process metrics
+            "process_cpu_percent": process_cpu,
+            "process_memory_rss_bytes": process_memory.rss,
+            "process_memory_vms_bytes": process_memory.vms,
+            "process_uptime_seconds": time.time() - process.create_time(),
+            
+            # Application metrics
+            "godelos_version": "2.0.0",
+            "godelos_start_time": server_start_time,
+            "godelos_uptime_seconds": time.time() - server_start_time,
+            
+            **cognitive_metrics,
+            **vector_metrics,
+            **websocket_metrics
+        }
+        
+        # Format as Prometheus-style text (basic implementation)
+        prometheus_output = []
+        for metric_name, value in metrics.items():
+            if isinstance(value, (int, float)):
+                prometheus_output.append(f"{metric_name} {value}")
+            else:
+                prometheus_output.append(f'# {metric_name} "{value}"')
+        
+        return Response(
+            content="\n".join(prometheus_output) + "\n",
+            media_type="text/plain"
+        )
+        
+    except Exception as e:
+        logger.error(f"Error generating metrics: {e}")
+        return Response(
+            content=f"# Error generating metrics: {e}\n",
+            media_type="text/plain",
+            status_code=500
+        )
 
 @app.get("/api/health")
 async def api_health_check():
@@ -1126,16 +1235,53 @@ async def get_conscious_state():
         raise _structured_http_error(500, code="phenomenal_state_error", message=str(e), service="phenomenal")
     
 @app.get("/api/v1/cognitive/coordination/recent")
-async def get_recent_coordination_decisions(limit: int = Query(default=20, le=100)):
-    """Surface recent coordination decisions for observability (no PII)."""
+async def get_recent_coordination_decisions(
+    limit: int = Query(default=20, le=100),
+    session_id: Optional[str] = Query(default=None),
+    min_confidence: Optional[float] = Query(default=None, ge=0.0, le=1.0),
+    max_confidence: Optional[float] = Query(default=None, ge=0.0, le=1.0),
+    augmentation_only: Optional[bool] = Query(default=None),
+    since_timestamp: Optional[float] = Query(default=None)
+):
+    """Surface recent coordination decisions for observability (no PII) with filtering."""
     try:
         if not cognitive_manager:
             raise _structured_http_error(503, code="cognitive_manager_unavailable", message="Cognitive manager not available", service="coordination")
-        decisions = cognitive_manager.get_recent_coordination_decisions(limit=limit)
+        
+        # Get all decisions and apply filters
+        all_decisions = cognitive_manager.get_recent_coordination_decisions(limit=1000)  # Get more to filter
+        filtered_decisions = []
+        
+        for decision in all_decisions:
+            # Apply filters
+            if session_id and decision.get("session_id") != session_id:
+                continue
+            if min_confidence is not None and decision.get("confidence", 0.0) < min_confidence:
+                continue
+            if max_confidence is not None and decision.get("confidence", 1.0) > max_confidence:
+                continue
+            if augmentation_only is not None and decision.get("augmentation", False) != augmentation_only:
+                continue
+            if since_timestamp is not None and decision.get("timestamp", 0.0) < since_timestamp:
+                continue
+            
+            filtered_decisions.append(decision)
+        
+        # Apply limit to filtered results
+        final_decisions = filtered_decisions[-limit:] if limit > 0 else filtered_decisions
+        
         return JSONResponse(content={
-            "count": len(decisions),
+            "count": len(final_decisions),
+            "total_before_limit": len(filtered_decisions),
             "limit": limit,
-            "decisions": decisions
+            "filters": {
+                "session_id": session_id,
+                "min_confidence": min_confidence,
+                "max_confidence": max_confidence,
+                "augmentation_only": augmentation_only,
+                "since_timestamp": since_timestamp
+            },
+            "decisions": final_decisions
         })
     except HTTPException:
         raise
