@@ -555,6 +555,19 @@ except Exception as e:
     logger.error(f"Failed to setup agentic daemon endpoints: {e}")
     AGENTIC_DAEMON_AVAILABLE = False
 
+# Include enhanced knowledge management router
+try:
+    from backend.api.knowledge_management_endpoints import router as knowledge_management_router
+    app.include_router(knowledge_management_router, tags=["Knowledge Management"])
+    KNOWLEDGE_MANAGEMENT_AVAILABLE = True
+    logger.info("Enhanced knowledge management endpoints available")
+except ImportError as e:
+    logger.warning(f"Knowledge management endpoints not available: {e}")
+    KNOWLEDGE_MANAGEMENT_AVAILABLE = False
+except Exception as e:
+    logger.error(f"Failed to setup knowledge management endpoints: {e}")
+    KNOWLEDGE_MANAGEMENT_AVAILABLE = False
+
 # Setup replay harness endpoints
 try:
     from backend.api.replay_endpoints import setup_replay_endpoints
@@ -661,6 +674,12 @@ async def health_check():
         probes["agentic_daemon_system"] = {"available": AGENTIC_DAEMON_AVAILABLE, "status": "healthy" if AGENTIC_DAEMON_AVAILABLE else "unavailable"}
     except Exception:
         probes["agentic_daemon_system"] = {"status": "unknown"}
+
+    # Knowledge management system probe
+    try:
+        probes["knowledge_management_system"] = {"available": KNOWLEDGE_MANAGEMENT_AVAILABLE, "status": "healthy" if KNOWLEDGE_MANAGEMENT_AVAILABLE else "unavailable"}
+    except Exception:
+        probes["knowledge_management_system"] = {"status": "unknown"}
 
     now_iso = datetime.now().isoformat()
     # Stamp each probe with a timestamp to aid diagnostics
