@@ -46,12 +46,13 @@
         cognitiveLoad = state.manifestConsciousness.processingLoad || 0;
       }
       
-      // Extract system health metrics
+      // Extract system health metrics (with proper validation)
       if (state.systemHealth) {
-        const healthValues = Object.values(state.systemHealth).filter(v => typeof v === 'number');
+        const healthValues = Object.values(state.systemHealth)
+          .filter(v => typeof v === 'number' && !isNaN(v) && isFinite(v) && v >= 0 && v <= 1);
         systemResponseiveness = healthValues.length > 0 
           ? Math.round(healthValues.reduce((a, b) => a + b, 0) / healthValues.length * 100)
-          : 100;
+          : 85; // Default to reasonable value
       }
     });
 
@@ -73,9 +74,9 @@
       }
     });
 
-    // Start real-time updates
+    // Start real-time updates (reduced frequency for performance)
     if (autoRefresh) {
-      updateInterval = setInterval(updateMetrics, 2000);
+      updateInterval = setInterval(updateMetrics, 10000); // Changed from 2s to 10s
     }
     
     // Initial metrics update
@@ -139,7 +140,11 @@
   }
 
   $: interactionStatus = humanPresenceDetected ? 'active' : 'waiting';
-  $: overallHealth = Math.round((systemResponseiveness + communicationQuality + understandingLevel) / 3);
+  $: overallHealth = (() => {
+    const values = [systemResponseiveness, communicationQuality, understandingLevel]
+      .filter(v => typeof v === 'number' && !isNaN(v) && isFinite(v));
+    return values.length > 0 ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : 85;
+  })();
 </script>
 
 <div class="human-interaction-panel" class:compact={compactMode} data-testid="human-interaction-panel">

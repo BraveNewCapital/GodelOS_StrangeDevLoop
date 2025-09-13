@@ -134,18 +134,19 @@
   
   async function loadTimelineData() {
     try {
-      const response = await fetch(`/api/transparency/architecture-timeline?range=${timeRange}&filter=${eventFilter}`);
-      const data = await response.json();
-      
-      if (data.success) {
+      // Try to get real timeline data from API
+      const response = await fetch(`${API_BASE}/api/evolution/timeline`);
+      if (response.ok) {
+        const data = await response.json();
         timelineData = data.events || [];
-        updateVisualization();
+        console.log('✅ Loaded timeline data:', timelineData);
       } else {
-        generateMockTimelineData();
+        console.error('❌ No timeline data available from backend');
+        timelineData = [];
       }
     } catch (error) {
-      console.warn('Failed to load timeline data, using mock data:', error);
-      generateMockTimelineData();
+      console.error('❌ Error loading timeline data:', error);
+      timelineData = [];
     }
   }
   

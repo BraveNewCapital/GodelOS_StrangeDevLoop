@@ -6,6 +6,11 @@
   import * as THREE from 'three';
   import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
   
+  // Import our new advanced components
+  import KnowledgeGraphAnalytics from './KnowledgeGraphAnalytics.svelte';
+  import KnowledgeGraphPerformanceManager from './KnowledgeGraphPerformanceManager.svelte';
+  import KnowledgeGraphCollaborativeManager from './KnowledgeGraphCollaborativeManager.svelte';
+  
   let graphContainer;
   let controlsContainer;
   let width = 800;
@@ -15,7 +20,7 @@
   let unsubscribe;
   
   // Graph data and state
-  let graphData = { nodes: [], links: [] };
+  let graphData = { nodes: [], edges: [] };
   let selectedNode = null;
   let searchQuery = '';
   let layoutMode = '2d';
@@ -40,10 +45,23 @@
   let isRedrawing = false; // New state for redraw operations
   let parameterUpdateTimeout; // For debouncing parameter updates
   
+  // Advanced features state
+  let advancedMode = false;
+  let performanceMode = true;
+  let collaborativeMode = false;
+  let analyticsVisible = true;
+  let currentUserId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  let sessionId = null;
+  
+  // Advanced component references
+  let analyticsComponent;
+  let performanceManager;
+  let collaborativeManager;
+  
   // Three.js for 3D mode
   let scene, camera, renderer, controls3d;
   let nodeObjects = [];
-  let linkObjects = [];
+  let edgeObjects = [];
   
   // Graph visualization modes
   const layoutModes = [
@@ -305,7 +323,7 @@
       // Try to fetch real data from backend
       const apiData = await GödelOSAPI.fetchKnowledgeGraph();
       
-      if (apiData && apiData.nodes && apiData.links && apiData.nodes.length > 0) {
+      if (apiData && apiData.nodes && apiData.edges && apiData.nodes.length > 0) {
         // Enhanced node processing with semantic analysis
         const processedNodes = apiData.nodes.map((node, index) => {
           // Clean and normalize node data first
@@ -392,13 +410,13 @@
           };
         });
 
-        // Enhanced link processing with proper relationship inference
-        let processedLinks = [];
+        // Enhanced edge processing with proper relationship inference
+        let processedEdges = [];
         
-        if (apiData.links && apiData.links.length > 0) {
-          processedLinks = apiData.links.map(link => {
-            // Clean link labels
-            let cleanLabel = link.label || relationshipTypes[link.relationship_type || link.type]?.label || 'related';
+        if (apiData.edges && apiData.edges.length > 0) {
+          processedEdges = apiData.edges.map(edge => {
+            // Clean edge labels
+            let cleanLabel = edge.label || relationshipTypes[edge.relationship_type || edge.type]?.label || 'related';
             cleanLabel = cleanLabel
               .replace(/file-[a-f0-9-]{36}/gi, '') // Remove UUID patterns
               .replace(/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/gi, '') // Remove UUIDs
@@ -409,41 +427,42 @@
             
             // If label becomes empty or too short, use type or default
             if (!cleanLabel || cleanLabel.length < 3) {
-              cleanLabel = relationshipTypes[link.relationship_type || link.type]?.label || 'related';
+              cleanLabel = relationshipTypes[edge.relationship_type || edge.type]?.label || 'related';
             }
             
             return {
-              ...link,
-              source: String(link.source_id || link.source || link.from),
-              target: String(link.target_id || link.target || link.to),
-              type: link.relationship_type || link.type || 'related',
-              strength: Math.max(0, Math.min(1, link.strength || link.weight || 0.5)),
-              confidence: Math.max(0, Math.min(1, link.confidence || 0.7)),
+              ...edge,
+              source: String(edge.source_id || edge.source || edge.from),
+              target: String(edge.target_id || edge.target || edge.to),
+              type: edge.relationship_type || edge.type || 'related',
+              strength: Math.max(0, Math.min(1, edge.strength || edge.weight || 0.5)),
+              confidence: Math.max(0, Math.min(1, edge.confidence || 0.7)),
               label: cleanLabel
             };
           });
         }
         
         // Generate additional relationships based on content similarity
-        const inferredLinks = generateInferredRelationships(processedNodes);
-        processedLinks = [...processedLinks, ...inferredLinks];
+        const inferredEdges = generateInferredRelationships(processedNodes);
+        processedEdges = [...processedEdges, ...inferredEdges];
         
-        // Filter out invalid links (nodes that don't exist)
+        // Filter out invalid edges (nodes that don't exist)
         const nodeIds = new Set(processedNodes.map(n => n.id));
-        processedLinks = processedLinks.filter(link => 
-          nodeIds.has(String(link.source)) && nodeIds.has(String(link.target))
+        processedEdges = processedEdges.filter(edge => 
+          nodeIds.has(String(edge.source)) && nodeIds.has(String(edge.target))
         );
 
         graphData = {
           nodes: processedNodes,
-          links: processedLinks
+          edges: processedEdges
         };
         
-        console.log(`✅ Loaded real knowledge graph: ${processedNodes.length} nodes, ${processedLinks.length} total links (${processedLinks.filter(l => l.generated).length} generated)`);
+        console.log(`✅ Loaded real knowledge graph: ${processedNodes.length} nodes, ${processedEdges.length} total edges (${processedEdges.filter(e => e.generated).length} generated)`);
       } else {
-        // Fallback to sample data
-        console.log('⚠️ No backend data available or empty, using sample data');
-        generateSampleData();
+        // No backend data available
+        console.error('❌ No knowledge graph data available from backend');
+        graphData = { nodes: [], edges: [] };
+        error = 'No knowledge data available';
       }
       
       updateGraph();
@@ -452,7 +471,7 @@
     } catch (err) {
       console.error('❌ Error loading knowledge graph:', err);
       error = err.message;
-      generateSampleData();
+      graphData = { nodes: [], links: [] };
       updateGraph();
       loading = false;
     } finally {
@@ -529,85 +548,6 @@
     
     console.log(`🔗 Generated ${inferredLinks.length} inferred relationships`);
     return inferredLinks;
-  }
-
-  function generateSampleData() {
-    try {
-      // Create enhanced sample data
-      const sampleNodes = [
-        { id: 'ai', label: 'Artificial Intelligence', category: 'concept', importance: 0.9, confidence: 0.95 },
-        { id: 'ml', label: 'Machine Learning', category: 'concept', importance: 0.8, confidence: 0.9 },
-        { id: 'nn', label: 'Neural Networks', category: 'concept', importance: 0.7, confidence: 0.85 },
-        { id: 'dl', label: 'Deep Learning', category: 'concept', importance: 0.75, confidence: 0.8 },
-        { id: 'nlp', label: 'Natural Language Processing', category: 'concept', importance: 0.7, confidence: 0.75 },
-        { id: 'cv', label: 'Computer Vision', category: 'concept', importance: 0.6, confidence: 0.7 },
-        { id: 'bert', label: 'BERT', category: 'entity', importance: 0.5, confidence: 0.9 },
-        { id: 'gpt', label: 'GPT', category: 'entity', importance: 0.6, confidence: 0.95 },
-        { id: 'transformer', label: 'Transformer', category: 'concept', importance: 0.7, confidence: 0.9 },
-        { id: 'attention', label: 'Attention Mechanism', category: 'concept', importance: 0.6, confidence: 0.85 },
-        { id: 'paper1', label: 'Attention Is All You Need', category: 'document', importance: 0.8, confidence: 0.95 },
-        { id: 'paper2', label: 'BERT Paper', category: 'document', importance: 0.7, confidence: 0.9 }
-      ];
-      
-      // Add timestamp for recency
-      sampleNodes.forEach((node, i) => {
-        node.timestamp = Date.now() - (i * 86400000); // Spread over days
-        node.recency = 1 - (i / sampleNodes.length);
-      });
-      
-      // Create sample links
-      const sampleLinks = [
-        { source: 'ai', target: 'ml', strength: 0.9, type: 'contains' },
-        { source: 'ml', target: 'nn', strength: 0.8, type: 'uses' },
-        { source: 'ml', target: 'dl', strength: 0.7, type: 'includes' },
-        { source: 'nn', target: 'dl', strength: 0.9, type: 'foundation' },
-        { source: 'ai', target: 'nlp', strength: 0.6, type: 'branch' },
-        { source: 'ai', target: 'cv', strength: 0.6, type: 'branch' },
-        { source: 'nlp', target: 'bert', strength: 0.8, type: 'uses' },
-        { source: 'nlp', target: 'gpt', strength: 0.8, type: 'uses' },
-        { source: 'bert', target: 'transformer', strength: 0.9, type: 'based_on' },
-        { source: 'gpt', target: 'transformer', strength: 0.9, type: 'based_on' },
-        { source: 'transformer', target: 'attention', strength: 0.95, type: 'uses' },
-        { source: 'paper1', target: 'transformer', strength: 0.95, type: 'introduces' },
-        { source: 'paper2', target: 'bert', strength: 0.95, type: 'introduces' },
-        { source: 'paper1', target: 'attention', strength: 0.9, type: 'describes' }
-      ];
-      
-      // Filter nodes based on search query
-      if (searchQuery.trim()) {
-        const filtered = sampleNodes.filter(node =>
-          node.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          node.category.toLowerCase().includes(searchQuery.toLowerCase())
-        );
-        
-        const filteredIds = new Set(filtered.map(n => n.id));
-        const filteredLinks = sampleLinks.filter(link =>
-          filteredIds.has(link.source) && filteredIds.has(link.target)
-        );
-        
-        graphData = { nodes: filtered, links: filteredLinks };
-        console.log(`✅ Generated filtered sample data: ${filtered.length} nodes, ${filteredLinks.length} links`);
-      } else {
-        graphData = { nodes: sampleNodes, links: sampleLinks };
-        console.log(`✅ Generated sample data: ${sampleNodes.length} nodes, ${sampleLinks.length} links`);
-      }
-      
-    } catch (error) {
-      console.error('❌ Error generating sample data:', error);
-      // Ultimate fallback - minimal but valid data
-      graphData = {
-        nodes: [
-          { id: 'node1', label: 'Sample Node 1', category: 'concept', importance: 0.5, confidence: 0.5, timestamp: Date.now(), recency: 1.0 },
-          { id: 'node2', label: 'Sample Node 2', category: 'entity', importance: 0.6, confidence: 0.6, timestamp: Date.now(), recency: 0.8 },
-          { id: 'node3', label: 'Sample Node 3', category: 'topic', importance: 0.7, confidence: 0.7, timestamp: Date.now(), recency: 0.6 }
-        ],
-        links: [
-          { source: 'node1', target: 'node2', strength: 0.8, type: 'related' },
-          { source: 'node2', target: 'node3', strength: 0.6, type: 'connected' }
-        ]
-      };
-      console.log('✅ Used minimal fallback data');
-    }
   }
 
   function initializeGraph() {
@@ -849,18 +789,18 @@
 
   function create3DLinks() {
     // Clear existing link objects
-    linkObjects.forEach(obj => scene.remove(obj));
-    linkObjects = [];
+    edgeObjects.forEach(obj => scene.remove(obj));
+    edgeObjects = [];
     
-    if (!graphData.links) return;
+    if (!graphData.edges) return;
     
-    graphData.links.forEach(link => {
+    graphData.edges.forEach(edge => {
       // Find source and target node objects
       const sourceNode = nodeObjects.find(obj => 
-        obj.userData && obj.userData.id === (link.source.id || link.source)
+        obj.userData && obj.userData.id === (edge.source.id || edge.source)
       );
       const targetNode = nodeObjects.find(obj => 
-        obj.userData && obj.userData.id === (link.target.id || link.target)
+        obj.userData && obj.userData.id === (edge.target.id || edge.target)
       );
       
       if (sourceNode && targetNode) {
@@ -891,7 +831,7 @@
         cylinder.userData = { source: sourceNode, target: targetNode, link: link, isCylinder: true };
         
         scene.add(cylinder);
-        linkObjects.push(cylinder);
+        edgeObjects.push(cylinder);
       }
     });
   }
@@ -906,9 +846,9 @@
       controls3d.update();
     }
     
-    // Update link positions and orientations
-    linkObjects.forEach(linkObj => {
-      const { source, target, isCylinder } = linkObj.userData;
+    // Update edge positions and orientations
+    edgeObjects.forEach(edgeObj => {
+      const { source, target, isCylinder } = edgeObj.userData;
       if (source && target) {
         if (isCylinder) {
           // Update cylindrical link position and orientation
@@ -997,9 +937,9 @@
       });
       
       // Apply attraction forces for connected nodes
-      graphData.links.forEach(link => {
-        const sourceId = link.source.id || link.source;
-        const targetId = link.target.id || link.target;
+      graphData.edges.forEach(edge => {
+        const sourceId = edge.source.id || edge.source;
+        const targetId = edge.target.id || edge.target;
         
         if (node.userData.id === sourceId || node.userData.id === targetId) {
           const partnerId = node.userData.id === sourceId ? targetId : sourceId;
@@ -1088,7 +1028,7 @@
     scene = null;
     camera = null;
     nodeObjects = [];
-    linkObjects = [];
+    edgeObjects = [];
     
     // Clear the container
     if (graphContainer) {
@@ -1103,17 +1043,17 @@
     }
     
     // Validate graph data
-    if (!graphData || !graphData.nodes || !graphData.links) {
+    if (!graphData || !graphData.nodes || !graphData.edges) {
       console.warn('❌ Invalid graph data structure');
       return;
     }
     
-    console.log(`🔄 Updating graph: ${graphData.nodes.length} nodes, ${graphData.links.length} links`);
+    console.log(`🔄 Updating graph: ${graphData.nodes.length} nodes, ${graphData.edges.length} edges`);
     
-    // Filter links based on settings
-    const filteredLinks = showOnlyStrongRelations 
-      ? graphData.links.filter(link => (link.strength || 0.5) > 0.6)
-      : graphData.links;
+    // Filter edges based on settings
+    const filteredEdges = showOnlyStrongRelations 
+      ? graphData.edges.filter(edge => (edge.strength || 0.5) > 0.6)
+      : graphData.edges;
     
     // Get the graph group for appending elements
     const graphGroup = svg.select('.graph-group');
@@ -1143,7 +1083,7 @@
     
     // Update links
     const links = graphGroup.selectAll('.link')
-      .data(filteredLinks, d => `${d.source}-${d.target}`);
+      .data(filteredEdges, d => `${d.source}-${d.target}`);
     
     links.exit().remove();
     
@@ -1377,7 +1317,7 @@
     
     // Update all force parameters
     simulation.force('link')
-      .links(filteredLinks)
+      .links(filteredEdges)
       .strength(linkStrength)
       .distance(linkDistance);
     
@@ -1572,6 +1512,104 @@
   function handleSearch() {
     loadGraphData();
   }
+  
+  // Collaborative event handlers
+  function handleGraphDataSync(event) {
+    console.log('📥 Syncing graph data from collaborative session');
+    graphData = event.detail.graphData;
+    // Redraw visualization with synced data
+    if (layoutMode === '2d') {
+      renderGraph2D();
+    } else if (layoutMode === '3d') {
+      renderGraph3D();
+    }
+  }
+  
+  function handleNodeCreate(event) {
+    console.log('➕ Remote node created:', event.detail);
+    const newNode = event.detail;
+    graphData.nodes = [...graphData.nodes, newNode];
+    // Update visualization
+    if (layoutMode === '2d') {
+      updateGraph2D();
+    } else if (layoutMode === '3d') {
+      updateGraph3D();
+    }
+  }
+  
+  function handleNodeUpdate(event) {
+    console.log('✏️ Remote node updated:', event.detail);
+    const { nodeId, updates } = event.detail;
+    graphData.nodes = graphData.nodes.map(node => 
+      node.id === nodeId ? { ...node, ...updates } : node
+    );
+    // Update visualization
+    updateVisualization();
+  }
+  
+  function handleNodeDelete(event) {
+    console.log('🗑️ Remote node deleted:', event.detail);
+    const nodeId = event.detail;
+    graphData.nodes = graphData.nodes.filter(node => node.id !== nodeId);
+    graphData.edges = graphData.edges.filter(edge => 
+      edge.source !== nodeId && edge.target !== nodeId
+    );
+    // Update visualization
+    updateVisualization();
+  }
+  
+  function handleEdgeCreate(event) {
+    console.log('🔗 Remote edge created:', event.detail);
+    const newEdge = event.detail;
+    graphData.edges = [...graphData.edges, newEdge];
+    updateVisualization();
+  }
+  
+  function handleEdgeUpdate(event) {
+    console.log('✏️ Remote edge updated:', event.detail);
+    const { edgeId, updates } = event.detail;
+    graphData.edges = graphData.edges.map(edge => 
+      edge.id === edgeId ? { ...edge, ...updates } : edge
+    );
+    updateVisualization();
+  }
+  
+  function handleEdgeDelete(event) {
+    console.log('🗑️ Remote edge deleted:', event.detail);
+    const edgeId = event.detail;
+    graphData.edges = graphData.edges.filter(edge => edge.id !== edgeId);
+    updateVisualization();
+  }
+  
+  function handleParticipantJoined(event) {
+    console.log('👋 Participant joined:', event.detail);
+    // Could show notification or update UI
+  }
+  
+  function handleParticipantLeft(event) {
+    console.log('👋 Participant left:', event.detail);
+    // Could show notification or update UI
+  }
+  
+  function handleRemoteOperation(event) {
+    console.log('🔄 Remote operation applied:', event.detail);
+    // Operation already applied by collaborative manager
+  }
+  
+  function handleRemoteSelection(event) {
+    console.log('🎯 Remote selection changed:', event.detail);
+    // Could highlight remotely selected nodes/edges
+    const { userId, selectedNodes, selectedEdges } = event.detail;
+    // Update UI to show remote selections
+  }
+  
+  function updateVisualization() {
+    if (layoutMode === '2d') {
+      updateGraph2D();
+    } else if (layoutMode === '3d') {
+      updateGraph3D();
+    }
+  }
 
   // Debounced function for parameter updates (variable declared at top)
   function debouncedParameterUpdate() {
@@ -1672,30 +1710,30 @@
 
   // Calculate enhanced node statistics
   function getNodeStatistics(node) {
-    const connectedLinks = graphData.links.filter(link => 
-      link.source.id === node.id || link.target.id === node.id
+    const connectedEdges = graphData.edges.filter(edge => 
+      edge.source.id === node.id || edge.target.id === node.id
     );
     
     const neighbors = new Set();
-    const incomingLinks = [];
-    const outgoingLinks = [];
+    const incomingEdges = [];
+    const outgoingEdges = [];
     const neighborNodes = [];
     
-    connectedLinks.forEach(link => {
-      if (link.source.id === node.id) {
-        neighbors.add(link.target.id);
-        outgoingLinks.push(link);
-        neighborNodes.push(link.target);
-      } else if (link.target.id === node.id) {
-        neighbors.add(link.source.id);
-        incomingLinks.push(link);
-        neighborNodes.push(link.source);
+    connectedEdges.forEach(edge => {
+      if (edge.source.id === node.id) {
+        neighbors.add(edge.target.id);
+        outgoingEdges.push(edge);
+        neighborNodes.push(edge.target);
+      } else if (edge.target.id === node.id) {
+        neighbors.add(edge.source.id);
+        incomingEdges.push(edge);
+        neighborNodes.push(edge.source);
       }
     });
     
-    const relationshipTypes = [...new Set(connectedLinks.map(link => link.type))];
-    const avgLinkStrength = connectedLinks.length > 0 
-      ? connectedLinks.reduce((sum, link) => sum + (link.strength || 0), 0) / connectedLinks.length 
+    const relationshipTypes = [...new Set(connectedEdges.map(edge => edge.type))];
+    const avgEdgeStrength = connectedEdges.length > 0 
+      ? connectedEdges.reduce((sum, edge) => sum + (edge.strength || 0), 0) / connectedEdges.length 
       : 0;
     
     const centrality = neighbors.size / Math.max(1, graphData.nodes.length - 1);
@@ -1907,11 +1945,11 @@
         <span class="status-label">Concepts</span>
       </div>
       <div class="status-item">
-        <span class="status-value">{graphData.links.length}</span>
+        <span class="status-value">{graphData.edges.length}</span>
         <span class="status-label">Relationships</span>
       </div>
       <div class="status-item">
-        <span class="status-value">{graphData.links.filter(l => l.generated).length}</span>
+        <span class="status-value">{graphData.edges.filter(e => e.generated).length}</span>
         <span class="status-label">Inferred</span>
       </div>
       <div class="status-health {loading ? 'loading' : error ? 'error' : 'healthy'}">
@@ -2115,6 +2153,51 @@
             </label>
           </div>
         </div>
+        
+        <!-- Advanced Features Control Section -->
+        <div class="control-group advanced-features">
+          <div class="control-label">
+            <span class="label-icon">⚡</span>
+            Advanced Features
+            <span class="mode-preview">Enhanced performance, analytics & collaboration</span>
+          </div>
+          <div class="advanced-toggles">
+            <label class="toggle-control">
+              <input type="checkbox" bind:checked={advancedMode} />
+              <span class="toggle-slider"></span>
+              <span class="toggle-label">Advanced Mode</span>
+            </label>
+            
+            {#if advancedMode}
+              <label class="toggle-control secondary">
+                <input type="checkbox" bind:checked={performanceMode} />
+                <span class="toggle-slider"></span>
+                <span class="toggle-label">3D Performance Optimization</span>
+              </label>
+              
+              <label class="toggle-control secondary">
+                <input type="checkbox" bind:checked={analyticsVisible} />
+                <span class="toggle-slider"></span>
+                <span class="toggle-label">Knowledge Analytics</span>
+              </label>
+              
+              <label class="toggle-control secondary">
+                <input type="checkbox" bind:checked={collaborativeMode} />
+                <span class="toggle-slider"></span>
+                <span class="toggle-label">Collaborative Editing</span>
+              </label>
+              
+              {#if collaborativeMode}
+                <div class="collaboration-settings">
+                  <div class="mini-control">
+                    <label>Session ID:</label>
+                    <input type="text" bind:value={sessionId} placeholder="Enter session ID or leave empty">
+                  </div>
+                </div>
+              {/if}
+            {/if}
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -2138,6 +2221,51 @@
           </div>
         {/if}
       </div>
+      
+      <!-- Advanced Features Integration -->
+      {#if advancedMode}
+        <!-- Analytics Overlay -->
+        <KnowledgeGraphAnalytics 
+          bind:this={analyticsComponent}
+          {graphData}
+          {selectedNode}
+          isVisible={analyticsVisible}
+        />
+        
+        <!-- Performance Manager for 3D optimization -->
+        {#if layoutMode === '3d' && performanceMode}
+          <KnowledgeGraphPerformanceManager
+            bind:this={performanceManager}
+            {scene}
+            {camera}
+            {renderer}
+            {graphData}
+            isPerformanceMode={performanceMode}
+          />
+        {/if}
+        
+        <!-- Collaborative Manager -->
+        {#if collaborativeMode}
+          <KnowledgeGraphCollaborativeManager
+            bind:this={collaborativeManager}
+            {graphData}
+            userId={currentUserId}
+            {sessionId}
+            isEnabled={collaborativeMode}
+            on:graphDataSync={handleGraphDataSync}
+            on:nodeCreate={handleNodeCreate}
+            on:nodeUpdate={handleNodeUpdate}
+            on:nodeDelete={handleNodeDelete}
+            on:edgeCreate={handleEdgeCreate}
+            on:edgeUpdate={handleEdgeUpdate}
+            on:edgeDelete={handleEdgeDelete}
+            on:participantJoined={handleParticipantJoined}
+            on:participantLeft={handleParticipantLeft}
+            on:remoteOperation={handleRemoteOperation}
+            on:remoteSelection={handleRemoteSelection}
+          />
+        {/if}
+      {/if}
     </div>
 
     <!-- Information Panel -->
@@ -3627,6 +3755,148 @@
     
     .button-grid {
       grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  
+  /* Advanced Features Styles */
+  .advanced-features {
+    background: linear-gradient(135deg, rgba(76, 175, 80, 0.1), rgba(33, 150, 243, 0.1));
+    border: 2px solid rgba(76, 175, 80, 0.3);
+    border-radius: 12px;
+    padding: 20px;
+    margin-top: 20px;
+  }
+  
+  .advanced-toggles {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-top: 16px;
+  }
+  
+  .toggle-control {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    transition: all 0.3s ease;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  
+  .toggle-control:hover {
+    background: rgba(255, 255, 255, 0.1);
+    transform: translateY(-1px);
+  }
+  
+  .toggle-control.secondary {
+    margin-left: 20px;
+    background: rgba(33, 150, 243, 0.1);
+    border-color: rgba(33, 150, 243, 0.3);
+  }
+  
+  .toggle-control input[type="checkbox"] {
+    display: none;
+  }
+  
+  .toggle-slider {
+    position: relative;
+    width: 50px;
+    height: 24px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 12px;
+    transition: all 0.3s ease;
+    cursor: pointer;
+  }
+  
+  .toggle-slider::before {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 20px;
+    height: 20px;
+    background: white;
+    border-radius: 50%;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  }
+  
+  .toggle-control input[type="checkbox"]:checked + .toggle-slider {
+    background: #4CAF50;
+  }
+  
+  .toggle-control input[type="checkbox"]:checked + .toggle-slider::before {
+    transform: translateX(26px);
+  }
+  
+  .toggle-label {
+    font-weight: 500;
+    color: #E3F2FD;
+    font-size: 14px;
+  }
+  
+  .collaboration-settings {
+    margin-top: 12px;
+    padding: 12px;
+    background: rgba(33, 150, 243, 0.1);
+    border-radius: 8px;
+    border: 1px solid rgba(33, 150, 243, 0.3);
+  }
+  
+  .mini-control {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  
+  .mini-control label {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.8);
+    font-weight: 500;
+  }
+  
+  .mini-control input[type="text"] {
+    padding: 8px 12px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    color: white;
+    font-size: 12px;
+    outline: none;
+    transition: all 0.3s ease;
+  }
+  
+  .mini-control input[type="text"]:focus {
+    border-color: #4CAF50;
+    background: rgba(0, 0, 0, 0.5);
+  }
+  
+  .mini-control input[type="text"]::placeholder {
+    color: rgba(255, 255, 255, 0.5);
+  }
+  
+  /* Version badge enhancement */
+  .version-badge {
+    background: linear-gradient(135deg, #4CAF50, #2E7D32);
+    color: white;
+    font-size: 10px;
+    font-weight: bold;
+    padding: 3px 8px;
+    border-radius: 12px;
+    margin-left: 8px;
+    box-shadow: 0 2px 4px rgba(76, 175, 80, 0.3);
+    animation: pulse-glow 2s infinite;
+  }
+  
+  @keyframes pulse-glow {
+    0%, 100% {
+      box-shadow: 0 2px 4px rgba(76, 175, 80, 0.3);
+    }
+    50% {
+      box-shadow: 0 4px 12px rgba(76, 175, 80, 0.6);
     }
   }
 </style>

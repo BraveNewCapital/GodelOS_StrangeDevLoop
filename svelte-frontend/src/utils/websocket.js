@@ -1,5 +1,6 @@
 // WebSocket integration for real-time cognitive state updates
 import { cognitiveState, knowledgeState, evolutionState } from '../stores/cognitive.js';
+import { importProgressState } from '../stores/importProgress.js';
 import { get } from 'svelte/store';
 
 let ws = null;
@@ -9,7 +10,7 @@ const MAX_RECONNECT_ATTEMPTS = 10;
 const RECONNECT_DELAY = 2000;
 
 // API client for fetching initial data
-const API_BASE_URL = 'http://localhost:8000';
+import { API_BASE_URL, WS_BASE_URL } from '../config.js';
 
 async function fetchFromAPI(endpoint) {
   try {
@@ -39,10 +40,24 @@ async function loadInitialData() {
     updateCognitiveStateFromAPI(cognitiveData);
   }
   
-  // Fetch knowledge graph data
-  const knowledgeData = await fetchFromAPI('/api/transparency/knowledge-graph/export');
-  if (knowledgeData && knowledgeData.graph_data) {
+  // Fetch knowledge graph data from unified endpoint
+  const knowledgeData = await fetchFromAPI('/api/knowledge/graph');
+  if (knowledgeData && (knowledgeData.nodes || knowledgeData.graph_data)) {
     updateKnowledgeStateFromAPI(knowledgeData);
+    
+    // Calculate document count from unique source_item_ids
+    const nodes = knowledgeData.nodes || [];
+    const uniqueDocuments = new Set();
+    nodes.forEach(node => {
+      if (node.properties?.source_item_id) {
+        uniqueDocuments.add(node.properties.source_item_id);
+      }
+    });
+    
+    knowledgeState.update(state => ({
+      ...state,
+      totalDocuments: uniqueDocuments.size
+    }));
   }
   
   // Fetch system health
@@ -54,61 +69,127 @@ async function loadInitialData() {
   console.log('✅ Initial data loaded');
 }
 
-// Update cognitive state from API response
+// Utility function to safely convert a value to a valid number between 0 and 1
+function safeNumber(value, defaultValue = 0, min = 0, max = 1) {
+  if (typeof value === 'number' && !isNaN(value) && isFinite(value)) {
+    return Math.max(min, Math.min(max, value));
+  }
+  return defaultValue;
+}
+
+// Utility function to safely convert to array
+function safeArray(value, defaultValue = []) {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === 'object') return Object.values(value);
+  return defaultValue;
+}
+
+// Update cognitive state from API response  
 function updateCognitiveStateFromAPI(data) {
+  // Temporarily disable cognitive state updates to prevent store corruption
+  console.log('🔧 Cognitive state updates disabled to prevent stability issues');
+  return;
+  
   cognitiveState.update(state => ({
     ...state,
     manifestConsciousness: {
-      attention: data.attention_focus || [],
-      workingMemory: data.working_memory || {},
-      processingLoad: data.manifest_consciousness?.awareness_level || 0,
-      currentQuery: data.manifest_consciousness?.current_focus || null,
+      attention: cogState.attention_focus || null,
+      workingMemory: cogState.working_memory?.items || [],
+      processingLoad: safeNumber(cogState.processing_load, 0.0),
+      currentQuery: cogState.current_query || null,
       focusDepth: 'surface'
     },
-    agenticProcesses: data.agentic_processes || [],
-    daemonThreads: data.daemon_threads || [],
+    agenticProcesses: safeArray(cogState.agentic_processes, []),
+    daemonThreads: safeArray(cogState.daemon_threads, []),
     systemHealth: {
-      inferenceEngine: Math.random() * 0.2 + 0.8, // Will be updated via WebSocket
-      knowledgeStore: Math.random() * 0.2 + 0.8,
-      reflectionEngine: Math.random() * 0.2 + 0.8,
-      learningModules: Math.random() * 0.2 + 0.8,
+      inferenceEngine: safeNumber(cogState.system_health?.components?.inference_engine, 0.94),
+      knowledgeStore: safeNumber(cogState.system_health?.components?.knowledge_store, 0.89),
+      reflectionEngine: safeNumber(cogState.system_health?.components?.reflection_engine || cogState.system_health?.components?.attention_manager, 0.95),
+      learningModules: safeNumber(cogState.system_health?.components?.memory_manager, 0.88),
       websocketConnection: 1.0
     },
     capabilities: {
-      reasoning: data.manifest_consciousness?.coherence_level || 0.8,
-      knowledge: data.manifest_consciousness?.integration_level || 0.8,
-      creativity: Math.random() * 0.3 + 0.7,
-      reflection: Math.random() * 0.3 + 0.7,
-      learning: Math.random() * 0.3 + 0.7
+      reasoning: safeNumber(cogState.system_health?.overall, 0.8),
+      knowledge: safeNumber(cogState.system_health?.overall, 0.8),
+      creativity: safeNumber(cogState.capabilities?.creativity, 0.7),
+      reflection: safeNumber(cogState.capabilities?.reflection, 0.7),
+      learning: safeNumber(cogState.capabilities?.learning, 0.7)
     },
+    // Store backend data directly for derived stores
+    attention_focus: cogState.attention_focus,
+    processing_load: safeNumber(cogState.processing_load, 0.0),
+    working_memory: cogState.working_memory,
+    system_health: cogState.system_health,
+    active_agents: safeNumber(cogState.active_agents, 0),
+    cognitive_events: safeArray(cogState.cognitive_events, []),
     lastUpdate: Date.now()
   }));
 }
 
-// Update knowledge state from API response
+// Update cognitive state from backend data structure
+function updateCognitiveStateFromBackend(data) {
+  cognitiveState.update(state => ({
+    ...state,
+    // Direct backend data structure mapping
+    attention_focus: data.attention_focus || state.attention_focus,
+    processing_load: safeNumber(data.processing_load, state.processing_load),
+    working_memory: data.working_memory || state.working_memory,
+    system_health: {
+      ...state.system_health,
+      ...(data.system_health || {}),
+      components: {
+        ...state.system_health?.components,
+        ...(data.system_health?.components || {})
+      }
+    },
+    active_agents: safeNumber(data.active_agents, state.active_agents),
+    cognitive_events: safeArray(data.cognitive_events, state.cognitive_events),
+    lastUpdate: Date.now()
+  }));
+}
+
+// Update knowledge state from API response - unified format handler
 function updateKnowledgeStateFromAPI(data) {
-  const nodes = data.graph_data?.nodes || [];
-  const edges = data.graph_data?.edges || [];
+  // Handle both legacy and unified formats
+  const nodes = safeArray(data.nodes || data.graph_data?.nodes, []);
+  const edges = safeArray(data.edges || data.graph_data?.edges, []);
+  
+  // Calculate document count from unique source_item_ids
+  const uniqueDocuments = new Set();
+  nodes.forEach(node => {
+    if (node.properties?.source_item_id) {
+      uniqueDocuments.add(node.properties.source_item_id);
+    }
+  });
   
   knowledgeState.update(state => ({
     ...state,
     totalConcepts: nodes.length,
     totalConnections: edges.length,
+    totalDocuments: uniqueDocuments.size,
     currentGraph: {
       nodes: nodes.map(node => ({
-        id: node.id,
-        label: node.label || node.id,
-        type: node.type || 'concept',
-        confidence: node.confidence || 1.0
+        id: node.id || node.node_id,
+        label: node.label || node.concept || node.id,
+        type: node.type || node.node_type || 'concept',
+        confidence: node.confidence || 1.0,
+        // Include additional unified graph data
+        properties: node.properties || {},
+        creation_time: node.creation_time,
+        source_item_id: node.properties?.source_item_id
       })),
-      links: edges.map(edge => ({
-        source: edge.source,
-        target: edge.target,
-        type: edge.type || 'relation',
-        confidence: edge.confidence || 1.0
+      edges: edges.map(edge => ({
+        source: edge.source || edge.source_node_id,
+        target: edge.target || edge.target_node_id,
+        type: edge.type || edge.relation_type || 'relation',
+        confidence: edge.confidence || 1.0,
+        strength: edge.strength || edge.weight || 1.0,
+        // Include additional unified graph data
+        properties: edge.properties || {},
+        edge_id: edge.edge_id
       }))
     },
-    categories: [...new Set(nodes.map(n => n.type || 'concept'))],
+    categories: [...new Set(nodes.map(n => n.type || n.node_type || 'concept'))],
     totalRelationships: edges.length,
     lastUpdate: Date.now()
   }));
@@ -116,12 +197,15 @@ function updateKnowledgeStateFromAPI(data) {
 
 // Update system health from API response
 function updateSystemHealthFromAPI(data) {
-  if (data.status === 'healthy') {
+  if (data && typeof data === 'object') {
     cognitiveState.update(state => ({
       ...state,
       systemHealth: {
-        ...state.systemHealth,
-        websocketConnection: 1.0
+        inferenceEngine: safeNumber(data.inference_engine, state.systemHealth.inferenceEngine),
+        knowledgeStore: safeNumber(data.knowledge_store, state.systemHealth.knowledgeStore),
+        reflectionEngine: safeNumber(data.reflection_engine, state.systemHealth.reflectionEngine),
+        learningModules: safeNumber(data.learning_modules, state.systemHealth.learningModules),
+        websocketConnection: data.status === 'healthy' ? 1.0 : state.systemHealth.websocketConnection
       }
     }));
   }
@@ -137,19 +221,28 @@ export async function setupWebSocket() {
   await loadInitialData();
 
   try {
-    // Connect to GödelOS backend WebSocket endpoint
-    ws = new WebSocket('ws://localhost:8000/ws/cognitive-stream');
+    // Connect to GödelOS unified cognitive stream endpoint
+    ws = new WebSocket(`${WS_BASE_URL}/ws/unified-cognitive-stream`);
     
     ws.onopen = (event) => {
-      console.log('Connected to GödelOS cognitive stream');
+      console.log('Connected to GödelOS unified cognitive stream');
       reconnectAttempts = 0;
       updateConnectionStatus(true);
       
-      // Request initial state
-      sendMessage({
-        type: 'request_state',
-        components: ['cognitive', 'knowledge', 'evolution']
-      });
+      // Subscribe to relevant event types for this utility
+      const subscription = {
+        type: "subscribe",
+        event_types: [
+          "cognitive_state",
+          "cognitive_stream", 
+          "knowledge_update",
+          "evolution_event",
+          "system_status"
+        ]
+      };
+      
+      ws.send(JSON.stringify(subscription));
+      console.log('📡 WebSocket utility subscribed to events:', subscription.event_types);
     };
 
     ws.onmessage = (event) => {
@@ -185,12 +278,105 @@ export async function setupWebSocket() {
 // Handle incoming cognitive updates
 function handleCognitiveUpdate(message) {
   switch (message.type) {
+    case 'recoverable_error':
+      try {
+        handleSystemAlert({
+          severity: 'warning',
+          title: 'Recoverable Error',
+          message: `${message.operation || 'operation'}: ${message.error?.message || message.message || 'transient issue'}`,
+          context: {
+            operation: message.operation,
+            attempt: message.attempt,
+            max_attempts: message.max_attempts,
+            service: message.service || 'system'
+          }
+        });
+      } catch (e) { /* ignore */ }
+      break;
+    case 'initial_state':
+    case 'state_update':
+    case 'cognitive_update':
+      // Handle the backend's cognitive state structure
+      console.log('🔍 Processing message:', message.type, message);
+      if (message.cognitive_state) {
+        updateCognitiveStateFromBackend(message.cognitive_state);
+      } else if (message.processing_load !== undefined || message.attention_focus) {
+        // Handle partial updates
+        updateCognitiveStateFromBackend(message);
+      } else {
+        // Handle messages with direct data
+        updateCognitiveStateFromBackend(message);
+      }
+      break;
+      
     case 'cognitive_state_update':
       updateCognitiveState(message.data);
       break;
       
     case 'knowledge_update':
-      updateKnowledgeState(message.data);
+      // Handle both knowledge updates and document counting
+      console.debug('[WS] knowledge_update received:', message);
+      knowledgeState.update(state => {
+        const updates = { ...state };
+        
+        // Update general knowledge data
+        if (message.data) {
+          Object.assign(updates, message.data);
+        }
+        
+        // Handle document count updates
+        if (message.stats) {
+          if (typeof message.stats.totalDocuments === 'number') {
+            updates.totalDocuments = message.stats.totalDocuments;
+          }
+          
+          // Track new document imports
+          if (message.stats.newDocument && message.data) {
+            const newImport = {
+              id: message.data.item_id,
+              title: message.data.title,
+              type: message.stats.documentType || 'unknown',
+              timestamp: message.data.timestamp,
+              categories: message.data.categories || []
+            };
+            updates.recentImports = [newImport, ...(state.recentImports || [])].slice(0, 10);
+          }
+        }
+        
+        updates.lastUpdate = Date.now();
+        console.log(`🔍 Knowledge state updated: documents=${updates.totalDocuments}, concepts=${updates.totalConcepts}, connections=${updates.totalConnections}`);
+        return updates;
+      });
+      break;
+      
+    case 'knowledge-graph-update':
+      // Handle knowledge graph updates from backend - refresh with latest data
+      console.debug('[WS] knowledge-graph-update received:', message);
+      if (message.data && (message.data.nodes || message.data.edges)) {
+        knowledgeState.update(state => {
+          // Calculate document count from unique source_item_ids in the updated graph
+          const nodes = message.data.nodes || state.currentGraph.nodes || [];
+          const uniqueDocuments = new Set();
+          nodes.forEach(node => {
+            if (node.properties?.source_item_id) {
+              uniqueDocuments.add(node.properties.source_item_id);
+            }
+          });
+          
+          return {
+            ...state,
+            totalConcepts: message.data.nodes?.length || state.totalConcepts,
+            totalConnections: message.data.edges?.length || state.totalConnections,
+            totalDocuments: uniqueDocuments.size,
+            currentGraph: {
+              nodes: message.data.nodes || state.currentGraph.nodes,
+              edges: message.data.edges || state.currentGraph.edges
+            },
+            lastUpdate: Date.now()
+          };
+        });
+        console.log(`🔍 Knowledge graph updated via WebSocket: ${message.data.nodes?.length || 0} nodes, ${message.data.edges?.length || 0} edges`);
+      }
       break;
       
     case 'evolution_update':
@@ -220,7 +406,32 @@ function handleCognitiveUpdate(message) {
     case 'performance_metric':
       handlePerformanceMetric(message.data);
       break;
-      
+
+    case 'import_progress':
+      // Update import progress store
+  console.debug('[WS] import_progress message received:', message);
+      importProgressState.update(state => ({
+        ...state,
+        [message.import_id || message.data?.import_id || 'unknown']: {
+          ...message,
+          ...(message.data || {})
+        }
+      }));
+
+      // If the import completed, trigger a backend-fetch refresh of the knowledge graph
+      try {
+        const status = message.status || message.data?.status;
+        if (status === 'completed') {
+          // lazy import to avoid circular deps
+          import('../stores/cognitive.js').then(mod => {
+            if (mod && mod.apiHelpers && typeof mod.apiHelpers.updateKnowledgeFromBackend === 'function') {
+              mod.apiHelpers.updateKnowledgeFromBackend();
+            }
+          }).catch(() => {});
+        }
+      } catch (e) { /* ignore */ }
+      break;
+
     default:
       console.log('Unknown message type:', message.type);
   }
@@ -487,59 +698,4 @@ export function getConnectionStatus() {
   return ws ? ws.readyState : WebSocket.CLOSED;
 }
 
-// Mock data simulator for development (when backend not available)
-export function startMockCognitiveUpdates() {
-  console.log('Starting mock cognitive updates for development');
-  
-  // Simulate cognitive state changes
-  setInterval(() => {
-    const mockUpdate = {
-      type: 'cognitive_state_update',
-      data: {
-        manifestConsciousness: {
-          processingLoad: Math.random() * 0.3 + 0.4,
-          attention: Math.random() > 0.7 ? `Concept_${Math.floor(Math.random() * 100)}` : null
-        },
-        systemHealth: {
-          inferenceEngine: Math.random() * 0.2 + 0.8,
-          knowledgeStore: Math.random() * 0.1 + 0.9,
-          reflectionEngine: Math.random() * 0.3 + 0.6,
-          learningModules: Math.random() * 0.2 + 0.7
-        }
-      }
-    };
-    
-    handleCognitiveUpdate(mockUpdate);
-  }, 2000);
-  
-  // Simulate daemon activity
-  setInterval(() => {
-    const mockDaemon = {
-      type: 'daemon_activity',
-      data: {
-        id: `daemon_${Math.floor(Math.random() * 5)}`,
-        name: ['PatternScanner', 'MemoryConsolidator', 'NoveltyDetector', 'ResourceOptimizer', 'BackgroundLearner'][Math.floor(Math.random() * 5)],
-        activity: ['scanning', 'consolidating', 'optimizing', 'learning'][Math.floor(Math.random() * 4)],
-        load: Math.random() * 0.5
-      }
-    };
-    
-    handleCognitiveUpdate(mockDaemon);
-  }, 5000);
-  
-  // Simulate occasional alerts
-  setInterval(() => {
-    if (Math.random() > 0.8) {
-      const mockAlert = {
-        type: 'system_alert',
-        data: {
-          severity: ['info', 'warning', 'error'][Math.floor(Math.random() * 3)],
-          title: 'System Event',
-          message: ['Processing load spike detected', 'New knowledge integration complete', 'Reflection depth increased'][Math.floor(Math.random() * 3)]
-        }
-      };
-      
-      handleCognitiveUpdate(mockAlert);
-    }
-  }, 10000);
-}
+// Mock data functions removed - using real backend data only

@@ -21,7 +21,7 @@ sys.path.insert(0, str(parent_dir))
 
 import uvicorn
 from backend.main import app
-from backend.websocket_manager import WebSocketManager
+# DEPRECATED: from backend.websocket_manager import WebSocketManager
 
 # Configure logging
 logging.basicConfig(
@@ -86,7 +86,7 @@ class GödelOSServer:
             
             logger.info("GödelOS Backend Server started successfully")
             logger.info(f"API documentation available at: http://{self.host}:{self.port}/docs")
-            logger.info(f"WebSocket endpoint: ws://{self.host}:{self.port}/ws/cognitive-stream")
+            logger.info(f"WebSocket endpoint: ws://{self.host}:{self.port}/ws/unified-cognitive-stream")
             
             # Start the server
             await self.server.serve()

@@ -1,1240 +1,615 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, createEventDispatcher } from 'svelte';
+  import { fade, scale } from 'svelte/transition';
   import { knowledgeState, uiState } from '../../stores/cognitive.js';
+  import { importProgressState, handleProgressUpdate, PROGRESS_STEPS } from '../../stores/importProgress.js';
   import { GödelOSAPI } from '../../utils/api.js';
+  import { get } from 'svelte/store';
+  import { apiHelpers } from '../../stores/cognitive.js';
   import LoadingState from '../ui/LoadingState.svelte';
-  
+
+  // Modal props
+  export let show = false;
+  const dispatch = createEventDispatcher();
+
   let fileInput;
   let dragActive = false;
-  let uploadProgress = 0;
-  let isUploading = false;
-  let importResults = null;
-  let selectedFormat = 'auto';
-  let selectedSource = 'file';
+  let selectedTab = 'file';
   let urlInput = '';
-  let apiKeyInput = '';
   let textInput = '';
-  let textTitle = 'Manual Text Input';
-  let loadingMessage = '';
-  let importError = null;
-  
-  // Progress tracking for active imports
+  let textTitle = 'Text Import';
+  let apiKeyInput = '';
+
+  // Options
+  let enableAI = false;
+  let confidenceLevel = 'medium';
+  let tabs = [
+    { id: 'file', name: 'File', icon: '📁' },
+    { id: 'url', name: 'URL', icon: '🌐' },
+    { id: 'text', name: 'Text', icon: '📝' },
+    { id: 'api', name: 'API', icon: '🔗' }
+  ];
+
+  // Progress tracking
   let activeImports = new Map();
   let importProgress = {};
-  
-  // Reactive variable to track active imports count
-  $: activeImportsCount = activeImports.size;
+  $: importProgress = $importProgressState;
   $: activeImportsArray = [...activeImports.values()];
-  
-  // Import formats supported
-  const supportedFormats = [
-    { id: 'auto', name: 'Auto-detect', desc: 'Automatically detect file format' },
-    { id: 'pdf', name: 'PDF Documents', desc: 'Extract text and structure from PDFs' },
-    { id: 'txt', name: 'Plain Text', desc: 'Simple text files' },
-    { id: 'md', name: 'Markdown', desc: 'Structured markdown documents' },
-    { id: 'json', name: 'JSON Data', desc: 'Structured JSON knowledge bases' },
-    { id: 'csv', name: 'CSV Data', desc: 'Tabular data and relationships' },
-    { id: 'web', name: 'Web Content', desc: 'Scrape and analyze web pages' },
-    { id: 'api', name: 'API Sources', desc: 'Connect to external knowledge APIs' }
-  ];
-  
-  // Import sources
-  const importSources = [
-    { id: 'file', name: '📁 File Upload', desc: 'Upload files from your device' },
-    { id: 'text', name: '📝 Text Input', desc: 'Enter text for advanced pipeline processing' },
-    { id: 'url', name: '🌐 Web URL', desc: 'Import from web pages or documents' },
-    { id: 'api', name: '🔗 API Connection', desc: 'Connect to external knowledge sources' },
-    { id: 'bulk', name: '📦 Bulk Import', desc: 'Import multiple sources at once' }
-  ];
-  
-  // Processing options
-  let processingOptions = {
-    extractEntities: true,
-    generateSummaries: true,
-    createRelationships: true,
-    enableEmbeddings: true,
-    confidenceThreshold: 0.7,
-    chunkSize: 1000,
-    overlapSize: 200
-  };
-  
-  onMount(() => {
-    // Initialize drag and drop
-    setupDragAndDrop();
-  });
-  
-  function setupDragAndDrop() {
-    const container = document.querySelector('.import-container');
-    if (!container) return;
-    
-    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-      container.addEventListener(eventName, preventDefaults, false);
-    });
-    
-    ['dragenter', 'dragover'].forEach(eventName => {
-      container.addEventListener(eventName, handleDragEnter, false);
-    });
-    
-    ['dragleave', 'drop'].forEach(eventName => {
-      container.addEventListener(eventName, handleDragLeave, false);
-    });
-    
-    container.addEventListener('drop', handleDrop, false);
+
+  // Fallback polling for import progress if websocket events are missing
+  let pollingIntervals = new Map();
+
+  // Utility function to format file sizes
+  function formatFileSize(bytes) {
+    if (!bytes) return '';
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
   }
-  
-  function preventDefaults(e) {
-    e.preventDefault();
-    e.stopPropagation();
+
+  // Utility function to format file type
+  function formatFileType(type) {
+    if (!type || type === 'file') return 'Unknown';
+    if (type.startsWith('application/pdf')) return 'PDF Document';
+    if (type.startsWith('application/vnd.openxmlformats-officedocument.wordprocessingml')) return 'Word Document';
+    if (type.startsWith('text/plain')) return 'Text File';
+    if (type.startsWith('text/')) return 'Text';
+    if (type.startsWith('image/')) return 'Image';
+    return type.split('/').pop().toUpperCase();
   }
-  
-  function handleDragEnter() {
-    dragActive = true;
-  }
-  
-  function handleDragLeave() {
-    dragActive = false;
-  }
-  
-  function handleDrop(e) {
-    dragActive = false;
-    const files = Array.from(e.dataTransfer.files);
-    processFiles(files);
-  }
-  
-  function handleFileSelect() {
-    if (fileInput.files.length > 0) {
-      const files = Array.from(fileInput.files);
-      processFiles(files);
-    }
-  }
-  
-  async function processFiles(files) {
-    isUploading = true;
-    uploadProgress = 0;
-    importResults = null;
-    importError = null;
-    loadingMessage = `Preparing to import ${files.length} file${files.length > 1 ? 's' : ''}...`;
-    
-    try {
-      const results = {
-        totalFiles: files.length,
-        processed: 0,
-        successful: 0,
-        failed: 0,
-        entities: 0,
-        concepts: 0,
-        relationships: 0,
-        details: [],
-        activeImports: []
-      };
-      
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        uploadProgress = ((i + 1) / files.length) * 50; // First 50% for uploads
-        loadingMessage = `Uploading ${file.name} (${i + 1}/${files.length})...`;
-        
-        try {
-          // Use real API to import file
-          const importResponse = await GödelOSAPI.importFromFile(file);
-          const importId = importResponse.import_id;
-          
-          // Store active import for monitoring (trigger reactivity)
-          activeImports.set(importId, {
-            id: importId,
-            filename: file.name,
-            status: 'started',
-            type: 'file',
-            startTime: Date.now()
-          });
-          activeImports = activeImports; // Force Svelte reactivity
-          
-          results.activeImports.push(importId);
-          
-          // Start progress monitoring
-          monitorImportProgress(importId, results);
-          
-          results.processed++;
-          results.successful++;
-          results.details.push({
-            filename: file.name,
-            status: 'queued',
-            size: file.size,
-            type: file.type,
-            import_id: importId
-          });
-        } catch (error) {
-          results.processed++;
-          results.failed++;
-          results.details.push({
-            filename: file.name,
-            status: 'error',
-            error: error.message,
-            size: file.size,
-            type: file.type
-          });
-        }
-      }
-      
-      importResults = results;
-      loadingMessage = 'Processing uploaded files...';
-      
-      // Set upload progress to complete, but keep monitoring imports
-      uploadProgress = 100;
-      
-    } catch (error) {
-      console.error('Import error:', error);
-      importError = error.message;
-      importResults = {
-        error: error.message,
-        totalFiles: files.length,
-        processed: 0,
-        successful: 0,
-        failed: files.length
-      };
-    } finally {
-      isUploading = false;
-      loadingMessage = '';
+
+  // Utility function to get status color
+  function getStatusColor(status) {
+    switch (status) {
+      case 'completed': return '#4ade80';
+      case 'failed': return '#f87171';
+      case 'cancelled': return '#94a3b8';
+      case 'processing': return '#3b82f6';
+      default: return '#64748b';
     }
   }
 
-  async function monitorImportProgress(importId, results) {
-    const checkProgress = async () => {
-      try {
-        const progress = await GödelOSAPI.getImportProgress(importId);
-        
-        if (progress) {
-          importProgress[importId] = progress;
-          
-          // Update the result details with progress
-          if (results && results.details) {
-            const detail = results.details.find(d => d.import_id === importId);
-            if (detail) {
-              detail.progress = progress.progress || 0;
-              detail.status = progress.status;
-              detail.message = progress.message;
-            }
-          }
-          
-          // Update summary stats based on progress
-          if (progress.status === 'completed') {
-            results.entities += progress.details?.items_created || 0;
-            results.concepts += Math.floor((progress.details?.items_created || 0) * 0.7);
-            results.relationships += Math.floor((progress.details?.items_created || 0) * 0.5);
-            activeImports.delete(importId);
-            return;
-          } else if (progress.status === 'failed') {
-            activeImports.delete(importId);
-            return;
-          }
+  function startPolling(importId) {
+    if (pollingIntervals.has(importId)) return;
+    const poll = async () => {
+  console.debug('[Import] polling progress for', importId);
+  const progress = await GödelOSAPI.getImportProgress(importId);
+  console.debug('[Import] poll result for', importId, progress);
+      if (progress && progress.status) {
+        importProgressState.update(state => ({
+          ...state,
+          [importId]: progress
+        }));
+        if (progress.status === 'completed' || progress.status === 'failed') {
+          clearInterval(pollingIntervals.get(importId));
+          pollingIntervals.delete(importId);
         }
-        
-        // Continue monitoring if still in progress
-        if (activeImports.has(importId)) {
-          setTimeout(checkProgress, 2000);
-        }
-      } catch (error) {
-        console.error('Failed to get import progress:', error);
-        activeImports.delete(importId);
       }
     };
-    
-    checkProgress();
+    const interval = setInterval(poll, 2000);
+    pollingIntervals.set(importId, interval);
+    poll();
   }
 
-  
-  async function importFromUrl() {
-    if (!urlInput.trim()) return;
-    
-    isUploading = true;
-    uploadProgress = 0;
-    importError = null;
-    loadingMessage = `Importing from ${urlInput}...`;
-    
-    try {
-      // Use real API to import from URL
-      const importResponse = await GödelOSAPI.importFromUrl(urlInput);
-      const importId = importResponse.import_id;
-      
-      // Store active import for monitoring
-      activeImports.set(importId, {
-        id: importId,
-        source: urlInput,
-        status: 'started',
-        type: 'url',
-        startTime: Date.now()
-      });
-      
-      // Start progress monitoring
-      uploadProgress = 50; // Initial progress
-      loadingMessage = 'Processing web content...';
-      
-      const checkProgress = async () => {
-        try {
-          const progress = await GödelOSAPI.getImportProgress(importId);
-          
-          if (progress) {
-            importProgress[importId] = progress;
-            uploadProgress = progress.progress || 50;
-            
-            if (progress.status === 'completed') {
-              importResults = {
-                totalFiles: 1,
-                processed: 1,
-                successful: 1,
-                failed: 0,
-                entities: progress.details?.items_created || 15,
-                concepts: Math.floor((progress.details?.items_created || 15) * 0.8),
-                relationships: Math.floor((progress.details?.items_created || 15) * 0.5),
-                details: [{
-                  filename: urlInput,
-                  status: 'success',
-                  type: 'web-content',
-                  import_id: importId,
-                  entities: progress.details?.items_created || 15,
-                  message: progress.message
-                }]
-              };
-              activeImports.delete(importId);
-              urlInput = '';
-              return;
-            } else if (progress.status === 'failed') {
-              importResults = {
-                error: progress.error_message || 'Import failed',
-                totalFiles: 1,
-                processed: 1,
-                successful: 0,
-                failed: 1
-              };
-              activeImports.delete(importId);
-              return;
-            }
-          }
-          
-          // Continue monitoring if still in progress
-          if (activeImports.has(importId)) {
-            setTimeout(checkProgress, 2000);
-          }
-        } catch (error) {
-          console.error('Failed to get import progress:', error);
-          importResults = {
-            error: error.message,
-            totalFiles: 1,
-            processed: 1,
-            successful: 0,
-            failed: 1
-          };
-          activeImports.delete(importId);
+  // --- Import handlers (restored) ---
+  async function handleFileSelect(event) {
+    const files = event?.target?.files || event;
+    if (!files || files.length === 0) return;
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      // optimistic temporary id until backend returns a real import id
+      const tempId = `temp-${Date.now()}-${i}`;
+      activeImports.set(tempId, { id: tempId, filename: file.name, type: file.type || 'file', source: 'upload' });
+      activeImports = activeImports;
+
+      importProgressState.update(state => ({
+        ...state,
+        [tempId]: { status: 'queued', progress: 0, message: 'Queued for upload' }
+      }));
+
+      try {
+        const result = await GödelOSAPI.importFromFile(file);
+  console.debug('[Import] importFromFile result:', result);
+        const importId = result?.import_id || result?.id || result?.importId || tempId;
+  console.debug('[Import] resolved importId:', importId, 'tempId:', tempId);
+
+        // normalize activeImports key if backend returned a different id
+        if (importId !== tempId) {
+          const item = activeImports.get(tempId);
+          activeImports.delete(tempId);
+          item.id = importId;
+          activeImports.set(importId, item);
+          activeImports = activeImports;
         }
-      };
-      
-      // Start monitoring
-      checkProgress();
-      
-    } catch (error) {
-      importResults = {
-        error: error.message,
-        totalFiles: 1,
-        processed: 1,
-        successful: 0,
-        failed: 1
-      };
-    } finally {
-      isUploading = false;
-    }
-  }
-  
-  async function connectToApi() {
-    if (!apiKeyInput.trim()) return;
-    
-    isUploading = true;
-    uploadProgress = 0;
-    
-    try {
-      // For now, simulate API connection since we don't have a specific endpoint
-      // This would be replaced with actual external API integration
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      importResults = {
-        totalFiles: 1,
-        processed: 1,
-        successful: 1,
-        failed: 0,
-        entities: 45,
-        concepts: 32,
-        relationships: 28,
-        details: [{
-          filename: 'API Knowledge Base',
-          status: 'success',
-          type: 'api-data',
-          entities: 45,
-          concepts: 32,
-          relationships: 28,
-          confidence: 0.92
-        }]
-      };
-      
-      apiKeyInput = '';
-    } catch (error) {
-      importResults = {
-        error: error.message,
-        totalFiles: 1,
-        processed: 1,
-        successful: 0,
-        failed: 1
-      };
-    } finally {
-      isUploading = false;
-      uploadProgress = 0;
-    }
-  }
 
-  async function importFromWikipedia(topic) {
-    if (!topic?.trim()) return;
-    
-    isUploading = true;
-    uploadProgress = 0;
-    
-    try {
-      // Use real API to import from Wikipedia
-      const importResponse = await GödelOSAPI.importFromWikipedia(topic);
-      const importId = importResponse.import_id;
-      
-      // Store active import for monitoring
-      activeImports.set(importId, {
-        id: importId,
-        source: topic,
-        status: 'started',
-        type: 'wikipedia',
-        startTime: Date.now()
-      });
-      
-      // Start progress monitoring
-      uploadProgress = 30;
-      
-      const checkProgress = async () => {
-        try {
-          const progress = await GödelOSAPI.getImportProgress(importId);
-          
-          if (progress) {
-            importProgress[importId] = progress;
-            uploadProgress = progress.progress || 30;
-            
-            if (progress.status === 'completed') {
-              importResults = {
-                totalFiles: 1,
-                processed: 1,
-                successful: 1,
-                failed: 0,
-                entities: progress.details?.items_created || 25,
-                concepts: Math.floor((progress.details?.items_created || 25) * 0.9),
-                relationships: Math.floor((progress.details?.items_created || 25) * 0.6),
-                details: [{
-                  filename: `Wikipedia: ${topic}`,
-                  status: 'success',
-                  type: 'wikipedia',
-                  import_id: importId,
-                  entities: progress.details?.items_created || 25,
-                  message: progress.message
-                }]
-              };
-              activeImports.delete(importId);
-              return;
-            } else if (progress.status === 'failed') {
-              importResults = {
-                error: progress.error_message || 'Wikipedia import failed',
-                totalFiles: 1,
-                processed: 1,
-                successful: 0,
-                failed: 1
-              };
-              activeImports.delete(importId);
-              return;
-            }
-          }
-          
-          // Continue monitoring if still in progress
-          if (activeImports.has(importId)) {
-            setTimeout(checkProgress, 2000);
-          }
-        } catch (error) {
-          console.error('Failed to get Wikipedia import progress:', error);
-          importResults = {
-            error: error.message,
-            totalFiles: 1,
-            processed: 1,
-            successful: 0,
-            failed: 1
-          };
-          activeImports.delete(importId);
-        }
-      };
-      
-      // Start monitoring
-      checkProgress();
-      
-    } catch (error) {
-      importResults = {
-        error: error.message,
-        totalFiles: 1,
-        processed: 1,
-        successful: 0,
-        failed: 1
-      };
-    } finally {
-      isUploading = false;
-    }
-  }
+        importProgressState.update(state => ({
+          ...state,
+          [importId]: { status: 'started', progress: 0, message: 'Upload started' }
+        }));
 
-  async function importFromText(content, title = 'Manual Text Input') {
-    if (!content?.trim()) return;
-    
-    isUploading = true;
-    uploadProgress = 0;
-    
-    try {
-      // Use real API to import text
-      const importResponse = await GödelOSAPI.importFromText(content, title);
-      const importId = importResponse.import_id;
-      
-      // Store active import for monitoring
-      activeImports.set(importId, {
-        id: importId,
-        source: title,
-        status: 'started',
-        type: 'text',
-        startTime: Date.now()
-      });
-      
-      // Start progress monitoring
-      uploadProgress = 40;
-      
-      const checkProgress = async () => {
-        try {
-          const progress = await GödelOSAPI.getImportProgress(importId);
-          
-          if (progress) {
-            importProgress[importId] = progress;
-            uploadProgress = progress.progress || 40;
-            
-            if (progress.status === 'completed') {
-              importResults = {
-                totalFiles: 1,
-                processed: 1,
-                successful: 1,
-                failed: 0,
-                entities: progress.details?.items_created || 8,
-                concepts: Math.floor((progress.details?.items_created || 8) * 0.75),
-                relationships: Math.floor((progress.details?.items_created || 8) * 0.5),
-                details: [{
-                  filename: title,
-                  status: 'success',
-                  type: 'manual-text',
-                  import_id: importId,
-                  entities: progress.details?.items_created || 8,
-                  message: progress.message
-                }]
-              };
-              activeImports.delete(importId);
-              return;
-            } else if (progress.status === 'failed') {
-              importResults = {
-                error: progress.error_message || 'Text import failed',
-                totalFiles: 1,
-                processed: 1,
-                successful: 0,
-                failed: 1
-              };
-              activeImports.delete(importId);
-              return;
-            }
-          }
-          
-          // Continue monitoring if still in progress
-          if (activeImports.has(importId)) {
-            setTimeout(checkProgress, 2000);
-          }
-        } catch (error) {
-          console.error('Failed to get text import progress:', error);
-          importResults = {
-            error: error.message,
-            totalFiles: 1,
-            processed: 1,
-            successful: 0,
-            failed: 1
-          };
-          activeImports.delete(importId);
-        }
-      };
-      
-      // Start monitoring
-      checkProgress();
-      
-    } catch (error) {
-      importResults = {
-        error: error.message,
-        totalFiles: 1,
-        processed: 1,
-        successful: 0,
-        failed: 1
-      };
-    } finally {
-      isUploading = false;
-    }
-  }
-
-  // Advanced Pipeline Processing Function
-  async function processWithAdvancedPipeline(content, title = 'Manual Text') {
-    if (!content.trim()) return;
-    
-    isUploading = true;
-    uploadProgress = 0;
-    importResults = null;
-    
-    try {
-      uploadProgress = 25;
-      
-      // Check pipeline status first
-      const pipelineStatus = await GödelOSAPI.getPipelineStatus();
-      if (!pipelineStatus || !pipelineStatus.initialized) {
-        throw new Error('Advanced knowledge pipeline is not available');
+        // start polling for progress (websocket will update if available)
+        startPolling(importId);
+      } catch (err) {
+        importProgressState.update(state => ({
+          ...state,
+          [tempId]: { status: 'failed', progress: 0, message: err?.message || 'Upload failed' }
+        }));
+        // remove after short delay
+        setTimeout(() => {
+          activeImports.delete(tempId);
+          activeImports = activeImports;
+        }, 3000);
       }
-      
-      uploadProgress = 50;
-      
-      // Process through advanced pipeline
-      const pipelineResult = await GödelOSAPI.processTextWithPipeline(
-        content, 
-        title, 
-        { 
-          processingOptions: processingOptions,
-          source: 'manual_text',
-          timestamp: Date.now()
-        }
-      );
-      
-      uploadProgress = 100;
-      
-      // Create results object with pipeline data
-      importResults = {
-        totalFiles: 1,
-        processed: 1,
-        successful: pipelineResult.success ? 1 : 0,
-        failed: pipelineResult.success ? 0 : 1,
-        entities: pipelineResult.entities_extracted || 0,
-        concepts: pipelineResult.entities_extracted || 0, // Entities are concepts
-        relationships: pipelineResult.relationships_extracted || 0,
-        processing_time: pipelineResult.processing_time_seconds || 0,
-        details: [{
-          filename: title,
-          status: pipelineResult.success ? 'success' : 'error',
-          type: 'advanced-pipeline',
-          entities: pipelineResult.entities_extracted || 0,
-          relationships: pipelineResult.relationships_extracted || 0,
-          knowledge_items: pipelineResult.knowledge_items || [],
-          processing_time: pipelineResult.processing_time_seconds || 0,
-          message: `Advanced processing completed: ${pipelineResult.entities_extracted || 0} entities, ${pipelineResult.relationships_extracted || 0} relationships`
-        }],
-        pipeline_result: pipelineResult
-      };
-      
-    } catch (error) {
-      console.error('Advanced pipeline processing error:', error);
-      importResults = {
-        error: error.message,
-        totalFiles: 1,
-        processed: 1,
-        successful: 0,
-        failed: 1,
-        pipeline_error: true
-      };
-    } finally {
-      isUploading = false;
+    }
+
+    // reset file input so same file can be chosen again
+    if (fileInput) fileInput.value = '';
+  }
+
+  async function importFromUrl() {
+    if (!urlInput || !urlInput.trim()) return;
+    const tempId = `url-${Date.now()}`;
+    activeImports.set(tempId, { id: tempId, source: urlInput, type: 'url' });
+    activeImports = activeImports;
+    importProgressState.update(s => ({ ...s, [tempId]: { status: 'queued', progress: 0, message: 'Starting URL import' } }));
+
+    try {
+      const result = await GödelOSAPI.importFromUrl(urlInput, 'web');
+  console.debug('[Import] importFromUrl result:', result);
+      const importId = result?.import_id || result?.id || tempId;
+  console.debug('[Import] resolved importId:', importId, 'tempId:', tempId);
+      if (importId !== tempId) {
+        const item = activeImports.get(tempId);
+        activeImports.delete(tempId);
+        item.id = importId;
+        activeImports.set(importId, item);
+        activeImports = activeImports;
+      }
+      importProgressState.update(s => ({ ...s, [importId]: { status: 'started', progress: 0, message: 'URL import started' } }));
+      startPolling(importId);
+      urlInput = '';
+    } catch (err) {
+      importProgressState.update(s => ({ ...s, [tempId]: { status: 'failed', progress: 0, message: err?.message || 'URL import failed' } }));
+      setTimeout(() => { activeImports.delete(tempId); activeImports = activeImports; }, 3000);
     }
   }
 
-  function clearResults() {
-    importResults = null;
-    uploadProgress = 0;
-    activeImports.clear();
-    importProgress = {};
+  async function importFromText() {
+    if (!textInput || !textInput.trim()) return;
+    const tempId = `text-${Date.now()}`;
+    activeImports.set(tempId, { id: tempId, filename: textTitle || 'Text Import', type: 'text' });
+    activeImports = activeImports;
+    importProgressState.update(s => ({ ...s, [tempId]: { status: 'queued', progress: 0, message: 'Submitting text' } }));
+
+    try {
+      const result = await GödelOSAPI.importFromText(textInput, textTitle, 'document');
+  console.debug('[Import] importFromText result:', result);
+      const importId = result?.import_id || result?.id || tempId;
+  console.debug('[Import] resolved importId:', importId, 'tempId:', tempId);
+      if (importId !== tempId) {
+        const item = activeImports.get(tempId);
+        activeImports.delete(tempId);
+        item.id = importId;
+        activeImports.set(importId, item);
+        activeImports = activeImports;
+      }
+      importProgressState.update(s => ({ ...s, [importId]: { status: 'started', progress: 0, message: 'Processing text' } }));
+      startPolling(importId);
+      // clear text input after sending
+      textInput = '';
+      textTitle = 'Text Import';
+    } catch (err) {
+      importProgressState.update(s => ({ ...s, [tempId]: { status: 'failed', progress: 0, message: err?.message || 'Text import failed' } }));
+      setTimeout(() => { activeImports.delete(tempId); activeImports = activeImports; }, 3000);
+    }
+  }
+
+  // Drag & drop support and cleanup
+  onMount(() => {
+    const handleDragOver = (e) => { e.preventDefault(); dragActive = true; };
+    const handleDragLeave = (e) => { e.preventDefault(); dragActive = false; };
+    const handleDrop = (e) => {
+      e.preventDefault(); dragActive = false;
+      if (e.dataTransfer && e.dataTransfer.files) {
+        handleFileSelect(e.dataTransfer.files);
+      }
+    };
+
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('dragleave', handleDragLeave);
+    window.addEventListener('drop', handleDrop);
+
+    return () => {
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('dragleave', handleDragLeave);
+      window.removeEventListener('drop', handleDrop);
+      // clear any polling intervals
+      for (const interval of pollingIntervals.values()) clearInterval(interval);
+      pollingIntervals.clear();
+    };
+  });
+
+  // Clean up completed imports
+  $: {
+    for (const [id, progress] of Object.entries(importProgress)) {
+      if (progress.status === 'completed' || progress.status === 'failed' || progress.status === 'cancelled') {
+        setTimeout(() => {
+          activeImports.delete(id);
+          activeImports = activeImports;
+        }, 3000);
+        if (progress.status === 'completed') {
+          // refresh knowledge graph so imported data becomes visible
+          try { apiHelpers.updateKnowledgeFromBackend(); } catch (e) { /* ignore */ }
+        }
+      }
+    }
+  }
+
+  // allow cancelling an import (best-effort - backend may not implement)
+  async function cancelImport(id) {
+    try {
+      if (GödelOSAPI.cancelImport) {
+        await GödelOSAPI.cancelImport(id);
+        importProgressState.update(s => ({ ...s, [id]: { ...(s[id] || {}), status: 'cancelled', message: 'Cancelled by user' } }));
+      } else {
+        // Best-effort local update if backend doesn't support cancel
+        importProgressState.update(s => ({ ...s, [id]: { ...(s[id] || {}), status: 'cancelled', message: 'Cancelled (local)' } }));
+      }
+    } catch (err) {
+      console.warn('cancelImport error', err);
+      importProgressState.update(s => ({ ...s, [id]: { ...(s[id] || {}), status: 'failed', message: err?.message || 'Cancel failed' } }));
+    }
+    // remove from active list shortly after
+    setTimeout(() => { activeImports.delete(id); activeImports = activeImports; }, 1000);
+  }
+
+  // Bulk import management functions
+  async function cancelAllImports() {
+    try {
+      if (GödelOSAPI.cancelAllImports) {
+        const result = await GödelOSAPI.cancelAllImports();
+        console.log('Cancelled all imports:', result);
+        
+        // Update local state for all active imports
+        for (const [id] of activeImports.entries()) {
+          importProgressState.update(s => ({ ...s, [id]: { ...(s[id] || {}), status: 'cancelled', message: 'Cancelled by bulk action' } }));
+        }
+        
+        // Clear active imports after a delay
+        setTimeout(() => { 
+          activeImports.clear(); 
+          activeImports = activeImports; 
+        }, 2000);
+      }
+    } catch (err) {
+      console.warn('cancelAllImports error', err);
+    }
+  }
+
+  async function resetStuckImports() {
+    try {
+      if (GödelOSAPI.resetStuckImports) {
+        const result = await GödelOSAPI.resetStuckImports();
+        console.log('Reset stuck imports:', result);
+        
+        // Refresh the active imports list to reflect changes
+        setTimeout(() => {
+          // Force refresh of active imports (could be enhanced to call an API)
+          activeImports = activeImports;
+        }, 1000);
+      }
+    } catch (err) {
+      console.warn('resetStuckImports error', err);
+    }
+  }
+
+  // Modal functions
+  function closeModal() {
+    dispatch('close');
+  }
+
+  function handleBackdropClick(event) {
+    if (event.target === event.currentTarget) {
+      closeModal();
+    }
+  }
+
+  function handleKeydown(event) {
+    if (event.key === 'Escape' && show) {
+      closeModal();
+    }
   }
 </script>
 
-<div class="smart-import-container">
-  <!-- Loading Overlay -->
-  {#if isUploading && loadingMessage}
-    <LoadingState 
-      loading={true}
-      variant="progress"
-      progress={uploadProgress}
-      message={loadingMessage}
-      overlay={true}
-      retryable={importError !== null}
-      error={importError}
-      on:retry={() => {
-        importError = null;
-        // Retry the last operation based on selectedSource
-        if (selectedSource === 'url') {
-          importFromUrl();
-        } else if (selectedSource === 'text') {
-          importFromText(textInput, textTitle);
-        }
-      }}
-    />
-  {/if}
+<svelte:window on:keydown={handleKeydown} />
 
-  <!-- Modern Header -->
-  <div class="import-header">
+{#if show}
+  <div 
+    class="modal-backdrop" 
+    on:click={handleBackdropClick}
+    on:keydown={handleKeydown}
+    transition:fade={{ duration: 200 }}
+    role="button"
+    aria-label="Close modal"
+    tabindex="0"
+  >
+    <div class="import-container" class:drag-active={dragActive} transition:scale={{ duration: 200, start: 0.95 }}>
+      <!-- Close button -->
+      <button 
+        class="modal-close-button" 
+        on:click={closeModal}
+        aria-label="Close modal"
+      >
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+  <!-- Header -->
+  <div class="header">
     <div class="title-section">
-      <h2 class="import-title">
-        <span class="title-icon">🧠</span>
-        Smart Knowledge Import
-        <span class="version-badge">AI-Powered</span>
-      </h2>
-      <p class="subtitle">Advanced pipeline for extracting, analyzing, and integrating diverse knowledge sources</p>
+      <h2 id="import-title">🧠 Knowledge Import</h2>
+      <p>Import and process knowledge from various sources</p>
     </div>
-    
-    <div class="stats-dashboard">
-      <div class="stat-card">
-        <span class="stat-value">{$knowledgeState.totalDocuments}</span>
-        <span class="stat-label">Documents</span>
-        <div class="stat-icon">📄</div>
-      </div>
-      <div class="stat-card">
-        <span class="stat-value">{$knowledgeState.totalConcepts}</span>
+    <div class="stats">
+      <div class="stat">
+        <span class="stat-value">{$knowledgeState.totalConcepts || 0}</span>
         <span class="stat-label">Concepts</span>
-        <div class="stat-icon">💡</div>
       </div>
-      <div class="stat-card">
-        <span class="stat-value">{activeImportsCount}</span>
+      <div class="stat">
+        <span class="stat-value">{activeImports.size}</span>
         <span class="stat-label">Active</span>
-        <div class="stat-icon">⚡</div>
       </div>
     </div>
   </div>
 
-  <!-- Modern Source Selection -->
-  <div class="source-selection-panel">
-    <div class="panel-header">
-      <h3 class="panel-title">
-        <span class="panel-icon">📥</span>
-        Import Source
-      </h3>
-      <div class="source-tabs">
-        {#each importSources as source}
-          <button 
-            class="source-tab {selectedSource === source.id ? 'active' : ''}"
-            on:click={() => selectedSource = source.id}
-            title={source.desc}
-          >
-            <span class="tab-icon">{source.name.split(' ')[0]}</span>
-            <span class="tab-name">{source.name.split(' ').slice(1).join(' ')}</span>
-          </button>
-        {/each}
-      </div>
-    </div>
+  <!-- Tab Navigation -->
+  <div class="tabs">
+    {#each tabs as tab}
+      <button 
+        class="tab" 
+        class:active={selectedTab === tab.id}
+        on:click={() => selectedTab = tab.id}
+      >
+        <span class="tab-icon">{tab.icon}</span>
+        <span class="tab-name">{tab.name}</span>
+      </button>
+    {/each}
   </div>
 
-  <!-- Modern Import Interface -->
-  <div class="import-interface {dragActive ? 'drag-active' : ''}">
-    {#if selectedSource === 'file'}
-      <div class="import-panel file-panel">
-        <div class="panel-content">
-          <div class="upload-zone-modern">
-            <div class="upload-visual">
-              <div class="upload-icon-large">📁</div>
-              <div class="upload-ripple"></div>
-            </div>
-            <div class="upload-content">
-              <h4 class="upload-title">Drag & Drop Files</h4>
-              <p class="upload-description">Support for PDF, TXT, MD, JSON, CSV and more</p>
-              <div class="upload-features">
-                <span class="feature-tag">🔍 Auto-detect</span>
-                <span class="feature-tag">🧠 AI Analysis</span>
-                <span class="feature-tag">⚡ Batch Processing</span>
-              </div>
-            </div>
+  <!-- Main Content Area -->
+  <div class="content">
+    <!-- Import Interface -->
+    <div class="import-section">
+      {#if selectedTab === 'file'}
+        <div class="upload-zone" class:drag-active={dragActive}>
+          <div class="upload-content">
+            <div class="upload-icon">📁</div>
+            <h3>Drop files here or click to browse</h3>
+            <p>Supports PDF, TXT, MD, JSON, CSV and more</p>
+            <button class="upload-btn" on:click={() => fileInput.click()}>
+              Choose Files
+            </button>
           </div>
           <input 
             type="file" 
             bind:this={fileInput}
             on:change={handleFileSelect}
             multiple
-            style="display: none"
+            hidden
           />
-          <button class="modern-upload-btn" on:click={() => fileInput.click()}>
-            <span class="btn-icon">📂</span>
-            <span class="btn-text">Choose Files</span>
-            <span class="btn-shine"></span>
-          </button>
         </div>
-      </div>
-    {:else if selectedSource === 'url'}
-      <div class="import-panel url-panel">
-        <div class="panel-content">
-          <div class="input-section">
-            <div class="input-header">
-              <span class="input-icon">🌐</span>
-              <label class="input-label">Web URL or Document Link</label>
-            </div>
-            <div class="modern-input-group">
-              <input 
-                type="url" 
-                bind:value={urlInput}
-                placeholder="https://example.com/document.pdf"
-                class="modern-input url-input"
-              />
-              <button 
-                class="input-action-btn" 
-                on:click={importFromUrl} 
-                disabled={!urlInput.trim() || isUploading}
-              >
-                {isUploading ? '⏳' : '🚀'}
-              </button>
-            </div>
-            <div class="input-help">
-              Supports: Web pages, PDFs, Google Docs, GitHub repos, and more
-            </div>
-          </div>
-        </div>
-      </div>
-    {:else if selectedSource === 'text'}
-      <div class="import-panel text-panel">
-        <div class="panel-content">
-          <div class="input-section">
-            <div class="input-header">
-              <span class="input-icon">📝</span>
-              <label class="input-label">Text Content for AI Processing</label>
-            </div>
-            <div class="modern-input-group">
-              <input 
-                type="text" 
-                bind:value={textTitle}
-                placeholder="Enter a title for this content"
-                class="modern-input title-input"
-              />
-            </div>
-            <div class="textarea-container">
-              <textarea 
-                bind:value={textInput}
-                placeholder="Enter or paste your content here. Our AI will extract entities, relationships, and semantic insights automatically."
-                class="modern-textarea"
-                rows="8"
-              ></textarea>
-              <div class="textarea-features">
-                <div class="feature-indicator">
-                  <span class="indicator-dot active"></span>
-                  <span class="indicator-text">Entity Recognition</span>
-                </div>
-                <div class="feature-indicator">
-                  <span class="indicator-dot active"></span>
-                  <span class="indicator-text">Relationship Extraction</span>
-                </div>
-                <div class="feature-indicator">
-                  <span class="indicator-dot active"></span>
-                  <span class="indicator-text">Semantic Analysis</span>
-                </div>
-              </div>
-            </div>
-          <button 
-            class="ai-process-btn" 
-            on:click={() => processWithAdvancedPipeline(textInput, textTitle)} 
-            disabled={!textInput.trim() || isUploading}
-          >
-            <span class="ai-btn-icon">🚀</span>
-            <span class="ai-btn-text">{isUploading ? 'Processing...' : 'Process with AI'}</span>
-            <div class="ai-btn-glow"></div>
-          </button>
-            </div>
-          </div>
-        </div>
-    {:else if selectedSource === 'api'}
-      <div class="import-panel api-panel">
-        <div class="panel-content">
-          <div class="input-section">
-            <div class="input-header">
-              <span class="input-icon">🔗</span>
-              <label class="input-label">API Connection</label>
-            </div>
-            <div class="modern-input-group">
-              <input 
-                type="password" 
-                bind:value={apiKeyInput}
-                placeholder="Enter API key or connection string"
-                class="modern-input api-input"
-              />
-              <button 
-                class="input-action-btn" 
-                on:click={connectToApi} 
-                disabled={!apiKeyInput.trim()}
-              >
-                🔌
-              </button>
-            </div>
-            <div class="input-help">
-              Connect to external knowledge bases, APIs, and databases
-            </div>
-          </div>
-        </div>
-      </div>
-    {/if}
-  </div>
-
-  <!-- Modern Format & Options Panel -->
-    <div class="panel-section">
-      <div class="section-header">
-        <h3 class="section-title">
-          <span class="section-icon">🎯</span>
-          Format & Processing
-        </h3>
-      </div>
-      
-      <div class="format-selector-modern">
-        <div class="format-tabs">
-          {#each supportedFormats as format}
+      {:else if selectedTab === 'url'}
+        <div class="input-section">
+          <h3>Import from Web URL</h3>
+          <div class="input-group">
+            <input 
+              type="url" 
+              bind:value={urlInput}
+              placeholder="https://example.com/document.pdf"
+              class="url-input"
+            />
             <button 
-              class="format-tab {selectedFormat === format.id ? 'active' : ''}"
-              on:click={() => selectedFormat = format.id}
-              title={format.desc}
+              class="import-btn" 
+              on:click={importFromUrl}
+              disabled={!urlInput.trim()}
             >
-              <div class="format-content">
-                <span class="format-name">{format.name}</span>
-                <span class="format-desc">{format.desc}</span>
-              </div>
-              {#if selectedFormat === format.id}
-                <div class="active-indicator">✓</div>
-              {/if}
+              Import
             </button>
-          {/each}
-        </div>
-      </div>
-    </div>
-    
-    <div class="panel-section">
-      <div class="section-header">
-        <h3 class="section-title">
-          <span class="section-icon">⚙️</span>
-          AI Processing Options
-        </h3>
-      </div>
-      
-      <div class="processing-controls">
-        <div class="toggle-options">
-          <label class="modern-option-toggle">
-            <input type="checkbox" bind:checked={processingOptions.extractEntities} />
-            <span class="toggle-slider"></span>
-            <div class="toggle-content">
-              <span class="toggle-icon">🏷️</span>
-              <div class="toggle-text">
-                <span class="toggle-title">Extract Entities</span>
-                <span class="toggle-desc">Identify people, places, organizations</span>
-              </div>
-            </div>
-          </label>
-          
-          <label class="modern-option-toggle">
-            <input type="checkbox" bind:checked={processingOptions.generateSummaries} />
-            <span class="toggle-slider"></span>
-            <div class="toggle-content">
-              <span class="toggle-icon">📋</span>
-              <div class="toggle-text">
-                <span class="toggle-title">Generate Summaries</span>
-                <span class="toggle-desc">Create intelligent content summaries</span>
-              </div>
-            </div>
-          </label>
-          
-          <label class="modern-option-toggle">
-            <input type="checkbox" bind:checked={processingOptions.createRelationships} />
-            <span class="toggle-slider"></span>
-            <div class="toggle-content">
-              <span class="toggle-icon">🔗</span>
-              <div class="toggle-text">
-                <span class="toggle-title">Create Relationships</span>
-                <span class="toggle-desc">Build semantic connections</span>
-              </div>
-            </div>
-          </label>
-          
-          <label class="modern-option-toggle">
-            <input type="checkbox" bind:checked={processingOptions.enableEmbeddings} />
-            <span class="toggle-slider"></span>
-            <div class="toggle-content">
-              <span class="toggle-icon">🧠</span>
-              <div class="toggle-text">
-                <span class="toggle-title">Enable Embeddings</span>
-                <span class="toggle-desc">Generate vector representations</span>
-              </div>
-            </div>
-          </label>
-        </div>
-        
-        <div class="advanced-controls">
-          <div class="control-group">
-            <label class="control-slider">
-              <div class="slider-header">
-                <span class="slider-icon">🎯</span>
-                <span class="slider-title">Confidence Threshold</span>
-                <span class="slider-value">{Math.round(processingOptions.confidenceThreshold * 100)}%</span>
-              </div>
-              <input 
-                type="range" 
-                min="0.1" 
-                max="1" 
-                step="0.1" 
-                bind:value={processingOptions.confidenceThreshold}
-                class="modern-slider"
-              />
-              <div class="slider-track-labels">
-                <span>Low</span>
-                <span>High</span>
-              </div>
-            </label>
           </div>
-          
-          <div class="control-group">
-            <label class="control-slider">
-              <div class="slider-header">
-                <span class="slider-icon">�</span>
-                <span class="slider-title">Chunk Size</span>
-                <span class="slider-value">{processingOptions.chunkSize}</span>
-              </div>
-              <input 
-                type="range" 
-                min="500" 
-                max="2000" 
-                step="100" 
-                bind:value={processingOptions.chunkSize}
-                class="modern-slider"
-              />
-              <div class="slider-track-labels">
-                <span>Small</span>
-                <span>Large</span>
-              </div>
-            </label>
-          </div>
+          <p class="help-text">Supports web pages, PDFs, and documents</p>
         </div>
-      </div>
-    </div>
-  </div>
+      {:else if selectedTab === 'text'}
+        <div class="input-section">
+          <h3>Import Text Content</h3>
+          <input 
+            type="text" 
+            bind:value={textTitle}
+            placeholder="Document title"
+            class="title-input"
+          />
+          <textarea 
+            bind:value={textInput}
+            placeholder="Paste your text content here..."
+            class="text-input"
+            rows="8"
+          ></textarea>
+          <button 
+            class="import-btn" 
+            on:click={importFromText}
+            disabled={!textInput.trim()}
+          >
+            Process Text
+          </button>
+        </div>
+      {:else if selectedTab === 'api'}
+        <div class="input-section">
+          <h3>Connect API Source</h3>
+          <div class="input-group">
+            <input 
+              type="password" 
+              bind:value={apiKeyInput}
+              placeholder="API key or connection string"
+              class="api-input"
+            />
+            <button 
+              class="import-btn" 
+              disabled={!apiKeyInput.trim()}
+            >
+              Connect
+            </button>
+          </div>
+          <p class="help-text">Connect to external knowledge sources</p>
+        </div>
+      {/if}
 
-  {#if isUploading}
-    <div class="upload-progress">
-      <div class="textarea-container">
-                <textarea 
-                  bind:value={textInput}
-                  placeholder="Enter or paste your content here. Our AI will extract entities, relationships, and semantic insights automatically."
-                  class="modern-textarea"
-                  rows="8"
-                ></textarea>
-                <div class="textarea-features">
-                  <div class="feature-indicator">
-                    <span class="indicator-dot active"></span>
-                    <span class="indicator-text">Entity Recognition</span>
-                  </div>
-                  <div class="feature-indicator">
-                    <span class="indicator-dot active"></span>
-                    <span class="indicator-text">Relationship Extraction</span>
-                  </div>
-                  <div class="feature-indicator">
-                    <span class="indicator-dot active"></span>
-                    <span class="indicator-text">Semantic Analysis</span>
-                  </div>
-                </div>
-              </div>
-              <button 
-                class="ai-process-btn" 
-                on:click={() => processWithAdvancedPipeline(textInput, textTitle)} 
-                disabled={!textInput.trim() || isUploading}
-              >
-                <span class="ai-btn-icon">🚀</span>
-                <span class="ai-btn-text">{isUploading ? 'Processing...' : 'Process with AI'}</span>
-                <div class="ai-btn-glow"></div>
+      <!-- Inline Progress Panel (moved into import-section for better visibility) -->
+      {#if activeImports.size > 0}
+        <div class="inline-progress">
+          <div class="progress-header-section">
+            <h4>Active Imports ({activeImports.size})</h4>
+            <div class="bulk-actions">
+              <button class="bulk-btn cancel-all" on:click={cancelAllImports}>
+                🛑 Cancel All
+              </button>
+              <button class="bulk-btn reset-stuck" on:click={resetStuckImports}>
+                🔄 Reset Stuck
               </button>
             </div>
-    {/if}
-  
-  <div class="format-selector">
-      {#each supportedFormats as format}
-        <button 
-          class="format-option {selectedFormat === format.id ? 'active' : ''}"
-          on:click={() => selectedFormat = format.id}
-        >
-          <span class="format-name">{format.name}</span>
-          <span class="format-desc">{format.desc}</span>
-        </button>
-      {/each}    </div>
-
-  <div class="processing-options">
-    <h4>⚙️ Processing Options</h4>
-    <div class="options-grid">
-      <label class="option-item">
-        <input type="checkbox" bind:checked={processingOptions.extractEntities} />
-        <span>Extract Entities</span>
-      </label>
-      <label class="option-item">
-        <input type="checkbox" bind:checked={processingOptions.generateSummaries} />
-        <span>Generate Summaries</span>
-      </label>
-      <label class="option-item">
-        <input type="checkbox" bind:checked={processingOptions.createRelationships} />
-        <span>Create Relationships</span>
-      </label>
-      <label class="option-item">
-        <input type="checkbox" bind:checked={processingOptions.enableEmbeddings} />
-        <span>Enable Embeddings</span>
-      </label>
-    </div>
-    
-    <div class="advanced-options">
-      <div class="slider-option">
-        <label for="confidence-threshold">Confidence Threshold: {processingOptions.confidenceThreshold}</label>
-        <input 
-          id="confidence-threshold"
-          type="range" 
-          min="0.1" 
-          max="1" 
-          step="0.1" 
-          bind:value={processingOptions.confidenceThreshold}
-        />
-      </div>
-      <div class="slider-option">
-        <label for="chunk-size">Chunk Size: {processingOptions.chunkSize}</label>
-        <input 
-          id="chunk-size"
-          type="range" 
-          min="500" 
-          max="2000" 
-          step="100" 
-          bind:value={processingOptions.chunkSize}
-        />
-      </div>
-    </div>
-  </div>
-  
-  {#if isUploading}
-    <div class="upload-progress">
-      <h4>🔄 Processing Knowledge...</h4>
-      <div class="progress-bar">
-        <div class="progress-fill" style="width: {uploadProgress}%"></div>
-      </div>
-      <p>Processing... {Math.round(uploadProgress)}% complete</p>
-    </div>
-  {/if}
-
-  {#if activeImportsCount > 0}
-    <div class="active-imports">
-      <h4>⏳ Active Imports</h4>
-      <div class="imports-list">
-        {#each activeImportsArray as importItem}
-          <div class="import-item">
-            <div class="import-header">
-              <span class="import-source">{importItem.source || importItem.filename}</span>
-              <span class="import</div>-type">{importItem.type}</span>
           </div>
-        </div>
-        {#if importProgress[importItem.id]}
-          <div class="import-progress">
-            <div class="progress-bar small">
-              <div class="progress-fill" style="width: {importProgress[importItem.id].progress || 0}%"></div>
-            </div>
-            <div class="progress-details">
-              <span class="progress-status">{importProgress[importItem.id].status}</span>
-              <span class="progress-message">{importProgress[importItem.id].message || importProgress[importItem.id].current_step}</span>
-            </div>
-          </div>
-        {:else}
-          <div class="import-progress">
-            <div class="progress-bar small">
-              <div class="progress-fill" style="width: 10%"></div>
-            </div>
-            <div class="progress-details">
-              <span class="progress-status">initializing</span>
-              <span class="progress-message">Starting import...</span>
-            </div>
-          </div>
-        {/if}
-      {/each}
-    </div>
-  </div>
-{/if}
-
-{#if importResults}
-  <div class="import-results">
-    <div class="results-header">
-      <h4>📊 Import Results</h4>
-      <button class="clear-btn" on:click={clearResults}>Clear</button>
-    </div>
-      
-      {#if importResults.error}
-        <div class="error-message">
-          <span class="error-icon">❌</span>
-          <span>Import failed: {importResults.error}</span>
-        </div>
-      {:else}
-        <div class="results-summary">
-          <div class="summary-card">
-            <span class="summary-value">{importResults.successful}</span>
-            <span class="summary-label">Successful</span>
-          </div>
-          <div class="summary-card">
-            <span class="summary-value">{importResults.failed}</span>
-            <span class="summary-label">Failed</span>
-          </div>
-          <div class="summary-card">
-            <span class="summary-value">{importResults.entities}</span>
-            <span class="summary-label">Entities</span>
-          </div>
-          <div class="summary-card">
-            <span class="summary-value">{importResults.concepts}</span>
-            <span class="summary-label">Concepts</span>
-          </div>
-          <div class="summary-card">
-            <span class="summary-value">{importResults.relationships}</span>
-            <span class="summary-label">Relationships</span>
-          </div>
-        </div>
-        
-        <div class="results-details">
-          <h5>📋 File Details</h5>
-          <div class="details-list">
-            {#each importResults.details as detail}
-              <div class="detail-item {detail.status}">
-                <div class="detail-header">
-                  <span class="detail-name">{detail.filename}</span>
-                  <span class="detail-status {detail.status}">
-                    {detail.status === 'success' ? '✅' : '❌'} {detail.status}
-                  </span>
-                </div>
-                {#if detail.status === 'success'}
-                  <div class="detail-metrics">
-                    {#if detail.entities !== undefined}
-                      <span>Entities: {detail.entities}</span>
-                    {/if}
-                    {#if detail.concepts !== undefined}
-                      <span>Concepts: {detail.concepts}</span>
-                    {/if}
-                    {#if detail.relationships !== undefined}
-                      <span>Relationships: {detail.relationships}</span>
-                    {/if}
-                    {#if detail.confidence !== undefined}
-                      <span>Confidence: {Math.round(detail.confidence * 100)}%</span>
-                    {/if}
-                    {#if detail.import_id}
-                      <span class="import-id">ID: {detail.import_id.substring(0, 8)}...</span>
-                    {/if}
+          <div class="progress-list">
+            {#each activeImportsArray as item}
+              <div class="progress-item">
+                <div class="progress-header">
+                  <div style="display:flex;flex-direction:column;">
+                    <span class="progress-name">{item.source || item.filename}</span>
+                    <small class="progress-type">{item.type}</small>
                   </div>
-                {:else if detail.status === 'queued'}
-                  <div class="detail-metrics">
-                    <span>Import ID: {detail.import_id.substring(0, 8)}...</span>
-                    <span>Status: Processing...</span>
-                    {#if detail.progress !== undefined}
-                      <span>Progress: {detail.progress}%</span>
+                  <div style="display:flex;gap:8px;align-items:center;">
+                    {#if importProgress[item.id]?.status === 'completed'}
+                      <button class="view-btn" on:click={() => apiHelpers.updateKnowledgeFromBackend()}>View in KG</button>
+                    {/if}
+                    <button class="cancel-btn" on:click={() => cancelImport(item.id)}>Cancel</button>
+                  </div>
+                </div>
+                {#if importProgress[item.id]}
+                  <div class="progress-bar large">
+                    <div 
+                      class="progress-fill" 
+                      style="width: {importProgress[item.id].progress || 0}%"
+                    ></div>
+                    <div class="progress-percent">{Math.round(importProgress[item.id].progress || 0)}%</div>
+                  </div>
+                  <div class="progress-status">
+                    <span class="status-badge" style="background-color: {getStatusColor(importProgress[item.id].status)}20; color: {getStatusColor(importProgress[item.id].status)}; border: 1px solid {getStatusColor(importProgress[item.id].status)}40;">
+                      {importProgress[item.id].status.toUpperCase()}
+                    </span>
+                    <span class="status-step">
+                      {importProgress[item.id].current_step || importProgress[item.id].message || ''}
+                    </span>
+                  </div>
+                  
+                  <!-- Enhanced Progress Details -->
+                  {#if importProgress[item.id].step_name && PROGRESS_STEPS[importProgress[item.id].step_name]}
+                    <div class="step-indicator">
+                      <div class="step-progress">
+                        {#each Object.entries(PROGRESS_STEPS) as [stepKey, stepInfo], index}
+                          {#if stepKey !== 'error'}
+                            <div 
+                              class="step-dot"
+                              class:completed={stepInfo.order <= (importProgress[item.id].completed_steps || 0)}
+                              class:current={stepKey === importProgress[item.id].step_name}
+                            >
+                              <span class="step-number">{stepInfo.order}</span>
+                              <span class="step-label">{stepInfo.label}</span>
+                            </div>
+                          {/if}
+                        {/each}
+                      </div>
+                    </div>
+                  {/if}
+                  
+                  <!-- File Details -->
+                  <div class="file-details">
+                    <div class="detail-row">
+                      <span class="detail-label">File:</span>
+                      <span class="detail-value">{item.filename || item.source}</span>
+                    </div>
+                    {#if item.type && item.type !== 'file'}
+                      <div class="detail-row">
+                        <span class="detail-label">Type:</span>
+                        <span class="detail-value">{formatFileType(item.type)}</span>
+                      </div>
+                    {/if}
+                    {#if importProgress[item.id].completed_steps !== undefined && importProgress[item.id].total_steps}
+                      <div class="detail-row">
+                        <span class="detail-label">Steps:</span>
+                        <span class="detail-value">{importProgress[item.id].completed_steps}/{importProgress[item.id].total_steps}</span>
+                      </div>
+                    {/if}
+                    {#if importProgress[item.id].entities_extracted !== undefined}
+                      <div class="detail-row">
+                        <span class="detail-label">Entities:</span>
+                        <span class="detail-value">{importProgress[item.id].entities_extracted}</span>
+                      </div>
+                    {/if}
+                    {#if importProgress[item.id].relationships_extracted !== undefined}
+                      <div class="detail-row">
+                        <span class="detail-label">Relations:</span>
+                        <span class="detail-value">{importProgress[item.id].relationships_extracted}</span>
+                      </div>
+                    {/if}
+                    {#if importProgress[item.id].categories && importProgress[item.id].categories.length > 0}
+                      <div class="detail-row">
+                        <span class="detail-label">Categories:</span>
+                        <span class="detail-value">{importProgress[item.id].categories.map(c => c.category).join(', ')}</span>
+                      </div>
+                    {/if}
+                    {#if importProgress[item.id].deduplication_stats}
+                      <div class="detail-row">
+                        <span class="detail-label">Deduplicates:</span>
+                        <span class="detail-value">{importProgress[item.id].deduplication_stats.duplicates_removed || 0} removed</span>
+                      </div>
+                    {/if}
+                    {#if importProgress[item.id].started_at}
+                      <div class="detail-row">
+                        <span class="detail-label">Started:</span>
+                        <span class="detail-value">{new Date(importProgress[item.id].started_at * 1000).toLocaleTimeString()}</span>
+                      </div>
+                    {/if}
+                    {#if importProgress[item.id].estimated_completion}
+                      <div class="detail-row">
+                        <span class="detail-label">ETA:</span>
+                        <span class="detail-value">{new Date(importProgress[item.id].estimated_completion * 1000).toLocaleTimeString()}</span>
+                      </div>
+                    {/if}
+                    {#if importProgress[item.id].warnings && importProgress[item.id].warnings.length > 0}
+                      <div class="detail-row">
+                        <span class="detail-label">Warnings:</span>
+                        <span class="detail-value warning">{importProgress[item.id].warnings.length}</span>
+                      </div>
                     {/if}
                   </div>
                 {:else}
-                  <div class="detail-error">
-                    {detail.error}
+                  <div class="progress-bar large">
+                    <div class="progress-fill" style="width: 10%"></div>
+                    <div class="progress-percent">0%</div>
+                  </div>
+                  <div class="progress-status">Starting...</div>
+                  
+                  <!-- File Details -->
+                  <div class="file-details">
+                    <div class="detail-row">
+                      <span class="detail-label">File:</span>
+                      <span class="detail-value">{item.filename || item.source}</span>
+                    </div>
+                    {#if item.type && item.type !== 'file'}
+                      <div class="detail-row">
+                        <span class="detail-label">Type:</span>
+                        <span class="detail-value">{formatFileType(item.type)}</span>
+                      </div>
+                    {/if}
                   </div>
                 {/if}
               </div>
@@ -1243,1226 +618,1139 @@
         </div>
       {/if}
     </div>
-  {/if}
+  <!-- Options Panel + Progress pinned below -->
+  <div class="options-panel">
+      <h4>Processing Options</h4>
+      <div class="option-group">
+        <label class="toggle-option">
+          <input type="checkbox" bind:checked={enableAI} />
+          <span class="toggle"></span>
+          <span>AI Processing</span>
+        </label>
+        <div class="confidence-option">
+          <label for="confidence-select">Confidence Level:</label>
+          <select id="confidence-select" bind:value={confidenceLevel}>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  
+    </div>
+  </div>
+{/if}
 
 <style>
-  .smart-import-container {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    padding: 32px;
-    border-radius: 20px;
-    box-shadow: 0 25px 50px rgba(0, 0, 0, 0.3);
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    min-height: 800px;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .smart-import-container::before {
-    content: '';
-    position: absolute;
+  /* Modal styles */
+  .modal-backdrop {
+    position: fixed;
     top: 0;
     left: 0;
     right: 0;
     bottom: 0;
-    background: radial-gradient(circle at 20% 80%, rgba(120, 119, 198, 0.3) 0%, transparent 50%),
-                radial-gradient(circle at 80% 20%, rgba(255, 255, 255, 0.1) 0%, transparent 50%);
-    pointer-events: none;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 20px;
   }
 
-  /* Modern Header */
-  .import-header {
+  .modal-close-button {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: #fff;
+    transition: all 0.2s ease;
+    z-index: 10;
+  }
+
+  .modal-close-button:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.4);
+    transform: scale(1.05);
+  }
+
+  .modal-close-button svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .import-container {
+    width: 90vw;
+    max-width: 1200px;
+    margin: 0;
+    padding: 0;
+    background: linear-gradient(135deg, #0f0f23 0%, #1a1a3e 100%);
+    backdrop-filter: blur(20px);
+    color: #fff;
+    border-radius: 20px;
+    min-height: 80vh;
+    max-height: 90vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid rgba(74, 158, 255, 0.2);
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8), 
+                0 0 0 1px rgba(74, 158, 255, 0.1),
+                inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    position: relative;
+  }
+
+  .import-container.drag-active {
+    background: linear-gradient(135deg, #1a1a3e 0%, rgba(74, 158, 255, 0.2) 100%);
+    border: 2px solid rgba(74, 158, 255, 0.8);
+    box-shadow: 0 25px 50px -12px rgba(74, 158, 255, 0.5), 
+                0 0 100px rgba(74, 158, 255, 0.3);
+  }
+
+  /* Header */
+  .header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 32px;
-    padding-bottom: 24px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-    position: relative;
-    z-index: 1;
+    padding: 2rem 2.5rem 1.5rem 2.5rem;
+    background: linear-gradient(135deg, rgba(74, 158, 255, 0.1) 0%, rgba(74, 158, 255, 0.05) 100%);
+    border-bottom: 1px solid rgba(74, 158, 255, 0.2);
+    backdrop-filter: blur(10px);
   }
 
   .title-section h2 {
     margin: 0;
-    font-size: 32px;
-    font-weight: 700;
+    font-size: 2rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, #4a9eff 0%, #7ed6ff 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: -0.025em;
+  }
+
+  .title-section p {
+    margin: 0.5rem 0 0 0;
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 1rem;
+    font-weight: 400;
+  }
+
+  .stats {
     display: flex;
-    align-items: center;
-    gap: 16px;
+    gap: 2rem;
   }
 
-  .title-icon {
-    font-size: 36px;
-    animation: pulse 2s infinite;
-  }
-
-  @keyframes pulse {
-    0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.05); }
-  }
-
-  .version-badge {
-    background: linear-gradient(135deg, #4CAF50, #2E7D32);
-    padding: 6px 16px;
-    border-radius: 16px;
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-  }
-
-  .subtitle {
-    margin: 12px 0 0 0;
-    opacity: 0.85;
-    font-size: 16px;
-    line-height: 1.5;
-    max-width: 600px;
-  }
-
-  .stats-dashboard {
-    display: flex;
-    gap: 16px;
-  }
-
-  .stat-card {
-    background: rgba(255, 255, 255, 0.12);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 16px;
-    padding: 20px;
+  .stat {
     text-align: center;
-    min-width: 80px;
-    position: relative;
-    transition: all 0.3s ease;
+    background: rgba(74, 158, 255, 0.1);
+    padding: 1rem 1.25rem;
+    border-radius: 12px;
+    border: 1px solid rgba(74, 158, 255, 0.2);
     backdrop-filter: blur(10px);
-  }
-
-  .stat-card:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 12px 25px rgba(0, 0, 0, 0.15);
+    min-width: 70px;
   }
 
   .stat-value {
     display: block;
-    font-size: 28px;
-    font-weight: 700;
+    font-size: 1.75rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, #4a9eff 0%, #7ed6ff 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
     line-height: 1;
-    color: #FFD700;
   }
 
   .stat-label {
-    display: block;
-    font-size: 12px;
-    opacity: 0.8;
-    margin-top: 8px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  .stat-icon {
-    position: absolute;
-    top: -8px;
-    right: -8px;
-    background: linear-gradient(135deg, #4CAF50, #2E7D32);
-    border-radius: 50%;
-    width: 32px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 14px;
-  }
-
-  /* Source Selection Panel */
-  .source-selection-panel {
-    margin-bottom: 24px;
-    position: relative;
-    z-index: 1;
-  }
-
-  .panel-header {
-    margin-bottom: 20px;
-  }
-
-  .panel-title {
-    font-size: 20px;
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.7);
     font-weight: 600;
-    margin: 0 0 16px 0;
-    display: flex;
-    align-items: center;
-    gap: 12px;
+    margin-top: 0.25rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
   }
 
-  .panel-icon {
-    font-size: 24px;
-  }
-
-  .source-tabs {
+  /* Tabs */
+  .tabs {
     display: flex;
-    gap: 8px;
-    background: rgba(255, 255, 255, 0.08);
-    padding: 6px;
+    gap: 0.5rem;
+    background: rgba(74, 158, 255, 0.08);
+    padding: 0.75rem;
+    margin: 0 2.5rem;
     border-radius: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(74, 158, 255, 0.15);
+    backdrop-filter: blur(10px);
   }
 
-  .source-tab {
+  .tab {
     flex: 1;
     background: transparent;
     border: none;
-    color: white;
-    padding: 12px 20px;
+    color: rgba(255, 255, 255, 0.7);
+    padding: 1rem 1.25rem;
     border-radius: 12px;
     cursor: pointer;
-    transition: all 0.3s ease;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 14px;
+    justify-content: center;
+    gap: 0.75rem;
+    font-size: 0.95rem;
+    font-weight: 600;
     position: relative;
     overflow: hidden;
   }
 
-  .source-tab::before {
+  .tab::before {
     content: '';
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: linear-gradient(135deg, rgba(76, 175, 80, 0.2), rgba(46, 125, 50, 0.2));
+    inset: 0;
+    background: linear-gradient(135deg, rgba(74, 158, 255, 0.15) 0%, rgba(126, 214, 255, 0.1) 100%);
     opacity: 0;
     transition: opacity 0.3s ease;
   }
 
-  .source-tab:hover::before {
+  .tab:hover::before {
     opacity: 1;
   }
 
-  .source-tab.active {
-    background: linear-gradient(135deg, rgba(76, 175, 80, 0.3), rgba(46, 125, 50, 0.3));
-    box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.5);
+  .tab:hover {
+    color: rgba(255, 255, 255, 0.95);
+    transform: translateY(-1px);
   }
 
-  .source-tab.active::before {
-    opacity: 1;
+  .tab.active {
+    background: linear-gradient(135deg, #4a9eff 0%, #7ed6ff 100%);
+    color: #fff;
+    box-shadow: 0 8px 20px -5px rgba(74, 158, 255, 0.5),
+                0 0 0 1px rgba(255, 255, 255, 0.1);
+    transform: translateY(-2px);
+  }
+
+  .tab.active::before {
+    opacity: 0;
   }
 
   .tab-icon {
-    font-size: 16px;
-    z-index: 1;
+    font-size: 1.2rem;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3));
   }
 
-  .tab-name {
-    font-weight: 500;
-    z-index: 1;
-  }
-
-  /* Import Interface */
-  .import-interface {
-    background: rgba(255, 255, 255, 0.06);
-    border: 2px dashed rgba(255, 255, 255, 0.2);
-    border-radius: 20px;
-    padding: 32px;
-    margin-bottom: 32px;
-    transition: all 0.3s ease;
-    position: relative;
-    z-index: 1;
-  }
-
-  .import-interface.drag-active {
-    border-color: #4CAF50;
-    background: rgba(76, 175, 80, 0.1);
-    transform: scale(1.02);
-    box-shadow: 0 0 0 4px rgba(76, 175, 80, 0.2);
-  }
-
-  .import-panel {
-    min-height: 300px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .panel-content {
-    width: 100%;
-    max-width: 600px;
-    text-align: center;
-  }
-
-  /* File Upload Modern */
-  .upload-zone-modern {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 32px;
-    margin-bottom: 32px;
-  }
-
-  .upload-visual {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .upload-icon-large {
-    font-size: 80px;
-    position: relative;
-    z-index: 2;
-    animation: float 3s ease-in-out infinite;
-  }
-
-  @keyframes float {
-    0%, 100% { transform: translateY(0px); }
-    50% { transform: translateY(-10px); }
-  }
-
-  .upload-ripple {
-    position: absolute;
-    width: 120px;
-    height: 120px;
-    border: 2px solid rgba(76, 175, 80, 0.3);
-    border-radius: 50%;
-    animation: ripple 2s infinite;
-  }
-
-  @keyframes ripple {
-    0% { transform: scale(0.8); opacity: 1; }
-    100% { transform: scale(1.2); opacity: 0; }
-  }
-
-  .upload-content h4 {
-    font-size: 24px;
-    font-weight: 600;
-    margin: 0 0 12px 0;
-  }
-
-  .upload-description {
-    font-size: 16px;
-    opacity: 0.8;
-    margin: 0 0 24px 0;
-  }
-
-  .upload-features {
-    display: flex;
-    gap: 12px;
-    justify-content: center;
-    flex-wrap: wrap;
-  }
-
-  .feature-tag {
-    background: rgba(76, 175, 80, 0.2);
-    color: #4CAF50;
-    padding: 6px 12px;
-    border-radius: 20px;
-    font-size: 12px;
-    font-weight: 500;
-    border: 1px solid rgba(76, 175, 80, 0.3);
-  }
-
-  /* Modern Buttons */
-  .modern-upload-btn {
-    background: linear-gradient(135deg, #4CAF50, #2E7D32);
-    border: none;
-    border-radius: 16px;
-    color: white;
-    padding: 16px 32px;
-    font-size: 16px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    position: relative;
-    overflow: hidden;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    min-width: 180px;
-    justify-content: center;
-  }
-
-  .modern-upload-btn:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 12px 25px rgba(76, 175, 80, 0.4);
-  }
-
-  .btn-icon {
-    font-size: 18px;
-  }
-
-  .btn-text {
-    font-weight: 600;
-  }
-
-  .btn-shine {
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-    transition: left 0.5s ease;
-  }
-
-  .modern-upload-btn:hover .btn-shine {
-    left: 100%;
-  }
-
-  /* Input Sections */
-  .input-section {
-    margin-bottom: 24px;
-    text-align: left;
-  }
-
-  .input-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 12px;
-  }
-
-  .input-icon {
-    font-size: 20px;
-  }
-
-  .input-label {
-    font-size: 16px;
-    font-weight: 600;
-    margin: 0;
-  }
-
-  .modern-input-group {
-    display: flex;
-    gap: 12px;
-    align-items: center;
-  }
-
-  .modern-input {
-    flex: 1;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 12px;
-    color: white;
-    padding: 14px 18px;
-    font-size: 16px;
-    transition: all 0.3s ease;
-  }
-
-  .modern-input:focus {
-    outline: none;
-    border-color: #4CAF50;
-    box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.2);
-    background: rgba(255, 255, 255, 0.15);
-  }
-
-  .modern-input::placeholder {
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .input-action-btn {
-    background: rgba(76, 175, 80, 0.2);
-    border: 1px solid rgba(76, 175, 80, 0.4);
-    border-radius: 12px;
-    color: #4CAF50;
-    padding: 14px 18px;
-    font-size: 18px;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    min-width: 60px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .input-action-btn:hover:not(:disabled) {
-    background: rgba(76, 175, 80, 0.3);
-    transform: scale(1.05);
-  }
-
-  .input-action-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .input-help {
-    font-size: 14px;
-    opacity: 0.7;
-    margin-top: 8px;
-    font-style: italic;
-  }
-
-  /* Text Import Modern */
-  .ai-badge {
-    background: linear-gradient(135deg, #FF6B6B, #4ECDC4);
-    padding: 4px 12px;
-    border-radius: 12px;
-    font-size: 12px;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-left: auto;
-  }
-
-  .ai-icon {
-    font-size: 14px;
-  }
-
-  .textarea-container {
-    position: relative;
-  }
-
-  .modern-textarea {
-    width: 100%;
-    min-height: 160px;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 16px;
-    color: white;
-    padding: 18px;
-    font-size: 16px;
-    font-family: inherit;
-    resize: vertical;
-    transition: all 0.3s ease;
-  }
-
-  .modern-textarea:focus {
-    outline: none;
-    border-color: #4CAF50;
-    box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.2);
-    background: rgba(255, 255, 255, 0.15);
-  }
-
-  .modern-textarea::placeholder {
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .textarea-features {
-    display: flex;
-    gap: 16px;
-    margin-top: 12px;
-    justify-content: center;
-  }
-
-  .feature-indicator {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 12px;
-  }
-
-  .indicator-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: #4CAF50;
-    position: relative;
-  }
-
-  .indicator-dot.active::after {
-    content: '';
-    position: absolute;
-    top: -2px;
-    left: -2px;
-    right: -2px;
-    bottom: -2px;
-    border: 1px solid #4CAF50;
-    border-radius: 50%;
-    animation: pulse-ring 2s infinite;
-  }
-
-  @keyframes pulse-ring {
-    0% { transform: scale(1); opacity: 1; }
-    100% { transform: scale(1.5); opacity: 0; }
-  }
-
-  .ai-process-btn {
-    background: linear-gradient(135deg, #FF6B6B, #4ECDC4);
-    border: none;
-    border-radius: 16px;
-    color: white;
-    padding: 18px 36px;
-    font-size: 16px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    position: relative;
-    overflow: hidden;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin: 24px auto 0;
-    min-width: 200px;
-    justify-content: center;
-  }
-
-  .ai-process-btn:hover:not(:disabled) {
-    transform: translateY(-3px);
-    box-shadow: 0 12px 25px rgba(255, 107, 107, 0.4);
-  }
-
-  .ai-process-btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .ai-btn-glow {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.1), transparent);
-    animation: glow-sweep 2s infinite;
-  }
-
-  @keyframes glow-sweep {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(100%); }
-  }
-
-  /* Format Options Panel */
-  .format-options-panel {
-    background: rgba(255, 255, 255, 0.08);
-    border-radius: 20px;
-    padding: 32px;
-    margin-bottom: 32px;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    position: relative;
-    z-index: 1;
-  }
-
-  .panel-section {
-    margin-bottom: 32px;
-  }
-
-  .panel-section:last-child {
-    margin-bottom: 0;
-  }
-
-  .section-header {
-    margin-bottom: 24px;
-  }
-
-  .section-title {
-    font-size: 20px;
-    font-weight: 600;
-    margin: 0;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .section-icon {
-    font-size: 24px;
-  }
-
-  /* Format Tabs */
-  .format-selector-modern {
-    margin-bottom: 24px;
-  }
-
-  .format-tabs {
+  /* Content */
+  .content {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 12px;
+    grid-template-columns: 1fr 320px;
+    gap: 2rem;
+    flex: 1;
+    padding: 1.5rem 2.5rem 2.5rem 2.5rem;
+    min-height: 0;
   }
 
-  .format-tab {
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.15);
+  /* Import Section */
+  .import-section {
+    background: linear-gradient(135deg, rgba(74, 158, 255, 0.08) 0%, rgba(74, 158, 255, 0.04) 100%);
     border-radius: 16px;
-    padding: 20px;
+    border: 1px solid rgba(74, 158, 255, 0.15);
+    padding: 2rem;
+    display: flex;
+    align-items: stretch;
+    justify-content: flex-start;
+    overflow: auto;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 8px 20px -5px rgba(0, 0, 0, 0.3);
+  }
+
+  .upload-zone {
+    width: 100%;
+    min-height: 280px;
+    border: 2px dashed rgba(74, 158, 255, 0.3);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     cursor: pointer;
-    transition: all 0.3s ease;
-    text-align: left;
+    background: linear-gradient(135deg, rgba(74, 158, 255, 0.04) 0%, rgba(74, 158, 255, 0.02) 100%);
     position: relative;
     overflow: hidden;
-    color: white;
   }
 
-  .format-tab::before {
+  .upload-zone::before {
     content: '';
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: linear-gradient(135deg, rgba(76, 175, 80, 0.1), rgba(46, 125, 50, 0.1));
+    inset: 0;
+    background: linear-gradient(135deg, rgba(74, 158, 255, 0.15) 0%, rgba(126, 214, 255, 0.08) 100%);
     opacity: 0;
     transition: opacity 0.3s ease;
   }
 
-  .format-tab:hover::before {
+  .upload-zone:hover::before,
+  .upload-zone.drag-active::before {
     opacity: 1;
   }
 
-  .format-tab.active {
-    background: linear-gradient(135deg, rgba(76, 175, 80, 0.2), rgba(46, 125, 50, 0.2));
-    border-color: #4CAF50;
-    box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.3);
+  .upload-zone:hover,
+  .upload-zone.drag-active {
+    border-color: rgba(74, 158, 255, 0.7);
+    transform: translateY(-2px);
+    box-shadow: 0 15px 30px -8px rgba(74, 158, 255, 0.3);
   }
 
-  .format-tab.active::before {
-    opacity: 1;
-  }
-
-  .format-content {
-    position: relative;
+  .upload-content {
+    text-align: center;
     z-index: 1;
-  }
-
-  .format-name {
-    display: block;
-    font-size: 16px;
-    font-weight: 600;
-    margin-bottom: 8px;
-  }
-
-  .format-desc {
-    display: block;
-    font-size: 14px;
-    opacity: 0.8;
-    line-height: 1.4;
-  }
-
-  .active-indicator {
-    position: absolute;
-    top: 12px;
-    right: 12px;
-    background: #4CAF50;
-    border-radius: 50%;
-    width: 24px;
-    height: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 14px;
-    z-index: 2;
-  }
-
-  /* Processing Controls */
-  .processing-controls {
-    display: grid;
-    gap: 32px;
-  }
-
-  .toggle-options {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 16px;
-  }
-
-  .modern-option-toggle {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 20px;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 16px;
-    cursor: pointer;
-    transition: all 0.3s ease;
-  }
-
-  .modern-option-toggle:hover {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.2);
-  }
-
-  .toggle-slider {
     position: relative;
-    width: 48px;
-    height: 26px;
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 13px;
+  }
+
+  .upload-icon {
+    font-size: 3.5rem;
+    margin-bottom: 1.25rem;
+    filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.3));
+    opacity: 0.9;
+  }
+
+  .upload-content h3 {
+    margin: 0 0 0.75rem 0;
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -0.025em;
+  }
+
+  .upload-content p {
+    margin: 0 0 1.75rem 0;
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 1rem;
+    line-height: 1.5;
+  }
+
+  .upload-btn {
+    background: linear-gradient(135deg, #4a9eff 0%, #7ed6ff 100%);
+    color: #fff;
+    border: none;
+    padding: 0.875rem 2rem;
+    border-radius: 10px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 8px 20px -5px rgba(74, 158, 255, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+  }
+
+  .upload-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 25px -5px rgba(74, 158, 255, 0.7);
+  }
+
+  /* Input Section */
+  .input-section {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .input-section h3 {
+    margin: 0 0 2rem 0;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -0.025em;
+  }
+
+  .input-group {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .url-input,
+  .api-input,
+  .title-input {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #fff;
+    padding: 1rem 1.25rem;
+    border-radius: 12px;
+    font-size: 1rem;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    backdrop-filter: blur(10px);
+  }
+
+  .url-input:focus,
+  .api-input:focus,
+  .title-input:focus,
+  .text-input:focus {
+    outline: none;
+    border-color: rgba(74, 158, 255, 0.6);
+    background: rgba(255, 255, 255, 0.08);
+    box-shadow: 0 0 0 3px rgba(74, 158, 255, 0.1);
+    transform: translateY(-1px);
+  }
+
+  .text-input {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #fff;
+    padding: 1.25rem;
+    border-radius: 12px;
+    font-size: 1rem;
+    resize: vertical;
+    margin-bottom: 1.5rem;
+    min-height: 150px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    backdrop-filter: blur(10px);
+    font-family: inherit;
+    line-height: 1.6;
+  }
+
+  .import-btn {
+    background: linear-gradient(135deg, #4a9eff 0%, #7ed6ff 100%);
+    color: #fff;
+    border: none;
+    padding: 1rem 2rem;
+    border-radius: 12px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    white-space: nowrap;
+    box-shadow: 0 10px 25px -5px rgba(74, 158, 255, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    align-self: flex-start;
+  }
+
+  .import-btn:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 15px 35px -5px rgba(74, 158, 255, 0.6);
+  }
+
+  .import-btn:disabled {
+    background: rgba(255, 255, 255, 0.1);
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+    opacity: 0.6;
+  }
+
+  .help-text {
+    margin: 1rem 0 0 0;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 0.95rem;
+    line-height: 1.5;
+  }
+
+  /* Options Panel */
+  .options-panel {
+    background: linear-gradient(135deg, rgba(74, 158, 255, 0.08) 0%, rgba(74, 158, 255, 0.04) 100%);
+    border-radius: 16px;
+    border: 1px solid rgba(74, 158, 255, 0.15);
+    padding: 1.75rem;
+    height: fit-content;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 8px 20px -5px rgba(0, 0, 0, 0.3);
+  }
+
+  .options-panel h4 {
+    margin: 0 0 0.75rem 0;
+    font-size: 1.1rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #4a9eff 0%, #7ed6ff 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: -0.025em;
+  }
+
+  .option-group {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  .toggle-option {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    cursor: pointer;
+    padding: 1rem;
+    border-radius: 12px;
     transition: all 0.3s ease;
-    flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
   }
 
-  .toggle-slider::before {
-    content: '';
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 22px;
-    height: 22px;
-    background: white;
-    border-radius: 50%;
-    transition: all 0.3s ease;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  .toggle-option:hover {
+    background: rgba(255, 255, 255, 0.05);
+    transform: translateY(-1px);
   }
 
-  input[type="checkbox"]:checked + .toggle-slider {
-    background: linear-gradient(135deg, #4CAF50, #2E7D32);
-  }
-
-  input[type="checkbox"]:checked + .toggle-slider::before {
-    transform: translateX(22px);
-  }
-
-  input[type="checkbox"] {
+  .toggle-option input[type="checkbox"] {
     display: none;
   }
 
-  .toggle-content {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    flex: 1;
-  }
-
-  .toggle-icon {
-    font-size: 20px;
-    min-width: 20px;
-  }
-
-  .toggle-text {
-    flex: 1;
-  }
-
-  .toggle-title {
-    display: block;
-    font-size: 16px;
-    font-weight: 600;
-    line-height: 1.2;
-    margin-bottom: 4px;
-  }
-
-  .toggle-desc {
-    display: block;
-    font-size: 14px;
-    opacity: 0.7;
-    line-height: 1.3;
-  }
-
-  /* Advanced Controls */
-  .advanced-controls {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 24px;
-  }
-
-  .control-group {
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 16px;
-    padding: 24px;
-  }
-
-  .control-slider {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .slider-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .slider-icon {
-    font-size: 18px;
-  }
-
-  .slider-title {
-    flex: 1;
-    font-size: 16px;
-    font-weight: 600;
-  }
-
-  .slider-value {
-    font-size: 14px;
-    font-weight: 600;
-    color: #4CAF50;
-    background: rgba(76, 175, 80, 0.2);
-    padding: 4px 12px;
+  .toggle {
+    width: 48px;
+    height: 24px;
+    background: rgba(255, 255, 255, 0.2);
     border-radius: 12px;
+    position: relative;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 1px solid rgba(255, 255, 255, 0.1);
   }
 
-  .modern-slider {
-    width: 100%;
-    height: 8px;
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 4px;
-    outline: none;
-    appearance: none;
-    cursor: pointer;
-    transition: background 0.3s ease;
-  }
-
-  .modern-slider:hover {
-    background: rgba(255, 255, 255, 0.25);
-  }
-
-  .modern-slider::-webkit-slider-thumb {
-    appearance: none;
-    width: 20px;
-    height: 20px;
-    background: linear-gradient(135deg, #4CAF50, #2E7D32);
+  .toggle::after {
+    content: '';
+    position: absolute;
+    left: 2px;
+    top: 2px;
+    width: 18px;
+    height: 18px;
+    background: #fff;
     border-radius: 50%;
-    cursor: pointer;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
-    transition: all 0.3s ease;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   }
 
-  .modern-slider::-webkit-slider-thumb:hover {
-    transform: scale(1.1);
-    box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
+  .toggle-option input[type="checkbox"]:checked + .toggle {
+    background: linear-gradient(135deg, #4a9eff 0%, #7ed6ff 100%);
+    border-color: rgba(74, 158, 255, 0.6);
   }
 
-  .slider-track-labels {
-    display: flex;
-    justify-content: space-between;
-    font-size: 12px;
-    opacity: 0.6;
-    font-weight: bold;
-    margin-bottom: 5px;
-  }
-  
-  .pipeline-info small {
-    color: rgba(255, 255, 255, 0.7);
-    text-align: center;
-    font-size: 11px;
-  }
-  
-  .process-btn {
-    width: 100%;
-    background: linear-gradient(45deg, #4CAF50, #45a049);
-    color: white;
-    border: none;
-    padding: 12px 20px;
-    border-radius: 6px;
-    font-size: 14px;
-    font-weight: bold;
-    cursor: pointer;
-    transition: all 0.3s ease;
-  }
-  
-  .process-btn:hover:not(:disabled) {
-    background: linear-gradient(45deg, #45a049, #4CAF50);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(76, 175, 80, 0.3);
-  }
-  
-  .process-btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-    transform: none;
-  }
-  
-  .advanced-btn {
-    background: linear-gradient(45deg, #FF6B6B, #4ECDC4, #45B7D1);
-    background-size: 200% 200%;
-    animation: gradientShift 3s ease infinite;
+  .toggle-option input[type="checkbox"]:checked + .toggle::after {
+    left: 26px;
+    background: #fff;
   }
 
-  @keyframes gradientShift {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
-  }
-  
-  .options-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 10px;
-    margin-bottom: 15px;
-  }
-  
-  .option-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-    font-size: 12px;
-  }
-  
-  .option-item input[type="checkbox"] {
-    transform: scale(1.2);
-  }
-  
-  .advanced-options {
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 8px;
-    padding: 15px;
-    margin-top: 15px;
-  }
-  
-  .slider-option {
-    margin-bottom: 15px;
-  }
-  
-  .slider-option label {
-    display: block;
-    font-size: 12px;
-    margin-bottom: 5px;
-    color: rgba(255, 255, 255, 0.8);
-  }
-  
-  .slider-option input[type="range"] {
-    width: 100%;
-    height: 4px;
-    background: rgba(255, 255, 255, 0.3);
-    border-radius: 2px;
-    outline: none;
-  }
-  
-  .upload-progress {
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
-    padding: 20px;
-    margin-bottom: 20px;
-    text-align: center;
-  }
-  
-  .upload-progress h4 {
-    margin: 0 0 15px 0;
-    font-size: 16px;
-  }
-  
-  .progress-bar {
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 10px;
-    height: 8px;
-    margin-bottom: 10px;
-    overflow: hidden;
-  }
-  
-  .progress-fill {
-    background: linear-gradient(90deg, #4CAF50, #8BC34A);
-    height: 100%;
-    border-radius: 10px;
-    transition: width 0.3s ease;
-  }
-  
-  .import-results {
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
-    padding: 20px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-  }
-  
-  .results-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 15px;
-  }
-  
-  .results-header h4 {
-    margin: 0;
-    font-size: 16px;
-  }
-  
-  .clear-btn {
-    background: rgba(255, 255, 255, 0.2);
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    border-radius: 6px;
-    color: white;
-    padding: 6px 12px;
-    font-size: 12px;
-    cursor: pointer;
-  }
-  
-  .error-message {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    background: rgba(244, 67, 54, 0.2);
-    border: 1px solid rgba(244, 67, 54, 0.5);
-    border-radius: 6px;
-    padding: 15px;
-    color: #ffcdd2;
-  }
-  
-  .results-summary {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
-    gap: 10px;
-    margin-bottom: 20px;
-  }
-  
-  .summary-card {
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 6px;
-    padding: 10px;
-    text-align: center;
-  }
-  
-  .summary-value {
-    display: block;
-    font-size: 18px;
-    font-weight: bold;
-    color: #FFD700;
-  }
-  
-  .summary-label {
-    display: block;
-    font-size: 10px;
-    color: rgba(255, 255, 255, 0.7);
-  }
-  
-  .results-details h5 {
-    margin: 0 0 10px 0;
-    font-size: 14px;
+  .toggle-option label {
+    font-weight: 500;
     color: rgba(255, 255, 255, 0.9);
-  }
-  
-  .details-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  
-  .detail-item {
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 6px;
-    padding: 12px;
-    border-left: 3px solid;
-  }
-  
-  .detail-item.success {
-    border-left-color: #4CAF50;
-  }
-  
-  .detail-item.error {
-    border-left-color: #F44336;
-  }
-  
-  .detail-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 8px;
-  }
-  
-  .detail-name {
-    font-weight: bold;
-    font-size: 12px;
-  }
-  
-  .detail-status {
-    font-size: 10px;
-    padding: 2px 6px;
-    border-radius: 4px;
-    text-transform: uppercase;
-  }
-  
-  .detail-status.success {
-    background: rgba(76, 175, 80, 0.3);
-    color: #4CAF50;
-  }
-  
-  .detail-status.error {
-    background: rgba(244, 67, 54, 0.3);
-    color: #F44336;
-  }
-  
-  .detail-metrics {
-    display: flex;
-    gap: 15px;
-    font-size: 11px;
-    color: rgba(255, 255, 255, 0.7);
-  }
-  
-  .detail-error {
-    font-size: 11px;
-    color: #ffcdd2;
+    cursor: pointer;
+    flex: 1;
   }
 
-  .active-imports {
-    background: rgba(255, 193, 7, 0.1);
-    border: 1px solid rgba(255, 193, 7, 0.3);
+  .confidence-option {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .confidence-option select {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #fff;
+    padding: 0.75rem 1rem;
     border-radius: 8px;
-    padding: 20px;
-    margin-bottom: 20px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(10px);
+    flex: 1;
   }
 
-  .active-imports h4 {
-    margin: 0 0 15px 0;
-    color: #FFC107;
-    font-size: 16px;
+  .confidence-option select:focus {
+    outline: none;
+    border-color: rgba(74, 158, 255, 0.6);
+    background: rgba(255, 255, 255, 0.08);
   }
 
-  .imports-list {
+  .confidence-option label {
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.9);
+    min-width: 100px;
+  }
+
+  /* Progress Section */
+  .progress-section {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%);
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 2rem;
+    width: 100%;
+    max-height: 300px;
+    overflow: hidden;
+    position: sticky;
+    bottom: 0;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+  }
+
+  .progress-section h4 {
+    margin: 0 0 1.5rem 0;
+    font-size: 1.25rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #4a9eff 0%, #7ed6ff 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: -0.025em;
+  }
+
+  .progress-list {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 1.25rem;
+    max-height: 240px;
+    overflow: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(74, 158, 255, 0.3) transparent;
   }
 
-  .import-item {
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 6px;
-    padding: 12px;
-    border-left: 3px solid #FFC107;
+  .progress-list::-webkit-scrollbar {
+    width: 4px;
   }
 
-  .import-header {
+  .progress-list::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .progress-list::-webkit-scrollbar-thumb {
+    background: rgba(74, 158, 255, 0.3);
+    border-radius: 2px;
+  }
+
+  .progress-list::-webkit-scrollbar-thumb:hover {
+    background: rgba(74, 158, 255, 0.5);
+  }
+
+  .cancel-btn {
+    background: transparent;
+    color: #ff6b6b;
+    border: 1px solid rgba(255, 107, 107, 0.3);
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(10px);
+  }
+
+  .cancel-btn:hover {
+    background: rgba(255, 107, 107, 0.1);
+    border-color: rgba(255, 107, 107, 0.5);
+    transform: translateY(-1px);
+  }
+
+  .progress-item {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%);
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 1.5rem;
+    backdrop-filter: blur(10px);
+    transition: all 0.3s ease;
+  }
+
+  .progress-item:hover {
+    transform: translateY(-2px);
+    border-color: rgba(255, 255, 255, 0.2);
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+  }
+
+  .progress-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 8px;
+    margin-bottom: 1rem;
   }
 
-  .import-source {
-    font-weight: bold;
-    font-size: 12px;
-    color: #FFF;
-    max-width: 200px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .progress-name {
+    font-weight: 700;
+    color: #fff;
+    font-size: 1rem;
   }
 
-  .import-type {
-    font-size: 10px;
-    background: rgba(255, 193, 7, 0.3);
-    color: #FFC107;
-    padding: 2px 6px;
-    border-radius: 4px;
+  .progress-type {
+    background: linear-gradient(135deg, #4a9eff 0%, #7ed6ff 100%);
+    color: #fff;
+    padding: 0.375rem 0.75rem;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    font-weight: 600;
     text-transform: uppercase;
+    letter-spacing: 0.05em;
+    box-shadow: 0 4px 12px rgba(74, 158, 255, 0.3);
   }
 
-  .import-progress .progress-bar.small {
-    height: 4px;
-    margin-bottom: 6px;
+  .progress-bar {
+    width: 100%;
+    height: 10px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 1rem;
+    position: relative;
   }
 
-  .progress-details {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 10px;
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #4a9eff 0%, #7ed6ff 100%);
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border-radius: 6px;
+    box-shadow: 0 0 10px rgba(74, 158, 255, 0.3);
   }
 
   .progress-status {
-    color: #FFC107;
-    font-weight: bold;
+    font-size: 0.95rem;
+    color: rgba(255, 255, 255, 0.8);
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .status-badge {
+    padding: 0.375rem 0.75rem;
+    border-radius: 8px;
+    font-size: 0.75rem;
+    font-weight: 700;
     text-transform: uppercase;
+    letter-spacing: 0.05em;
+    backdrop-filter: blur(10px);
   }
 
-  .progress-message {
-    color: rgba(255, 255, 255, 0.7);
-    font-style: italic;
-    max-width: 150px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .status-step {
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 0.9rem;
+    font-weight: 500;
   }
 
-  .import-id {
-    color: rgba(255, 193, 7, 0.8);
-    font-family: monospace;
-    font-size: 10px;
+  /* Inline progress panel inside import-section */
+  .inline-progress {
+    margin-top: 2rem;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 1.5rem;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(10px);
   }
 
-  .detail-item.queued {
-    border-left-color: #FFC107;
+  .progress-header-section {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
   }
 
-  .detail-status.queued {
-    background: rgba(255, 193, 7, 0.3);
-    color: #FFC107;
+  .progress-header-section h4 {
+    margin: 0;
+    color: #fff;
+    font-size: 1.125rem;
+  }
+
+  .bulk-actions {
+    display: flex;
+    gap: 0.75rem;
+  }
+
+  .bulk-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    border: 1px solid;
+    background: rgba(255, 255, 255, 0.05);
+    color: #fff;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .bulk-btn.cancel-all {
+    border-color: rgba(255, 107, 107, 0.4);
+    color: #ff6b6b;
+  }
+
+  .bulk-btn.cancel-all:hover {
+    background: rgba(255, 107, 107, 0.1);
+    border-color: rgba(255, 107, 107, 0.6);
+    transform: translateY(-1px);
+  }
+
+  .bulk-btn.reset-stuck {
+    border-color: rgba(255, 193, 7, 0.4);
+    color: #ffc107;
+  }
+
+  .bulk-btn.reset-stuck:hover {
+    background: rgba(255, 193, 7, 0.1);
+    border-color: rgba(255, 193, 7, 0.6);
+    transform: translateY(-1px);
+  }
+
+  .progress-bar.large {
+    height: 16px;
+    position: relative;
+  }
+
+  .progress-percent {
+    position: absolute;
+    right: 12px;
+    top: -22px;
+    font-size: 0.875rem;
+    color: rgba(255, 255, 255, 0.8);
+    font-weight: 600;
+  }
+
+  .view-btn {
+    background: rgba(74, 158, 255, 0.2);
+    color: #4a9eff;
+    border: 1px solid rgba(74, 158, 255, 0.4);
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 500;
+    font-size: 0.875rem;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(10px);
+  }
+
+  .view-btn:hover {
+    background: rgba(74, 158, 255, 0.3);
+    transform: translateY(-1px);
+  }
+
+  .file-details {
+    margin-top: 1rem;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 1.25rem;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(10px);
+  }
+
+  .detail-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+    padding: 0.5rem 0;
+  }
+
+  .detail-row:last-child {
+    margin-bottom: 0;
+  }
+
+  .detail-label {
+    font-size: 0.9rem;
+    color: rgba(255, 255, 255, 0.6);
+    font-weight: 600;
+    min-width: 80px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .detail-value {
+    font-size: 0.9rem;
+    color: rgba(255, 255, 255, 0.9);
+    text-align: right;
+    font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+    word-break: break-word;
+    max-width: 200px;
+    font-weight: 500;
+  }
+
+  .detail-value.warning {
+    color: #fbbf24;
+    font-weight: 700;
+  }
+
+  /* Step Indicator */
+  .step-indicator {
+    margin: 1.5rem 0;
+    padding: 1.5rem;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(10px);
+  }
+
+  .step-progress {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .step-dot {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    min-width: 90px;
+    padding: 1rem 0.75rem;
+    border-radius: 12px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .step-dot.completed {
+    background: linear-gradient(135deg, rgba(74, 158, 255, 0.15) 0%, rgba(126, 214, 255, 0.1) 100%);
+    border: 1px solid rgba(74, 158, 255, 0.4);
+    transform: translateY(-2px);
+  }
+
+  .step-dot.current {
+    background: linear-gradient(135deg, rgba(74, 158, 255, 0.25) 0%, rgba(126, 214, 255, 0.15) 100%);
+    border: 1px solid rgba(74, 158, 255, 0.6);
+    animation: pulse 2s infinite;
+    transform: translateY(-3px);
+    box-shadow: 0 10px 25px -5px rgba(74, 158, 255, 0.4);
+  }
+
+  .step-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: rgba(255, 255, 255, 0.2);
+    color: #fff;
+    border-radius: 50%;
+    font-size: 0.8rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .step-dot.completed .step-number {
+    background: linear-gradient(135deg, #4a9eff 0%, #7ed6ff 100%);
+    border-color: rgba(74, 158, 255, 0.4);
+    box-shadow: 0 4px 12px rgba(74, 158, 255, 0.3);
+  }
+
+  .step-dot.current .step-number {
+    background: linear-gradient(135deg, #4a9eff 0%, #7ed6ff 100%);
+    border-color: rgba(74, 158, 255, 0.6);
+    box-shadow: 0 6px 20px rgba(74, 158, 255, 0.5);
+  }
+
+  .step-label {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.6);
+    line-height: 1.3;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .step-dot.completed .step-label {
+    color: rgba(74, 158, 255, 0.9);
+    font-weight: 600;
+  }
+
+  .step-dot.current .step-label {
+    color: rgba(74, 158, 255, 1);
+    font-weight: 700;
+  }
+
+  @keyframes pulse {
+    0%, 100% { 
+      opacity: 1; 
+      transform: translateY(-3px) scale(1);
+    }
+    50% { 
+      opacity: 0.8; 
+      transform: translateY(-3px) scale(1.02);
+    }
+  }
+
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes slideIn {
+    from {
+      opacity: 0;
+      transform: translateX(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  /* Add entrance animations */
+  .import-container {
+    animation: fadeInUp 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .progress-item {
+    animation: slideIn 0.4s ease-out;
+  }
+
+  .step-dot {
+    animation: fadeInUp 0.4s ease-out;
+  }
+
+  /* Responsive Design */
+  @media (max-width: 1200px) {
+    .content {
+      grid-template-columns: 1fr 280px;
+      gap: 1.5rem;
+    }
+    
+    .import-container {
+      width: 95vw;
+      margin: 0;
+    }
+  }
+
+  @media (max-width: 968px) {
+    .content {
+      grid-template-columns: 1fr;
+      gap: 1.5rem;
+    }
+    
+    .header {
+      padding: 1.75rem 2rem 1.25rem 2rem;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 1.25rem;
+    }
+    
+    .stats {
+      gap: 1.5rem;
+      align-self: stretch;
+      justify-content: space-around;
+    }
+    
+    .tabs {
+      margin: 0 2rem;
+      flex-wrap: wrap;
+    }
+    
+    .tab {
+      flex: 1 1 45%;
+      min-width: 110px;
+    }
+    
+    .content {
+      padding: 0 2rem 2rem 2rem;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .import-container {
+      width: 100vw;
+      border-radius: 12px;
+      min-height: 85vh;
+    }
+    
+    .header {
+      padding: 1.5rem;
+    }
+    
+    .title-section h2 {
+      font-size: 1.6rem;
+    }
+    
+    .stats {
+      flex-direction: column;
+      gap: 1rem;
+    }
+    
+    .stat {
+      padding: 0.875rem 1rem;
+    }
+    
+    .tabs {
+      margin: 0 1.5rem;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    
+    .tab {
+      flex: none;
+      padding: 0.875rem;
+    }
+    
+    .content {
+      padding: 0 1.5rem 1.5rem 1.5rem;
+    }
+    
+    .import-section,
+    .options-panel {
+      padding: 1.5rem;
+    }
+    
+    .upload-zone {
+      min-height: 220px;
+    }
+    
+    .upload-icon {
+      font-size: 2.75rem;
+    }
+  }
+
+  /* Enhanced focus states for accessibility */
+  .tab:focus,
+  .upload-btn:focus,
+  .import-btn:focus,
+  .cancel-btn:focus,
+  .view-btn:focus {
+    outline: 2px solid rgba(74, 158, 255, 0.6);
+    outline-offset: 2px;
+  }
+
+  /* Smooth transitions for all interactive elements */
+  * {
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* Custom scrollbar styling */
+  .import-section::-webkit-scrollbar,
+  .progress-section::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .import-section::-webkit-scrollbar-track,
+  .progress-section::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 3px;
+  }
+
+  .import-section::-webkit-scrollbar-thumb,
+  .progress-section::-webkit-scrollbar-thumb {
+    background: rgba(74, 158, 255, 0.4);
+    border-radius: 3px;
+  }
+
+  .import-section::-webkit-scrollbar-thumb:hover,
+  .progress-section::-webkit-scrollbar-thumb:hover {
+    background: rgba(74, 158, 255, 0.6);
   }
 </style>

@@ -42,40 +42,18 @@
         
         console.log('✅ Loaded real evolution data:', evolutionData);
       } else {
-        // Fallback to sample data
-        // Silently fall back to sample data when backend is unavailable
-        evolutionData = generateSampleEvolutionData();
+        // No data available
+        console.error('❌ No evolution data available from backend');
+        evolutionData = [];
       }
       
     } catch (err) {
       console.error('❌ Failed to load evolution data:', err);
       error = err.message;
-      // Use sample data as fallback
-      evolutionData = generateSampleEvolutionData();
+      evolutionData = [];
     } finally {
       loading = false;
     }
-  }
-
-  function generateSampleEvolutionData() {
-    const concepts = [
-      { name: 'Knowledge Graph', category: 'Core', change: +12 },
-      { name: 'Inference Patterns', category: 'Logic', change: +8 },
-      { name: 'Cognitive Architecture', category: 'Meta', change: +15 },
-      { name: 'Type System', category: 'Core', change: +5 },
-      { name: 'Metacognition', category: 'Meta', change: +22 },
-      { name: 'Unification', category: 'Logic', change: +7 },
-      { name: 'Resource Management', category: 'System', change: +3 },
-      { name: 'WebSocket Integration', category: 'System', change: +18 }
-    ];
-
-    return concepts.map((concept, index) => ({
-      ...concept,
-      id: index + 1,
-      timestamp: new Date(Date.now() - Math.random() * 24 * 60 * 60 * 1000),
-      connections: Math.floor(Math.random() * 20) + 5,
-      strength: 0.6 + Math.random() * 0.4
-    }));
   }
 
   function getCategoryColor(category) {

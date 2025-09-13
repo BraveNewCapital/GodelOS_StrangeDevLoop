@@ -41,19 +41,30 @@ class KnowledgeGraphBuilder:
         entities = processed_data.get("entities", [])
         relationships = processed_data.get("relationships", [])
         
+        logger.info(f"🔍 GRAPH BUILDER: Starting with {len(entities)} entities and {len(relationships)} relationships")
+        logger.info(f"🔍 GRAPH BUILDER: Entities preview: {[e.get('text', 'NO_TEXT') for e in entities[:5]]}")
+        logger.info(f"🔍 GRAPH BUILDER: Knowledge store type: {type(self.knowledge_store)}")
+        logger.info(f"🔍 GRAPH BUILDER: Knowledge store initialized: {getattr(self.knowledge_store, 'initialized', 'unknown')}")
+        
         created_items = []
 
         # Create Fact objects for each entity
         entity_id_map = {}
-        for entity_data in entities:
+        for i, entity_data in enumerate(entities):
+            logger.info(f"🔍 GRAPH BUILDER: Processing entity {i+1}/{len(entities)}: {entity_data}")
             fact = Fact(content=entity_data)
+            logger.info(f"🔍 GRAPH BUILDER: Created Fact object with ID: {fact.id}")
+            logger.info(f"🔍 DEBUG: About to store Fact for entity: {entity_data['text']}")
             await self.knowledge_store.store_knowledge(fact)
             entity_id_map[entity_data['text']] = fact.id
             created_items.append(fact)
             logger.info(f"Created Fact for entity: {entity_data['text']}")
 
+        logger.info(f"🔍 DEBUG: Finished creating {len(created_items)} facts, now creating relationships")
+
         # Create Relationship objects
-        for rel_data in relationships:
+        for i, rel_data in enumerate(relationships):
+            logger.info(f"🔍 GRAPH BUILDER: Processing relationship {i+1}/{len(relationships)}: {rel_data}")
             source_text = rel_data['source']['text']
             target_text = rel_data['target']['text']
 
@@ -64,8 +75,13 @@ class KnowledgeGraphBuilder:
                     relation_type=rel_data['relation'],
                     content={"sentence": rel_data['sentence']}
                 )
+                logger.info(f"🔍 GRAPH BUILDER: Created Relationship object with ID: {relationship.id}")
+                logger.info(f"🔍 DEBUG: About to store Relationship: {source_text} -> {rel_data['relation']} -> {target_text}")
                 await self.knowledge_store.store_knowledge(relationship)
                 created_items.append(relationship)
                 logger.info(f"Created Relationship: {source_text} -> {rel_data['relation']} -> {target_text}")
+            else:
+                logger.warning(f"🔍 GRAPH BUILDER: Skipping relationship - missing entities in map: {source_text} in map: {source_text in entity_id_map}, {target_text} in map: {target_text in entity_id_map}")
 
+        logger.info(f"🔍 DEBUG: Finished building graph with {len(created_items)} items")
         return created_items

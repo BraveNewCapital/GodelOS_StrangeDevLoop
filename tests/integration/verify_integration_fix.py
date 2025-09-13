@@ -5,6 +5,7 @@ Direct test of the fixed integration without starting the server.
 
 import sys
 import os
+from pathlib import Path
 import asyncio
 import logging
 
@@ -12,9 +13,9 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 # Add the project root to Python path
-project_root = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, project_root)
-sys.path.insert(0, os.path.join(project_root, 'backend'))
+# Add repo root to path for absolute imports
+project_root = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(project_root))
 
 async def main():
     """Test the integration directly."""

@@ -15,8 +15,8 @@
 
   // WebSocket for live reasoning stream
   let reasoningSocket = null;
-  const API_BASE = window.location.origin;
-  const WS_BASE = API_BASE.replace(/^http/, 'ws');
+  // API configuration
+  import { API_BASE_URL as API_BASE, WS_BASE_URL as WS_BASE } from '../../config.js';
 
   onMount(() => {
     loadActiveSessions();
@@ -45,19 +45,30 @@
   }
 
   async function loadActiveSessions() {
+    isLoading = true;
     try {
+      // Get active sessions from transparency API
       const response = await fetch(`${API_BASE}/api/transparency/sessions/active`);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json();
-      activeSessions = data.active_sessions || [];
-      
-      // Auto-select the first session if none selected and we have sessions
-      if (!selectedSession && activeSessions.length > 0) {
-        selectSession(activeSessions[0]);
+      if (response.ok) {
+        const data = await response.json();
+        activeSessions = data.sessions || [];
+        
+        // Auto-select the first session if none selected and we have sessions
+        if (!selectedSession && activeSessions.length > 0) {
+          selectSession(activeSessions[0]);
+        }
+        error = null;
+      } else {
+        console.error('Failed to load active sessions:', response.status);
+        activeSessions = [];
+        error = 'No reasoning sessions available';
       }
     } catch (err) {
-      console.error('Failed to load active sessions:', err);
+      console.error('Error loading active sessions:', err);
+      activeSessions = [];
       error = err.message;
+    } finally {
+      isLoading = false;
     }
   }
 
@@ -67,20 +78,26 @@
     connectReasoningStream(session.session_id);
   }
 
-  async function loadSessionDetails(sessionId) {
+    async function loadSessionDetails(sessionId) {
     if (!sessionId) return;
 
     isLoading = true;
     try {
+      // Try to get session details from transparency API
       const response = await fetch(`${API_BASE}/api/transparency/session/${sessionId}/trace`);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json();
-      sessionDetails = data;
-      error = null;
+      if (response.ok) {
+        const data = await response.json();
+        sessionDetails = data;
+        error = null;
+      } else {
+        console.error(`Session ${sessionId} not found:`, response.status);
+        sessionDetails = null;
+        error = 'Session details not available';
+      }
     } catch (err) {
       console.error('Failed to load session details:', err);
-      error = err.message;
       sessionDetails = null;
+      error = err.message;
     } finally {
       isLoading = false;
     }
@@ -145,11 +162,14 @@
             sessionDetails.steps = [...(sessionDetails.steps || []), data];
           }
         } catch (err) {
-          console.warn('Invalid reasoning stream message', err);
+          console.error('Invalid reasoning stream message:', err);
         }
       };
+      reasoningSocket.onerror = (error) => {
+        console.error('Reasoning stream connection error:', error);
+      };
     } catch (err) {
-      console.warn('Reasoning stream unavailable', err);
+      console.error('Failed to connect to reasoning stream:', err);
     }
   }
 </script>

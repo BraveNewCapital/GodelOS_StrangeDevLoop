@@ -11,7 +11,7 @@ import time
 
 async def test_cognitive_stream():
     """Test the cognitive stream WebSocket endpoint that the Svelte frontend uses."""
-    uri = "ws://localhost:8000/ws/cognitive-stream"
+    uri = "ws://localhost:8000/ws/unified-cognitive-stream"
     
     print(f"🧪 Testing WebSocket connection to: {uri}")
     print("📡 Attempting to connect...")

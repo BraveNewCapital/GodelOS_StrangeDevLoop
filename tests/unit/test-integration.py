@@ -18,7 +18,7 @@ import os
 class IntegrationTester:
     def __init__(self):
         self.backend_url = "http://localhost:8000"
-        self.websocket_url = "ws://localhost:8000/ws/cognitive-stream"
+        self.websocket_url = "ws://localhost:8000/ws/unified-cognitive-stream"
         self.frontend_url = "http://localhost:3000"
         self.test_results = []
         

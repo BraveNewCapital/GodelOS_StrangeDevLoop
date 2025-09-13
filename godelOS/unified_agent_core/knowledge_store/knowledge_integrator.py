@@ -16,7 +16,8 @@ from dataclasses import dataclass
 from godelOS.unified_agent_core.knowledge_store.interfaces import (
     Knowledge, Fact, Belief, Concept, Rule, Experience, Hypothesis,
     MemoryType, KnowledgeType, KnowledgeIntegratorInterface,
-    SemanticMemoryInterface, EpisodicMemoryInterface, WorkingMemoryInterface
+    SemanticMemoryInterface, EpisodicMemoryInterface, WorkingMemoryInterface,
+    Query, QueryResult
 )
 
 logger = logging.getLogger(__name__)
@@ -111,7 +112,16 @@ class KnowledgeIntegrator(KnowledgeIntegratorInterface):
             True if the item was integrated successfully, False otherwise
         """
         async with self.lock:
-            logger.debug(f"Integrating knowledge item {item.id} of type {item.type.value}")
+            # Handle both Knowledge objects and dictionaries for logging
+            if isinstance(item, dict):
+                item_id = item.get('id', 'unknown')
+                item_type_str = item.get('type', 'unknown')
+            else:
+                item_id = getattr(item, 'id', 'unknown')
+                item_type = getattr(item, 'type', None)
+                item_type_str = item_type.value if item_type else 'unknown'
+            
+            logger.info(f"🔍 DEBUG: Integrating knowledge item {item_id} of type {item_type_str}")
             
             if not all([self.semantic_memory, self.episodic_memory, self.working_memory]):
                 logger.error("Memory interfaces not properly set up")
@@ -122,17 +132,33 @@ class KnowledgeIntegrator(KnowledgeIntegratorInterface):
                 if memory_type is None:
                     memory_type = self._determine_target_memory(item)
                 
-                logger.debug(f"Target memory for item {item.id}: {memory_type.value}")
+                # Get item id for logging
+                if isinstance(item, dict):
+                    item_id = item.get('id', 'unknown')
+                else:
+                    item_id = getattr(item, 'id', 'unknown')
+                
+                logger.debug(f"Target memory for item {item_id}: {memory_type.value}")
                 
                 # Check for conflicts before integration
+                logger.info(f"🔍 DEBUG: Checking for conflicts for item {item_id}")
+                conflict_start = time.perf_counter()
                 conflicts = await self._check_for_conflicts(item, memory_type)
+                conflict_dur = time.perf_counter() - conflict_start
+                logger.info(f"🔍 DEBUG: Found {len(conflicts)} conflicts for item {item_id} (checked in {conflict_dur:.3f}s)")
                 
                 if conflicts:
                     # Resolve conflicts
                     resolution_result = await self._resolve_conflicts_for_item(item, conflicts)
                     
                     if not resolution_result["success"]:
-                        logger.warning(f"Failed to resolve conflicts for item {item.id}: {resolution_result['reason']}")
+                        # Get item id for logging
+                        if isinstance(item, dict):
+                            item_id = item.get('id', 'unknown')
+                        else:
+                            item_id = getattr(item, 'id', 'unknown')
+                        
+                        logger.warning(f"Failed to resolve conflicts for item {item_id}: {resolution_result['reason']}")
                         return False
                     
                     # Update item with resolved data if needed
@@ -140,21 +166,47 @@ class KnowledgeIntegrator(KnowledgeIntegratorInterface):
                         item = resolution_result["updated_item"]
                 
                 # Store in appropriate memory
+                logger.info(f"🔍 DEBUG: Storing item {item_id} in memory {memory_type.value}")
+                store_start = time.perf_counter()
                 success = await self._store_in_memory(item, memory_type)
+                store_dur = time.perf_counter() - store_start
+                logger.info(f"🔍 DEBUG: Stored item {item_id} in memory (took {store_dur:.3f}s), success: {success}")
                 
                 if success:
                     # Also store in working memory for immediate access if not already there
                     if memory_type != MemoryType.WORKING:
                         # Set a shorter TTL for working memory copy
-                        item.metadata["ttl"] = self.config.get("working_memory_ttl", 3600)
+                        if isinstance(item, dict):
+                            if "metadata" not in item:
+                                item["metadata"] = {}
+                            item["metadata"]["ttl"] = self.config.get("working_memory_ttl", 3600)
+                        else:
+                            if not hasattr(item, 'metadata'):
+                                item.metadata = {}
+                            item.metadata["ttl"] = self.config.get("working_memory_ttl", 3600)
+                        logger.info(f"🔍 DEBUG: Storing item {item_id} in working memory")
+                        wm_start = time.perf_counter()
                         await self.working_memory.store(item)
+                        wm_dur = time.perf_counter() - wm_start
+                        logger.info(f"🔍 DEBUG: Stored item {item_id} in working memory in {wm_dur:.3f}s")
                     
                     # Generate and store inferences
+                    logger.info(f"🔍 DEBUG: Generating inferences for item {item_id}")
+                    gen_start = time.perf_counter()
                     await self._generate_and_store_inferences(item, memory_type)
+                    gen_dur = time.perf_counter() - gen_start
+                    logger.info(f"🔍 DEBUG: Generated inferences for item {item_id} in {gen_dur:.3f}s")
                 
+                logger.info(f"🔍 DEBUG: Finished integrating item {item_id}, success: {success}")
                 return success
             except Exception as e:
-                logger.error(f"Error integrating knowledge item {item.id}: {e}")
+                # Get item id for logging
+                if isinstance(item, dict):
+                    item_id = item.get('id', 'unknown')
+                else:
+                    item_id = getattr(item, 'id', 'unknown')
+                    
+                logger.error(f"Error integrating knowledge item {item_id}: {e}")
                 return False
     
     async def consolidate_memories(self) -> Dict[str, int]:
@@ -388,7 +440,7 @@ class KnowledgeIntegrator(KnowledgeIntegratorInterface):
             "max_results": 1000
         }
         
-        result = await self.semantic_memory.query(query)
+        result = await self.semantic_memory.query(self._create_query_from_dict(query))
         items = result.items
         
         # Check all pairs of items for contradictions
@@ -441,14 +493,14 @@ class KnowledgeIntegrator(KnowledgeIntegratorInterface):
             "content": {},
             "max_results": 1000
         }
-        semantic_items = (await self.semantic_memory.query(semantic_query)).items
+        semantic_items = (await self.semantic_memory.query(self._create_query_from_dict(semantic_query))).items
         
         # Find duplicates in working memory
         working_query = {
             "content": {},
             "max_results": 1000
         }
-        working_items = (await self.working_memory.query(working_query)).items
+        working_items = (await self.working_memory.query(self._create_query_from_dict(working_query))).items
         
         # Group items by content similarity
         content_groups = {}
@@ -586,7 +638,7 @@ class KnowledgeIntegrator(KnowledgeIntegratorInterface):
             "max_results": 100
         }
         
-        concepts = (await self.semantic_memory.query(query)).items
+        concepts = (await self.semantic_memory.query(self._create_query_from_dict(query))).items
         
         # Find transitive relationships (A related to B, B related to C => A related to C)
         for concept_a in concepts:
@@ -828,17 +880,44 @@ class KnowledgeIntegrator(KnowledgeIntegratorInterface):
     
     # Helper methods for conflict detection and resolution
     
-    def _determine_target_memory(self, item: Knowledge) -> MemoryType:
+    def _determine_target_memory(self, item: Union[Knowledge, Dict[str, Any]]) -> MemoryType:
         """
         Determine the target memory type for a knowledge item.
-        
-        Args:
-            item: The knowledge item
-            
-        Returns:
-            The target memory type
+        Handles both dict and object, robust to enum scoping issues.
         """
-        return self.knowledge_type_mapping.get(item.type, MemoryType.WORKING)
+        from godelOS.unified_agent_core.knowledge_store.interfaces import KnowledgeType, MemoryType
+        item_type = None
+        if isinstance(item, dict):
+            raw_type = item.get('type', 'fact')
+            # Try to convert string to KnowledgeType enum
+            if isinstance(raw_type, str):
+                # Try direct name match
+                try:
+                    item_type = KnowledgeType[raw_type.upper()]
+                except KeyError:
+                    try:
+                        item_type = KnowledgeType(raw_type)
+                    except Exception:
+                        item_type = KnowledgeType.FACT
+            elif isinstance(raw_type, KnowledgeType):
+                item_type = raw_type
+            else:
+                item_type = KnowledgeType.FACT
+        else:
+            # Object: try to get .type attribute
+            try:
+                item_type = getattr(item, 'type', KnowledgeType.FACT)
+                if isinstance(item_type, str):
+                    try:
+                        item_type = KnowledgeType[item_type.upper()]
+                    except KeyError:
+                        try:
+                            item_type = KnowledgeType(item_type)
+                        except Exception:
+                            item_type = KnowledgeType.FACT
+            except Exception:
+                item_type = KnowledgeType.FACT
+        return self.knowledge_type_mapping.get(item_type, MemoryType.WORKING)
     
     async def _check_for_conflicts(self, item: Knowledge, memory_type: MemoryType) -> List[Dict[str, Any]]:
         """
@@ -856,13 +935,46 @@ class KnowledgeIntegrator(KnowledgeIntegratorInterface):
         # Simple conflict detection based on content similarity
         if memory_type == MemoryType.SEMANTIC and self.semantic_memory:
             # Query for similar items
+            # Handle both Knowledge objects and dictionaries
+            from godelOS.unified_agent_core.knowledge_store.interfaces import KnowledgeType
+            if isinstance(item, dict):
+                item_content = item.get('content', {})
+                raw_type = item.get('type', 'fact')
+                # Robust conversion to KnowledgeType
+                if isinstance(raw_type, str):
+                    try:
+                        item_type = KnowledgeType[raw_type.upper()]
+                    except KeyError:
+                        try:
+                            item_type = KnowledgeType(raw_type)
+                        except Exception:
+                            item_type = KnowledgeType.FACT
+                elif isinstance(raw_type, KnowledgeType):
+                    item_type = raw_type
+                else:
+                    item_type = KnowledgeType.FACT
+            else:
+                item_content = getattr(item, 'content', {})
+                raw_type = getattr(item, 'type', KnowledgeType.FACT)
+                if isinstance(raw_type, str):
+                    try:
+                        item_type = KnowledgeType[raw_type.upper()]
+                    except KeyError:
+                        try:
+                            item_type = KnowledgeType(raw_type)
+                        except Exception:
+                            item_type = KnowledgeType.FACT
+                elif isinstance(raw_type, KnowledgeType):
+                    item_type = raw_type
+                else:
+                    item_type = KnowledgeType.FACT
             query = {
-                "content": item.content if hasattr(item, 'content') else {},
-                "knowledge_types": [item.type],
+                "content": item_content,
+                "knowledge_types": [item_type],
                 "max_results": 10
             }
             
-            result = await self.semantic_memory.query(query)
+            result = await self.semantic_memory.query(self._create_query_from_dict(query))
             for existing_item in result.items:
                 if await self._is_conflicting(item, existing_item):
                     conflicts.append({
@@ -1013,3 +1125,43 @@ class KnowledgeIntegrator(KnowledgeIntegratorInterface):
             return False
         
         return True
+    
+    def _create_query_from_dict(self, data: Dict[str, Any]) -> Query:
+        """
+        Create a Query object from a dictionary.
+        
+        Args:
+            data: The dictionary data
+            
+        Returns:
+            The created Query object
+        """
+        # Get query parameters
+        query_id = data.get("id", str(uuid.uuid4()))
+        content = data.get("content", {})
+        max_results = data.get("max_results", 100)
+        metadata = data.get("metadata", {})
+        
+        # Get memory types
+        memory_types = []
+        if "memory_types" in data:
+            for type_str in data["memory_types"]:
+                try:
+                    memory_types.append(MemoryType(type_str))
+                except ValueError:
+                    logger.warning(f"Invalid memory type: {type_str}")
+        
+        # Get knowledge types
+        knowledge_types = []
+        if "knowledge_types" in data:
+            for type_item in data["knowledge_types"]:
+                knowledge_types.append(type_item)
+        
+        return Query(
+            id=query_id,
+            content=content,
+            memory_types=memory_types,
+            knowledge_types=knowledge_types,
+            max_results=max_results,
+            metadata=metadata
+        )

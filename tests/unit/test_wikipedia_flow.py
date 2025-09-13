@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 async def test_wikipedia_flow():
     """Test the Wikipedia import flow with detailed monitoring."""
     
-    websocket_uri = "ws://localhost:8000/ws/cognitive-stream"
+    websocket_uri = "ws://localhost:8000/ws/unified-cognitive-stream"
     api_base = "http://localhost:8000"
     
     print("🧪 Testing Wikipedia Import Flow")

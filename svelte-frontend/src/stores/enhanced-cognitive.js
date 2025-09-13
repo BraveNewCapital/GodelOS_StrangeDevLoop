@@ -11,9 +11,10 @@
 
 import { writable, derived, get } from 'svelte/store';
 import { cognitiveState } from './cognitive.js';
+import { API_BASE_URL, WS_BASE_URL } from '../config.js';
 
-// API Configuration
-const API_BASE_URL = 'http://localhost:8000';
+// API Configuration (centralized)
+// API_BASE_URL imported from $lib/config.js
 
 // Core cognitive state (existing)
 export const enhancedCognitiveState = writable({
@@ -77,7 +78,7 @@ export const cognitiveConfig = writable({
     maxConcurrentAcquisitions: 3
   },
   cognitiveStreaming: {
-    enabled: true,
+    enabled: true, // Re-enabled for cognitive stream functionality
     granularity: 'standard',
     maxEventRate: 100,
     bufferSize: 1000,
@@ -183,6 +184,12 @@ class EnhancedCognitiveStateManager {
     try {
       const config = get(cognitiveConfig);
       
+      // Check if streaming is enabled in configuration first
+      if (!config.cognitiveStreaming.enabled) {
+        console.log('🚫 Cognitive streaming disabled in configuration - skipping WebSocket connection');
+        return;
+      }
+      
       // Disconnect existing connection
       if (cognitiveWebSocket) {
         cognitiveWebSocket.close();
@@ -200,22 +207,14 @@ class EnhancedCognitiveStateManager {
         return;
       }
 
-      // Build WebSocket URL with parameters
-      const params = new URLSearchParams({
-        granularity: config.cognitiveStreaming.granularity,
-        subscriptions: config.cognitiveStreaming.subscriptions?.join(',') || ''
-      });
-
-      // Derive WebSocket URL dynamically from API_BASE_URL
-      const apiUrl = new URL(API_BASE_URL);
-      const wsProtocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${wsProtocol}//${apiUrl.host}/ws/cognitive-stream?${params}`;
+      // Use unified streaming endpoint instead of legacy cognitive-stream
+      const wsUrl = `${WS_BASE_URL}/ws/unified-cognitive-stream`;
       
-      console.log('🔗 Connecting to cognitive stream:', wsUrl);
+      console.log('🔗 Connecting to unified cognitive stream:', wsUrl);
       cognitiveWebSocket = new WebSocket(wsUrl);
 
       cognitiveWebSocket.onopen = () => {
-        console.log('🔗 Cognitive stream connected successfully');
+        console.log('🔗 Unified cognitive stream connected successfully');
         this.reconnectAttempts = 0;
         
         // Clear any pending reconnection attempts
@@ -223,6 +222,37 @@ class EnhancedCognitiveStateManager {
           clearTimeout(this.reconnectTimeout);
           this.reconnectTimeout = null;
         }
+        
+        // Subscribe to enhanced cognitive events via unified streaming
+        const subscription = {
+          type: "subscribe",
+          event_types: [
+            "cognitive_stream",
+            "cognitive_state", 
+            "consciousness_update",
+            "transparency",
+            "cognitive_transparency",
+            "system_status",
+            "knowledge_update"
+          ]
+        };
+        
+        if (config.cognitiveStreaming.subscriptions?.length > 0) {
+          // Map legacy subscriptions to unified event types if needed
+          const legacyMapping = {
+            'cognitive_state': 'cognitive_state',
+            'transparency': 'transparency',
+            'consciousness': 'consciousness_update',
+            'system_health': 'system_status'
+          };
+          
+          subscription.event_types = config.cognitiveStreaming.subscriptions.map(
+            sub => legacyMapping[sub] || sub
+          );
+        }
+        
+        cognitiveWebSocket.send(JSON.stringify(subscription));
+        console.log('📡 Enhanced cognitive store subscribed to:', subscription.event_types);
         
         enhancedCognitiveState.update(state => ({
           ...state,
@@ -435,59 +465,79 @@ class EnhancedCognitiveStateManager {
     enhancedCognitiveState.update(state => {
       const newState = { ...state };
       
-      // Update streaming state
+      // Update streaming state with safe array handling
+      const safeEventHistory = Array.isArray(state.cognitiveStreaming.eventHistory) 
+        ? state.cognitiveStreaming.eventHistory 
+        : [];
+      
       newState.cognitiveStreaming = {
         ...state.cognitiveStreaming,
         lastEvent: event,
-        eventHistory: [...state.cognitiveStreaming.eventHistory, event].slice(-100),
+        eventHistory: [...safeEventHistory, event].slice(-100),
         eventRate: this.calculateEventRate()
       };
 
-      // Handle specific event types
+      // Handle specific event types with safe array operations
       switch (event.type) {
         case 'gaps_detected':
         case 'autonomous_gaps_detected':
-          if (event.data?.gaps) {
-            newState.autonomousLearning.detectedGaps = [
-              ...state.autonomousLearning.detectedGaps,
-              ...event.data.gaps
-            ];
+          if (event.data?.gaps && Array.isArray(event.data.gaps)) {
+            const safeDetectedGaps = Array.isArray(state.autonomousLearning.detectedGaps) 
+              ? state.autonomousLearning.detectedGaps 
+              : [];
+            newState.autonomousLearning = {
+              ...state.autonomousLearning,
+              detectedGaps: [...safeDetectedGaps, ...event.data.gaps].slice(-50) // Limit to 50 items
+            };
           }
           break;
 
         case 'acquisition_started':
           if (event.data?.plan_id) {
-            newState.autonomousLearning.activeAcquisitions = [
-              ...state.autonomousLearning.activeAcquisitions,
-              {
-                id: event.data.plan_id,
-                started: event.timestamp,
-                gap_id: event.data.gap_id
-              }
-            ];
+            const safeActiveAcquisitions = Array.isArray(state.autonomousLearning.activeAcquisitions) 
+              ? state.autonomousLearning.activeAcquisitions 
+              : [];
+            newState.autonomousLearning = {
+              ...state.autonomousLearning,
+              activeAcquisitions: [
+                ...safeActiveAcquisitions,
+                {
+                  id: event.data.plan_id,
+                  started: event.timestamp,
+                  gap_id: event.data.gap_id
+                }
+              ].slice(-20) // Limit to 20 active acquisitions
+            };
           }
           break;
 
         case 'acquisition_completed':
         case 'acquisition_failed':
           if (event.data?.plan_id) {
-            // Remove from active acquisitions
-            newState.autonomousLearning.activeAcquisitions = 
-              state.autonomousLearning.activeAcquisitions.filter(
-                acq => acq.id !== event.data.plan_id
-              );
-            
-            // Add to history
-            newState.autonomousLearning.acquisitionHistory = [
-              ...state.autonomousLearning.acquisitionHistory,
-              {
-                id: event.data.plan_id,
-                completed: event.timestamp,
-                success: event.type === 'acquisition_completed',
-                executionTime: event.data.execution_time,
-                acquiredConcepts: event.data.acquired_concepts || 0
-              }
-            ].slice(-50); // Keep last 50
+            // Remove from active acquisitions safely
+            const safeActiveAcquisitions = Array.isArray(state.autonomousLearning.activeAcquisitions) 
+              ? state.autonomousLearning.activeAcquisitions 
+              : [];
+            const safeAcquisitionHistory = Array.isArray(state.autonomousLearning.acquisitionHistory) 
+              ? state.autonomousLearning.acquisitionHistory 
+              : [];
+              
+            newState.autonomousLearning = {
+              ...state.autonomousLearning,
+              activeAcquisitions: safeActiveAcquisitions.filter(
+                acq => acq && acq.id !== event.data.plan_id
+              ),
+              acquisitionHistory: [
+                ...safeAcquisitionHistory,
+                {
+                  id: event.data.plan_id,
+                  completed: event.timestamp,
+                  success: event.type === 'acquisition_completed',
+                  executionTime: event.data.execution_time,
+                  acquiredConcepts: event.data.acquired_concepts || 0
+                }
+              ].slice(-50) // Keep last 50
+            };
           }
           break;
 
@@ -533,38 +583,29 @@ class EnhancedCognitiveStateManager {
    */
   async updateSystemHealth() {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/enhanced-cognitive/health`);
+      if (!this.apiUrl) return;
+      
+      const response = await fetch(`${this.apiUrl}/api/enhanced/system-health`);
       if (response.ok) {
-        const healthData = await response.json();
+        const health = await response.json();
         
-        enhancedCognitiveState.update(state => ({
+        cognitiveState.update(state => ({
           ...state,
-          systemHealth: {
-            overall: healthData.overall_status || 'unknown',
-            overallScore: healthData.overall_health_score || 85, // Default good score
-            inferenceEngine: healthData.basic_status?.is_running ? 'healthy' : 'unknown',
-            knowledgeStore: healthData.basic_status?.is_running ? 'healthy' : 'unknown', 
-            autonomousLearning: healthData.basic_status?.autonomous_learning?.enabled ? 'healthy' : 'unknown',
-            cognitiveStreaming: healthData.basic_status?.cognitive_streaming?.enabled ? 'healthy' : 'unknown',
-            lastHealthCheck: new Date().toISOString(),
-            anomalies: healthData.anomalies || [],
-            recommendations: [
-              ...(healthData.autonomous_learning?.recommendations || []),
-              ...(healthData.cognitive_streaming?.recommendations || [])
-            ]
+          systemHealth: health
+        }));
+
+        // Update config with performance metrics
+        cognitiveConfig.update(state => ({
+          ...state,
+          performance: {
+            ...state.performance,
+            lastHealthUpdate: Date.now(),
+            healthScore: health.overall_score || 0.8
           }
         }));
       }
     } catch (error) {
-      // Only log non-network errors to reduce console noise
-      if (!error.message.includes('NetworkError') && error.name !== 'TypeError') {
-        console.error('Failed to update system health:', error);
-      }
-      // Update connection status
-      enhancedCognitiveState.update(state => ({
-        ...state,
-        connectionStatus: 'disconnected'
-      }));
+      console.error('Failed to update system health:', error);
     }
   }
 
@@ -573,32 +614,30 @@ class EnhancedCognitiveStateManager {
    */
   async updateAutonomousLearningState() {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/enhanced-cognitive/autonomous/status`, {
-        signal: AbortSignal.timeout(5000) // 5 second timeout
-      });
+      if (!this.apiUrl) return;
+      
+      const response = await fetch(`${this.apiUrl}/api/enhanced/autonomous-learning`);
       if (response.ok) {
-        const statusData = await response.json();
+        const learning = await response.json();
         
-        enhancedCognitiveState.update(state => ({
+        cognitiveState.update(state => ({
+          ...state,
+          autonomousLearning: learning
+        }));
+
+        // Update config with learning metrics
+        cognitiveConfig.update(state => ({
           ...state,
           autonomousLearning: {
             ...state.autonomousLearning,
-            enabled: statusData.enabled || false,
-            statistics: {
-              totalGapsDetected: statusData.detected_gaps || 0,
-              totalAcquisitions: statusData.acquisition_history_size || 0,
-              successRate: statusData.success_rate || 0,
-              averageAcquisitionTime: statusData.average_acquisition_time || 0
-            }
-          },
-          connectionStatus: 'connected'
+            lastUpdate: Date.now(),
+            activeGaps: learning.knowledge_gaps?.length || 0,
+            acquisitionRate: learning.acquisition_rate || 0
+          }
         }));
       }
     } catch (error) {
-      // Only log non-network errors to reduce console noise
-      if (!error.message.includes('NetworkError') && error.name !== 'TypeError') {
-        console.error('Failed to update autonomous learning state:', error);
-      }
+      console.error('Failed to update autonomous learning:', error);
     }
   }
 
@@ -606,12 +645,17 @@ class EnhancedCognitiveStateManager {
    * Start periodic health monitoring
    */
   startHealthMonitoring() {
-    // Update health every 30 seconds
+    console.log('� Health monitoring enabled');
+    
+    // Update health once initially
+    this.updateSystemHealth();
+    this.updateAutonomousLearningState();
+    
+    // Re-enable periodic updates
     setInterval(() => {
       this.updateSystemHealth();
     }, 30000);
 
-    // Update autonomous learning state every 60 seconds
     setInterval(() => {
       this.updateAutonomousLearningState();
     }, 60000);
@@ -823,9 +867,9 @@ function synchronizeWithBasicCognitive() {
   });
 }
 
-// Initialize on module load
+// Initialize on module load - DISABLED to prevent duplicate initialization
 if (typeof window !== 'undefined') {
-  enhancedCognitiveStateManager.initialize();
+  // enhancedCognitiveStateManager.initialize(); // Disabled - will be called explicitly from App.svelte
   // Start state synchronization
   synchronizeWithBasicCognitive();
 }
@@ -847,16 +891,37 @@ export const enhancedCognitive = {
   // Enhanced methods for better integration
   refreshSystemHealth: () => enhancedCognitiveStateManager.updateSystemHealth(),
   refreshAutonomousState: () => enhancedCognitiveStateManager.updateAutonomousLearningState(),
-  refreshStreamingState: () => enhancedCognitiveStateManager.connectCognitiveStream(),
+  refreshStreamingState: () => {
+    const config = get(cognitiveConfig);
+    if (!config.cognitiveStreaming.enabled) {
+      console.log('🚫 Streaming refresh skipped - disabled in configuration');
+      return Promise.resolve();
+    }
+    return enhancedCognitiveStateManager.connectCognitiveStream();
+  },
   updateAutonomousLearningState: () => enhancedCognitiveStateManager.updateAutonomousLearningState(),
-  updateStreamingStatus: () => enhancedCognitiveStateManager.connectCognitiveStream(),
+  updateStreamingStatus: () => {
+    const config = get(cognitiveConfig);
+    if (!config.cognitiveStreaming.enabled) {
+      console.log('🚫 Streaming status update skipped - disabled in configuration');
+      return Promise.resolve();
+    }
+    return enhancedCognitiveStateManager.connectCognitiveStream();
+  },
   pauseAutonomousLearning: () => enhancedCognitiveStateManager.configureAutonomousLearning({ enabled: false }),
   resumeAutonomousLearning: () => enhancedCognitiveStateManager.configureAutonomousLearning({ enabled: true }),
   updateLearningConfiguration: (config) => enhancedCognitiveStateManager.configureAutonomousLearning(config),
   
   // Stream management
   configureCognitiveStreaming: (config) => enhancedCognitiveStateManager.configureCognitiveStreaming(config),
-  startCognitiveStreaming: (granularity = 'standard') => enhancedCognitiveStateManager.configureCognitiveStreaming({ enabled: true, granularity }),
+  startCognitiveStreaming: (granularity = 'standard') => {
+    const config = get(cognitiveConfig);
+    if (!config.cognitiveStreaming.enabled) {
+      console.log('🚫 Cognitive streaming is disabled in configuration - ignoring start request');
+      return Promise.resolve();
+    }
+    return enhancedCognitiveStateManager.configureCognitiveStreaming({ enabled: true, granularity });
+  },
   stopCognitiveStreaming: () => enhancedCognitiveStateManager.disconnectCognitiveStream(),
   
   // Event management

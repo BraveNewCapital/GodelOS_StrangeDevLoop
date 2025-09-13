@@ -67,6 +67,7 @@ class NlpProcessor:
     async def process(self, text: str) -> Dict[str, List[Any]]:
         """
         Process a single text document to extract entities and relationships.
+        For large documents, automatically chunks the text to prevent hanging.
 
         Args:
             text: The text to process.
@@ -74,14 +75,223 @@ class NlpProcessor:
         Returns:
             A dictionary containing the extracted entities and relationships.
         """
-        doc = self.nlp(text)
-        entities = self._extract_entities(doc)
-        relationships = self._extract_relationships(doc, entities)
+        logger.info(f"🔍 NLP PROCESS: Starting to process text with {len(text)} characters")
+        logger.info(f"🔍 NLP PROCESS: Text preview: {repr(text[:200])}")
+        logger.info(f"🔍 NLP PROCESS: spaCy model type: {type(self.nlp)}")
+        logger.info(f"🔍 NLP PROCESS: spaCy model name: {getattr(self.nlp.meta, 'name', 'unknown') if hasattr(self.nlp, 'meta') else 'no meta'}")
+        logger.info(f"🔍 NLP PROCESS: Available pipeline components: {self.nlp.pipe_names if hasattr(self.nlp, 'pipe_names') else 'no pipe_names'}")
+        
+        # Optimized size limits for speed and efficiency
+        MAX_CHUNK_SIZE = 15000  # 15K characters per chunk (much smaller for speed)
+        MAX_TOTAL_SIZE = 100000  # 100K total character limit (aggressive truncation)
+        
+        # Check if text is too large
+        if len(text) > MAX_TOTAL_SIZE:
+            logger.warning(f"🔍 NLP PROCESS: Text too large ({len(text)} chars), truncating to {MAX_TOTAL_SIZE} characters")
+            text = text[:MAX_TOTAL_SIZE]
+        
+        # Process in chunks if text is large
+        if len(text) > MAX_CHUNK_SIZE:
+            logger.info(f"🔍 NLP PROCESS: Large text detected, processing in chunks of {MAX_CHUNK_SIZE} characters")
+            return await self._process_chunked_text(text, MAX_CHUNK_SIZE)
+        
+        # Process normally for smaller texts
+        logger.info(f"🔍 NLP PROCESS: Processing text as single chunk")
+        try:
+            doc = self.nlp(text)
+            logger.info(f"🔍 NLP PROCESS: Created spaCy doc with {len(doc)} tokens")
+            logger.info(f"🔍 NLP PROCESS: Doc has {len(list(doc.sents))} sentences")
+            logger.info(f"🔍 NLP PROCESS: Doc ents attribute exists: {hasattr(doc, 'ents')}")
+            logger.info(f"🔍 NLP PROCESS: Doc ents count: {len(doc.ents) if hasattr(doc, 'ents') else 'no ents'}")
+            
+            entities = self._extract_entities(doc)
+            relationships = self._extract_relationships(doc, entities)
 
+            logger.info(f"🔍 NLP PROCESS: Final result - {len(entities)} entities, {len(relationships)} relationships")
+            
+            return {
+                "entities": entities,
+                "relationships": relationships
+            }
+        except Exception as e:
+            logger.error(f"🔍 NLP PROCESS: Error processing text: {e}")
+            # Fallback to basic processing if spaCy fails
+            return await self._process_with_fallback(text)
+
+    async def _process_chunked_text(self, text: str, chunk_size: int) -> Dict[str, List[Any]]:
+        """
+        Process large text by breaking it into smaller chunks with intelligent sampling.
+        
+        Args:
+            text: The text to process
+            chunk_size: Size of each chunk
+            
+        Returns:
+            Combined results from all chunks
+        """
+        logger.info(f"🔍 NLP PROCESS: Starting optimized chunked processing")
+        
+        all_entities = []
+        all_relationships = []
+        
+        # Use intelligent sampling for very large documents
+        chunks = self._split_text_into_chunks_smart(text, chunk_size)
+        logger.info(f"🔍 NLP PROCESS: Split text into {len(chunks)} optimized chunks")
+        
+        for i, chunk in enumerate(chunks):
+            logger.info(f"🔍 NLP PROCESS: Processing chunk {i+1}/{len(chunks)} ({len(chunk)} chars)")
+            try:
+                doc = self.nlp(chunk)
+                entities = self._extract_entities(doc)
+                relationships = self._extract_relationships(doc, entities)
+                
+                # Adjust entity positions to account for chunk offset
+                chunk_start = sum(len(chunks[j]) for j in range(i))
+                for entity in entities:
+                    if 'start_char' in entity:
+                        entity['start_char'] += chunk_start
+                    if 'end_char' in entity:
+                        entity['end_char'] += chunk_start
+                
+                all_entities.extend(entities)
+                all_relationships.extend(relationships)
+                
+                logger.info(f"🔍 NLP PROCESS: Chunk {i+1} processed: {len(entities)} entities, {len(relationships)} relationships")
+                
+            except Exception as e:
+                logger.error(f"🔍 NLP PROCESS: Error processing chunk {i+1}: {e}")
+                continue
+        
+        logger.info(f"🔍 NLP PROCESS: Chunked processing complete: {len(all_entities)} total entities, {len(all_relationships)} total relationships")
+        
         return {
-            "entities": entities,
-            "relationships": relationships
+            "entities": all_entities,
+            "relationships": all_relationships
         }
+
+    def _split_text_into_chunks_smart(self, text: str, chunk_size: int) -> List[str]:
+        """
+        Intelligently split text into chunks using strategic sampling for large documents.
+        For very large documents, we sample key sections rather than processing everything.
+        
+        Args:
+            text: Text to split
+            chunk_size: Target size per chunk
+            
+        Returns:
+            List of strategically sampled text chunks
+        """
+        if len(text) <= chunk_size:
+            return [text]
+        
+        # For very large documents, use intelligent sampling
+        if len(text) > 200000:  # > 200K chars
+            logger.info(f"🔍 SMART CHUNKING: Large document detected, using strategic sampling")
+            return self._sample_key_sections(text, chunk_size)
+        
+        # For medium documents, use regular chunking with fewer chunks
+        return self._split_text_into_chunks(text, chunk_size)
+    
+    def _sample_key_sections(self, text: str, chunk_size: int) -> List[str]:
+        """
+        Sample key sections from a very large document for efficient processing.
+        
+        Args:
+            text: Full text
+            chunk_size: Size per chunk
+            
+        Returns:
+            Key sections sampled from the document
+        """
+        sections = []
+        text_len = len(text)
+        
+        # Sample beginning (abstract, introduction)
+        beginning = text[:chunk_size]
+        sections.append(beginning)
+        
+        # Sample middle sections (every 10% of document)
+        for i in range(1, 5):  # Sample at 25%, 50%, 75%
+            start_pos = int(text_len * (i * 0.25))
+            end_pos = min(start_pos + chunk_size, text_len)
+            if end_pos > start_pos:
+                sections.append(text[start_pos:end_pos])
+        
+        # Sample conclusion
+        if text_len > chunk_size:
+            conclusion_start = max(text_len - chunk_size, text_len // 2)
+            sections.append(text[conclusion_start:])
+        
+        logger.info(f"🔍 SMART CHUNKING: Sampled {len(sections)} key sections from large document")
+        return sections
+
+    def _split_text_into_chunks(self, text: str, chunk_size: int) -> List[str]:
+        """
+        Split text into chunks, preferring to break at sentence boundaries.
+        
+        Args:
+            text: Text to split
+            chunk_size: Target size for each chunk
+            
+        Returns:
+            List of text chunks
+        """
+        if len(text) <= chunk_size:
+            return [text]
+        
+        chunks = []
+        current_pos = 0
+        
+        while current_pos < len(text):
+            end_pos = current_pos + chunk_size
+            
+            if end_pos >= len(text):
+                # Last chunk
+                chunks.append(text[current_pos:])
+                break
+            
+            # Try to find a good break point (sentence end)
+            break_pos = end_pos
+            
+            # Look for sentence endings within the last 20% of the chunk
+            search_start = max(current_pos + int(chunk_size * 0.8), current_pos + 1)
+            for i in range(end_pos, search_start, -1):
+                if text[i-1:i+1] in ['. ', '.\n', '! ', '!\n', '? ', '?\n']:
+                    break_pos = i
+                    break
+            
+            chunks.append(text[current_pos:break_pos])
+            current_pos = break_pos
+        
+        return chunks
+
+    async def _process_with_fallback(self, text: str) -> Dict[str, List[Any]]:
+        """
+        Fallback processing when spaCy fails.
+        
+        Args:
+            text: Text to process
+            
+        Returns:
+            Basic entity extraction results
+        """
+        logger.info(f"🔍 NLP PROCESS: Using fallback processing")
+        
+        try:
+            # Use basic entity extraction if available
+            entities = self._extract_basic_entities(text)
+            logger.info(f"🔍 NLP PROCESS: Fallback extracted {len(entities)} entities")
+            
+            return {
+                "entities": entities,
+                "relationships": []  # No relationship extraction in fallback
+            }
+        except Exception as e:
+            logger.error(f"🔍 NLP PROCESS: Fallback processing failed: {e}")
+            return {
+                "entities": [],
+                "relationships": []
+            }
 
     def _extract_entities(self, doc: Doc) -> List[Dict[str, Any]]:
         """Extract named entities from a spaCy Doc with fallback for basic models."""

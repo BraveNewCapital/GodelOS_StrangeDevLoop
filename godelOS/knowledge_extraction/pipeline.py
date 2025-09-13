@@ -37,13 +37,21 @@ class DataExtractionPipeline:
         Returns:
             A list of all knowledge items that were created.
         """
+        logger.info(f"🔍 PIPELINE: Starting to process {len(documents)} documents")
         all_created_items = []
-        for doc in documents:
+        for i, doc in enumerate(documents):
             try:
-                logger.info(f"Processing document: {doc[:100]}...")
+                logger.info(f"🔍 PIPELINE: Processing document {i+1}/{len(documents)}: {len(doc)} characters")
+                logger.info(f"🔍 PIPELINE: Document preview: {doc[:100]}...")
+                
                 processed_data = await self.nlp_processor.process(doc)
+                logger.info(f"🔍 PIPELINE: NLP processor returned: {processed_data}")
                 
                 if processed_data:
+                    entities_count = len(processed_data.get('entities', []))
+                    relationships_count = len(processed_data.get('relationships', []))
+                    logger.info(f"🔍 PIPELINE: Found {entities_count} entities and {relationships_count} relationships")
+                    
                     created_items = await self.graph_builder.build_graph(processed_data)
                     all_created_items.extend(created_items)
                     logger.info(f"Successfully processed document and created {len(created_items)} knowledge items.")

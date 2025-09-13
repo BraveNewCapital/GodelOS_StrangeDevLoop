@@ -8,7 +8,7 @@
     "dev": "vite dev",
     "preview": "vite preview",
     "test": "playwright test",
-    "test:headed": "playwright test --headed",
+    "test:headed": "playwright test --project=chromium --headed",
     "test:ui": "playwright test --ui",
     "test:debug": "playwright test --debug",
     "test:enhanced": "playwright test tests/enhanced-cognitive-features.spec.js tests/enhanced-cognitive-components.spec.js",
@@ -19,12 +19,15 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.53.2",
-    "@sveltejs/vite-plugin-svelte": "^3.0.0",
+    "@sveltejs/vite-plugin-svelte": "^3.1.2",
     "svelte": "^4.2.7",
-    "vite": "^5.0.3"
+    "vite": "^5.4.19"
   },
   "dependencies": {
     "d3": "^7.8.5",
     "three": "^0.160.0"
+  },
+  "engines": {
+    "node": ">=18.19.0"
   }
 }

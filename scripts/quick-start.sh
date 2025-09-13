@@ -23,7 +23,7 @@ echo -e "${BLUE}Starting backend...${NC}"
 # Start backend in background
 source godel_venv/bin/activate
 cd backend
-python main.py > ../backend.log 2>&1 &
+python unified_server.py > ../backend.log 2>&1 &
 BACKEND_PID=$!
 cd ..
 

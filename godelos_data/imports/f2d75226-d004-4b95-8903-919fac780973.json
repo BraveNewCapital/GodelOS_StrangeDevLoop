@@ -1,0 +1,13 @@
+{
+  "import_id": "f2d75226-d004-4b95-8903-919fac780973",
+  "status": "completed",
+  "progress_percentage": 100.0,
+  "current_step": "Import completed successfully",
+  "total_steps": 6,
+  "completed_steps": 6,
+  "started_at": 1757379844.0404758,
+  "estimated_completion": null,
+  "error_message": null,
+  "warnings": [],
+  "last_updated": 1757379844.157096
+}

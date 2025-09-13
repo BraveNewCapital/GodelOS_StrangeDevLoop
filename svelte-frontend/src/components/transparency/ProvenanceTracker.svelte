@@ -164,52 +164,6 @@
         }
       });
     }
-
-    // If no data, create sample data for demonstration
-    if (provenanceData.chains.size === 0) {
-      createSampleData();
-    }
-  }
-
-  function createSampleData() {
-    const now = Date.now();
-    
-    // Sample provenance chains
-    const sampleChains = [
-      {
-        id: 'chain_1',
-        name: 'Knowledge Update Chain',
-        type: 'knowledge_update',
-        source: 'reasoning_engine',
-        created: new Date(now - 3600000),
-        records: ['rec_1', 'rec_2', 'rec_3']
-      },
-      {
-        id: 'chain_2', 
-        name: 'Query Resolution Chain',
-        type: 'query_processing',
-        source: 'query_handler',
-        created: new Date(now - 1800000),
-        records: ['rec_4', 'rec_5']
-      }
-    ];
-
-    sampleChains.forEach(chain => {
-      provenanceData.chains.set(chain.id, chain);
-    });
-
-    // Sample records
-    const sampleRecords = [
-      { id: 'rec_1', operation: 'create', target: 'concept_A', timestamp: new Date(now - 3600000) },
-      { id: 'rec_2', operation: 'infer', target: 'relation_1', timestamp: new Date(now - 3300000) },
-      { id: 'rec_3', operation: 'update', target: 'concept_B', timestamp: new Date(now - 3000000) },
-      { id: 'rec_4', operation: 'query', target: 'search_1', timestamp: new Date(now - 1800000) },
-      { id: 'rec_5', operation: 'resolve', target: 'answer_1', timestamp: new Date(now - 1500000) }
-    ];
-
-    sampleRecords.forEach(record => {
-      provenanceData.records.set(record.id, record);
-    });
   }
 
   function updateVisualization() {

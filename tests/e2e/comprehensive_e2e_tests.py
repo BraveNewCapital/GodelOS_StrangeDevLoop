@@ -238,7 +238,7 @@ class GödelOSE2ETester:
         
         # Test cognitive stream WebSocket
         try:
-            uri = f"ws://localhost:8000/ws/cognitive-stream"
+            uri = f"ws://localhost:8000/ws/unified-cognitive-stream"
             async with websockets.connect(uri) as websocket:
                 # Send a test message
                 await websocket.send(json.dumps({"type": "subscribe", "events": ["cognitive_state"]}))
@@ -248,7 +248,7 @@ class GödelOSE2ETester:
                 response_data = json.loads(response)
                 
                 websocket_results.append(TestResult(
-                    endpoint="/ws/cognitive-stream",
+                    endpoint="/ws/unified-cognitive-stream",
                     method="WebSocket",
                     status_code=200,
                     success=True,
@@ -257,7 +257,7 @@ class GödelOSE2ETester:
                 
         except Exception as e:
             websocket_results.append(TestResult(
-                endpoint="/ws/cognitive-stream",
+                endpoint="/ws/unified-cognitive-stream",
                 method="WebSocket",
                 status_code=0,
                 success=False,

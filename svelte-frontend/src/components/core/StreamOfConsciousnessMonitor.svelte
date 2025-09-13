@@ -1,7 +1,7 @@
 <script>
     import { onMount, onDestroy } from 'svelte';
-    import { enhancedCognitive } from '../../stores/enhanced-cognitive.js';
-    import { writable } from 'svelte/store';
+    import { enhancedCognitive, cognitiveConfig } from '../../stores/enhanced-cognitive.js';
+    import { writable, get } from 'svelte/store';
 
     // Component props
     export let maxEvents = 100;
@@ -49,8 +49,13 @@
             }
         });
 
-        // Start streaming if not already connected
-        enhancedCognitive.startCognitiveStreaming();
+        // Start streaming only if enabled in config
+        const config = get(cognitiveConfig);
+        if (config.cognitiveStreaming.enabled) {
+            enhancedCognitive.startCognitiveStreaming();
+        } else {
+            console.log('🚫 Cognitive streaming disabled in configuration');
+        }
     });
 
     onDestroy(() => {

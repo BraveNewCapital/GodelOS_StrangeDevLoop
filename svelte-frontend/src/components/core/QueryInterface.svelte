@@ -2,6 +2,7 @@
   import { createEventDispatcher } from 'svelte';
   import { cognitiveState } from '../../stores/cognitive.js';
   import { sendQuery } from '../../utils/websocket.js';
+  import { GödelOSAPI } from '../../utils/api.js';
   
   const dispatch = createEventDispatcher();
   
@@ -86,42 +87,31 @@
         // Send query through WebSocket (non-blocking)
         sendQuery(currentQuery, queryOptions);
         
-        // Also try HTTP API as fallback/verification
-        const response = await fetch('http://localhost:8000/api/query', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            query: currentQuery,
-            context: { type: 'knowledge' },
-            include_reasoning: true
-          })
+        // Use enhanced cognitive query API with fallback
+        console.log('🔄 Processing query with enhanced cognitive system:', currentQuery);
+        queryResult = await GödelOSAPI.enhancedQuery(currentQuery, 'user_interface');
+        
+        console.log('✅ Enhanced query result:', queryResult);
+        
+        // Dispatch the response for other components to handle
+        dispatch('query-response', {
+          query: currentQuery,
+          response: queryResult,
+          timestamp: Date.now()
         });
         
-        if (response.ok) {
-          queryResult = await response.json();
-          console.log('Query result:', queryResult);
-          
-          // Dispatch the response for other components to handle
-          dispatch('query-response', {
+        // Also dispatch a global window event for ResponseDisplay
+        window.dispatchEvent(new CustomEvent('query-response', {
+          detail: {
             query: currentQuery,
             response: queryResult,
             timestamp: Date.now()
-          });
-          
-          // Also dispatch a global window event for ResponseDisplay
-          window.dispatchEvent(new CustomEvent('query-response', {
-            detail: {
-              query: currentQuery,
-              response: queryResult,
-              timestamp: Date.now()
-            }
-          }));
-        }
+          }
+        }));
+        
       } catch (apiError) {
-        console.warn('HTTP API fallback failed:', apiError);
-        // WebSocket sending doesn't throw errors, so we continue
+        console.warn('Enhanced API failed:', apiError);
+        // Error handling is already in place
       }
       
       // Dispatch event for other components

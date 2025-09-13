@@ -37,8 +37,20 @@ self.addEventListener('fetch', (event) => {
           return response;
         }
         return fetch(event.request);
-      }
-    )
+      })
+      .catch((error) => {
+        // Handle fetch errors gracefully
+        console.warn('Service Worker: Fetch failed for', event.request.url, error);
+        // Return a basic offline page or just fail silently for API calls
+        if (event.request.url.includes('/api/')) {
+          return new Response('Offline', {
+            status: 503,
+            statusText: 'Service Unavailable'
+          });
+        }
+        // For other resources, just let it fail
+        throw error;
+      })
   );
 });
 

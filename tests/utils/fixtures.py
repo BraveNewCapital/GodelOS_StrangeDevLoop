@@ -552,7 +552,7 @@ def create_mock_websocket():
 TEST_CONFIG = {
     "backend_url": "http://localhost:8000",
     "frontend_url": "http://localhost:3000",
-    "websocket_url": "ws://localhost:8000/ws/cognitive-stream",
+    "websocket_url": "ws://localhost:8000/ws/unified-cognitive-stream",
     "test_timeout": 10,
     "concurrent_users": 5,
     "performance_thresholds": {

@@ -29,10 +29,8 @@ def get_websocket_manager():
     return WebSocketManager
 
 # Only import models (no circular dependencies)
-from .models import *
+from .models import *  # noqa: F401,F403 (re-export models for convenience)
 
-__all__ = [
-    "app",
-    "GödelOSIntegration", 
-    "WebSocketManager"
-]
+# Note: Do not expose names that are not defined at module import time to avoid
+# confusing import errors during test collection. Consumers should import
+# concrete objects from their defining modules (e.g., backend.config_manager).
