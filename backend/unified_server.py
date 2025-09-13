@@ -1536,7 +1536,7 @@ async def get_available_experience_types():
 @app.post("/api/v1/cognitive/loop")
 async def execute_cognitive_loop(loop_data: Dict[str, Any]):
     """Execute a full bidirectional cognitive loop with KG-PE integration"""
-    correlation_id = correlation_tracker.generate_id()
+    correlation_id = correlation_tracker.generate_correlation_id()
     
     with correlation_tracker.request_context(correlation_id):
         with operation_timer("cognitive_loop"):
@@ -1666,6 +1666,46 @@ async def get_knowledge_graph():
     except Exception as e:
         logger.error(f"Error retrieving unified knowledge graph: {e}")
         raise HTTPException(status_code=500, detail=f"Knowledge graph error: {str(e)}")
+
+@app.get("/api/knowledge/statistics")
+async def get_knowledge_statistics():
+    """Get knowledge graph statistics."""
+    try:
+        # Import here to avoid circular dependency
+        from backend.cognitive_transparency_integration import cognitive_transparency_api
+        
+        if cognitive_transparency_api and cognitive_transparency_api.knowledge_graph:
+            try:
+                # Get statistics from the unified transparency system
+                stats = await cognitive_transparency_api.knowledge_graph.get_statistics()
+                graph_data = await cognitive_transparency_api.knowledge_graph.export_graph()
+                
+                return {
+                    "node_count": len(graph_data.get("nodes", [])),
+                    "edge_count": len(graph_data.get("edges", [])),
+                    "document_count": 0,  # TODO: Add document tracking
+                    "last_updated": datetime.now().isoformat(),
+                    "detailed_stats": stats,
+                    "data_source": "unified_dynamic_transparency_system"
+                }
+            except Exception as e:
+                logger.warning(f"Failed to get unified dynamic knowledge statistics: {e}")
+                raise HTTPException(status_code=500, detail=f"Knowledge statistics error: {str(e)}")
+        else:
+            # System not ready
+            logger.warning("Cognitive transparency system not initialized for statistics")
+            return {
+                "node_count": 0,
+                "edge_count": 0,
+                "document_count": 0,
+                "last_updated": datetime.now().isoformat(),
+                "data_source": "system_not_ready",
+                "error": "Cognitive transparency system not initialized"
+            }
+        
+    except Exception as e:
+        logger.error(f"Error retrieving knowledge statistics: {e}")
+        raise HTTPException(status_code=500, detail=f"Knowledge statistics error: {str(e)}")
 
 @app.post("/api/knowledge/reanalyze")
 async def reanalyze_all_documents():
@@ -1824,7 +1864,7 @@ async def enhanced_cognitive_health():
 @app.post("/api/llm-chat/message")
 async def llm_chat_message(request: ChatMessage):
     """Process LLM chat message with tool integration."""
-    correlation_id = correlation_tracker.generate_id()
+    correlation_id = correlation_tracker.generate_correlation_id()
     
     with correlation_tracker.request_context(correlation_id):
         with operation_timer("llm_chat"):
@@ -2593,7 +2633,7 @@ async def import_knowledge_batch(request: dict):
 @app.websocket("/ws/cognitive-stream")
 async def websocket_cognitive_stream(websocket: WebSocket):
     """WebSocket endpoint for real-time cognitive state streaming."""
-    correlation_id = correlation_tracker.generate_id()
+    correlation_id = correlation_tracker.generate_correlation_id()
     
     with correlation_tracker.request_context(correlation_id):
         logger.info("WebSocket connection initiated", extra={

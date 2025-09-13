@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, asdict, field
 from contextvars import ContextVar
+from contextlib import contextmanager
 from enum import Enum
 
 # Context variables for correlation tracking
@@ -194,6 +195,29 @@ class CorrelationTracker:
         correlation_id.set(None)
         trace_id.set(None)
         session_id.set(None)
+    
+    @staticmethod
+    @contextmanager
+    def request_context(corr_id: str = None, tr_id: str = None, sess_id: str = None):
+        """Context manager for setting correlation context during request processing."""
+        # Store previous context
+        prev_corr_id = correlation_id.get()
+        prev_trace_id = trace_id.get()
+        prev_session_id = session_id.get()
+        
+        try:
+            # Set new context
+            CorrelationTracker.set_correlation_context(
+                corr_id or CorrelationTracker.generate_correlation_id(),
+                tr_id or CorrelationTracker.generate_trace_id(),
+                sess_id
+            )
+            yield
+        finally:
+            # Restore previous context
+            correlation_id.set(prev_corr_id)
+            trace_id.set(prev_trace_id)
+            session_id.set(prev_session_id)
 
 
 class EnhancedLogger:

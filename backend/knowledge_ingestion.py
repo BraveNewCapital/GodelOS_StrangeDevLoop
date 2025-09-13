@@ -8,8 +8,8 @@ URLs, files, Wikipedia, and manual text input with robust processing and validat
 import asyncio
 from asyncio import TimeoutError as AsyncioTimeoutError
 
-# Timeout for potentially long-running content processing steps (seconds)
-CONTENT_PROCESS_TIMEOUT = 300  # Increased to 5 minutes for large PDFs with lots of entities
+# Optimized timeout for fast processing - aggressive fallback to basic processing
+CONTENT_PROCESS_TIMEOUT = 60  # Reduced to 1 minute - fail fast and use fallback
 import hashlib
 import json
 import logging
@@ -860,6 +860,12 @@ class KnowledgeIngestionService:
                 logger.info(f"🔍 PDF DEBUG: First 200 chars: {repr(raw_content[:200])}")
                 logger.info(f"🔍 PDF DEBUG: Content preview: {raw_content[:500] if raw_content else 'EMPTY'}")
                 
+                # Apply aggressive size limits for efficiency
+                MAX_PDF_CONTENT = 75000  # 75K character limit for PDF processing
+                if len(raw_content) > MAX_PDF_CONTENT:
+                    logger.warning(f"🔍 PDF OPTIMIZATION: Large PDF content ({len(raw_content)} chars), truncating to {MAX_PDF_CONTENT} for efficiency")
+                    raw_content = raw_content[:MAX_PDF_CONTENT]
+                
                 # Use the existing knowledge pipeline service for semantic analysis
                 logger.info(f"🔍 PDF ENHANCED: Processing PDF content with advanced knowledge pipeline")
                 logger.info(f"🔍 PDF DEBUG: Pipeline service available: {knowledge_pipeline_service is not None}")
@@ -868,17 +874,25 @@ class KnowledgeIngestionService:
                 try:
                     # Use the existing knowledge pipeline service that has spaCy and HuggingFace models
                     if knowledge_pipeline_service and knowledge_pipeline_service.initialized:
-                        logger.info(f"🔍 PDF DEBUG: Processing {len(raw_content)} characters through pipeline")
-                        pipeline_result = await knowledge_pipeline_service.process_text_document(
-                            content=raw_content,
-                            title=request.filename,
-                            metadata={
-                                'file_type': request.file_type,
-                                'filename': request.filename,
-                                'encoding': request.encoding,
-                                'source': 'pdf_extraction'
-                            }
-                        )
+                        logger.info(f"🔍 PDF DEBUG: Processing {len(raw_content)} characters through pipeline with timeout {CONTENT_PROCESS_TIMEOUT}s")
+                        try:
+                            pipeline_result = await asyncio.wait_for(
+                                knowledge_pipeline_service.process_text_document(
+                                    content=raw_content,
+                                    title=request.filename,
+                                    metadata={
+                                        'file_type': request.file_type,
+                                        'filename': request.filename,
+                                        'encoding': request.encoding,
+                                        'source': 'pdf_extraction'
+                                    }
+                                ),
+                                timeout=CONTENT_PROCESS_TIMEOUT
+                            )
+                        except asyncio.TimeoutError:
+                            logger.error(f"❌ Timeout during PDF pipeline processing for import {import_id}")
+                            # Continue with basic processing instead of failing
+                            pipeline_result = None
                         
                         logger.info(f"🔍 PDF DEBUG: Pipeline result keys: {list(pipeline_result.keys()) if pipeline_result else 'None'}")
                         logger.info(f"🔍 PDF DEBUG: Pipeline result entities count: {pipeline_result.get('entities_extracted', 0)}")

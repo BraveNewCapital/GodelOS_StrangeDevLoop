@@ -6,6 +6,11 @@
   import * as THREE from 'three';
   import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
   
+  // Import our new advanced components
+  import KnowledgeGraphAnalytics from './KnowledgeGraphAnalytics.svelte';
+  import KnowledgeGraphPerformanceManager from './KnowledgeGraphPerformanceManager.svelte';
+  import KnowledgeGraphCollaborativeManager from './KnowledgeGraphCollaborativeManager.svelte';
+  
   let graphContainer;
   let controlsContainer;
   let width = 800;
@@ -39,6 +44,19 @@
   let isLoading = false;
   let isRedrawing = false; // New state for redraw operations
   let parameterUpdateTimeout; // For debouncing parameter updates
+  
+  // Advanced features state
+  let advancedMode = false;
+  let performanceMode = true;
+  let collaborativeMode = false;
+  let analyticsVisible = true;
+  let currentUserId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  let sessionId = null;
+  
+  // Advanced component references
+  let analyticsComponent;
+  let performanceManager;
+  let collaborativeManager;
   
   // Three.js for 3D mode
   let scene, camera, renderer, controls3d;
@@ -1494,6 +1512,104 @@
   function handleSearch() {
     loadGraphData();
   }
+  
+  // Collaborative event handlers
+  function handleGraphDataSync(event) {
+    console.log('📥 Syncing graph data from collaborative session');
+    graphData = event.detail.graphData;
+    // Redraw visualization with synced data
+    if (layoutMode === '2d') {
+      renderGraph2D();
+    } else if (layoutMode === '3d') {
+      renderGraph3D();
+    }
+  }
+  
+  function handleNodeCreate(event) {
+    console.log('➕ Remote node created:', event.detail);
+    const newNode = event.detail;
+    graphData.nodes = [...graphData.nodes, newNode];
+    // Update visualization
+    if (layoutMode === '2d') {
+      updateGraph2D();
+    } else if (layoutMode === '3d') {
+      updateGraph3D();
+    }
+  }
+  
+  function handleNodeUpdate(event) {
+    console.log('✏️ Remote node updated:', event.detail);
+    const { nodeId, updates } = event.detail;
+    graphData.nodes = graphData.nodes.map(node => 
+      node.id === nodeId ? { ...node, ...updates } : node
+    );
+    // Update visualization
+    updateVisualization();
+  }
+  
+  function handleNodeDelete(event) {
+    console.log('🗑️ Remote node deleted:', event.detail);
+    const nodeId = event.detail;
+    graphData.nodes = graphData.nodes.filter(node => node.id !== nodeId);
+    graphData.edges = graphData.edges.filter(edge => 
+      edge.source !== nodeId && edge.target !== nodeId
+    );
+    // Update visualization
+    updateVisualization();
+  }
+  
+  function handleEdgeCreate(event) {
+    console.log('🔗 Remote edge created:', event.detail);
+    const newEdge = event.detail;
+    graphData.edges = [...graphData.edges, newEdge];
+    updateVisualization();
+  }
+  
+  function handleEdgeUpdate(event) {
+    console.log('✏️ Remote edge updated:', event.detail);
+    const { edgeId, updates } = event.detail;
+    graphData.edges = graphData.edges.map(edge => 
+      edge.id === edgeId ? { ...edge, ...updates } : edge
+    );
+    updateVisualization();
+  }
+  
+  function handleEdgeDelete(event) {
+    console.log('🗑️ Remote edge deleted:', event.detail);
+    const edgeId = event.detail;
+    graphData.edges = graphData.edges.filter(edge => edge.id !== edgeId);
+    updateVisualization();
+  }
+  
+  function handleParticipantJoined(event) {
+    console.log('👋 Participant joined:', event.detail);
+    // Could show notification or update UI
+  }
+  
+  function handleParticipantLeft(event) {
+    console.log('👋 Participant left:', event.detail);
+    // Could show notification or update UI
+  }
+  
+  function handleRemoteOperation(event) {
+    console.log('🔄 Remote operation applied:', event.detail);
+    // Operation already applied by collaborative manager
+  }
+  
+  function handleRemoteSelection(event) {
+    console.log('🎯 Remote selection changed:', event.detail);
+    // Could highlight remotely selected nodes/edges
+    const { userId, selectedNodes, selectedEdges } = event.detail;
+    // Update UI to show remote selections
+  }
+  
+  function updateVisualization() {
+    if (layoutMode === '2d') {
+      updateGraph2D();
+    } else if (layoutMode === '3d') {
+      updateGraph3D();
+    }
+  }
 
   // Debounced function for parameter updates (variable declared at top)
   function debouncedParameterUpdate() {
@@ -2037,6 +2153,51 @@
             </label>
           </div>
         </div>
+        
+        <!-- Advanced Features Control Section -->
+        <div class="control-group advanced-features">
+          <div class="control-label">
+            <span class="label-icon">⚡</span>
+            Advanced Features
+            <span class="mode-preview">Enhanced performance, analytics & collaboration</span>
+          </div>
+          <div class="advanced-toggles">
+            <label class="toggle-control">
+              <input type="checkbox" bind:checked={advancedMode} />
+              <span class="toggle-slider"></span>
+              <span class="toggle-label">Advanced Mode</span>
+            </label>
+            
+            {#if advancedMode}
+              <label class="toggle-control secondary">
+                <input type="checkbox" bind:checked={performanceMode} />
+                <span class="toggle-slider"></span>
+                <span class="toggle-label">3D Performance Optimization</span>
+              </label>
+              
+              <label class="toggle-control secondary">
+                <input type="checkbox" bind:checked={analyticsVisible} />
+                <span class="toggle-slider"></span>
+                <span class="toggle-label">Knowledge Analytics</span>
+              </label>
+              
+              <label class="toggle-control secondary">
+                <input type="checkbox" bind:checked={collaborativeMode} />
+                <span class="toggle-slider"></span>
+                <span class="toggle-label">Collaborative Editing</span>
+              </label>
+              
+              {#if collaborativeMode}
+                <div class="collaboration-settings">
+                  <div class="mini-control">
+                    <label>Session ID:</label>
+                    <input type="text" bind:value={sessionId} placeholder="Enter session ID or leave empty">
+                  </div>
+                </div>
+              {/if}
+            {/if}
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -2060,6 +2221,51 @@
           </div>
         {/if}
       </div>
+      
+      <!-- Advanced Features Integration -->
+      {#if advancedMode}
+        <!-- Analytics Overlay -->
+        <KnowledgeGraphAnalytics 
+          bind:this={analyticsComponent}
+          {graphData}
+          {selectedNode}
+          isVisible={analyticsVisible}
+        />
+        
+        <!-- Performance Manager for 3D optimization -->
+        {#if layoutMode === '3d' && performanceMode}
+          <KnowledgeGraphPerformanceManager
+            bind:this={performanceManager}
+            {scene}
+            {camera}
+            {renderer}
+            {graphData}
+            isPerformanceMode={performanceMode}
+          />
+        {/if}
+        
+        <!-- Collaborative Manager -->
+        {#if collaborativeMode}
+          <KnowledgeGraphCollaborativeManager
+            bind:this={collaborativeManager}
+            {graphData}
+            userId={currentUserId}
+            {sessionId}
+            isEnabled={collaborativeMode}
+            on:graphDataSync={handleGraphDataSync}
+            on:nodeCreate={handleNodeCreate}
+            on:nodeUpdate={handleNodeUpdate}
+            on:nodeDelete={handleNodeDelete}
+            on:edgeCreate={handleEdgeCreate}
+            on:edgeUpdate={handleEdgeUpdate}
+            on:edgeDelete={handleEdgeDelete}
+            on:participantJoined={handleParticipantJoined}
+            on:participantLeft={handleParticipantLeft}
+            on:remoteOperation={handleRemoteOperation}
+            on:remoteSelection={handleRemoteSelection}
+          />
+        {/if}
+      {/if}
     </div>
 
     <!-- Information Panel -->
@@ -3549,6 +3755,148 @@
     
     .button-grid {
       grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  
+  /* Advanced Features Styles */
+  .advanced-features {
+    background: linear-gradient(135deg, rgba(76, 175, 80, 0.1), rgba(33, 150, 243, 0.1));
+    border: 2px solid rgba(76, 175, 80, 0.3);
+    border-radius: 12px;
+    padding: 20px;
+    margin-top: 20px;
+  }
+  
+  .advanced-toggles {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-top: 16px;
+  }
+  
+  .toggle-control {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    transition: all 0.3s ease;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  
+  .toggle-control:hover {
+    background: rgba(255, 255, 255, 0.1);
+    transform: translateY(-1px);
+  }
+  
+  .toggle-control.secondary {
+    margin-left: 20px;
+    background: rgba(33, 150, 243, 0.1);
+    border-color: rgba(33, 150, 243, 0.3);
+  }
+  
+  .toggle-control input[type="checkbox"] {
+    display: none;
+  }
+  
+  .toggle-slider {
+    position: relative;
+    width: 50px;
+    height: 24px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 12px;
+    transition: all 0.3s ease;
+    cursor: pointer;
+  }
+  
+  .toggle-slider::before {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 20px;
+    height: 20px;
+    background: white;
+    border-radius: 50%;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  }
+  
+  .toggle-control input[type="checkbox"]:checked + .toggle-slider {
+    background: #4CAF50;
+  }
+  
+  .toggle-control input[type="checkbox"]:checked + .toggle-slider::before {
+    transform: translateX(26px);
+  }
+  
+  .toggle-label {
+    font-weight: 500;
+    color: #E3F2FD;
+    font-size: 14px;
+  }
+  
+  .collaboration-settings {
+    margin-top: 12px;
+    padding: 12px;
+    background: rgba(33, 150, 243, 0.1);
+    border-radius: 8px;
+    border: 1px solid rgba(33, 150, 243, 0.3);
+  }
+  
+  .mini-control {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  
+  .mini-control label {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.8);
+    font-weight: 500;
+  }
+  
+  .mini-control input[type="text"] {
+    padding: 8px 12px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    color: white;
+    font-size: 12px;
+    outline: none;
+    transition: all 0.3s ease;
+  }
+  
+  .mini-control input[type="text"]:focus {
+    border-color: #4CAF50;
+    background: rgba(0, 0, 0, 0.5);
+  }
+  
+  .mini-control input[type="text"]::placeholder {
+    color: rgba(255, 255, 255, 0.5);
+  }
+  
+  /* Version badge enhancement */
+  .version-badge {
+    background: linear-gradient(135deg, #4CAF50, #2E7D32);
+    color: white;
+    font-size: 10px;
+    font-weight: bold;
+    padding: 3px 8px;
+    border-radius: 12px;
+    margin-left: 8px;
+    box-shadow: 0 2px 4px rgba(76, 175, 80, 0.3);
+    animation: pulse-glow 2s infinite;
+  }
+  
+  @keyframes pulse-glow {
+    0%, 100% {
+      box-shadow: 0 2px 4px rgba(76, 175, 80, 0.3);
+    }
+    50% {
+      box-shadow: 0 4px 12px rgba(76, 175, 80, 0.6);
     }
   }
 </style>
