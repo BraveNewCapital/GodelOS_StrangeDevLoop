@@ -9,12 +9,13 @@ to the existing backend infrastructure.
 import asyncio
 import logging
 import time
+import traceback
 from typing import Dict, List, Optional, Any, Union
 from pathlib import Path
 
 # Import the knowledge extraction pipeline
 from godelOS.knowledge_extraction.pipeline import DataExtractionPipeline
-from godelOS.knowledge_extraction.nlp_processor import NlpProcessor
+from godelOS.knowledge_extraction.enhanced_nlp_processor import EnhancedNlpProcessor
 from godelOS.knowledge_extraction.graph_builder import KnowledgeGraphBuilder
 from godelOS.semantic_search.query_engine import QueryEngine
 from godelOS.semantic_search.vector_store import VectorStore
@@ -61,8 +62,9 @@ class KnowledgePipelineService:
             await self.knowledge_store.start()  # Start the store
             
             # Initialize NLP processor
-            logger.info("🔄 Initializing NLP Processor...")
-            self.nlp_processor = NlpProcessor()
+            logger.info("🔄 Initializing Enhanced NLP Processor...")
+            self.nlp_processor = EnhancedNlpProcessor()
+            await self.nlp_processor.initialize()
             
             # Initialize graph builder
             logger.info("🔄 Initializing Knowledge Graph Builder...")
@@ -72,9 +74,18 @@ class KnowledgePipelineService:
             logger.info("🔄 Initializing Data Extraction Pipeline...")
             self.pipeline = DataExtractionPipeline(self.nlp_processor, self.graph_builder)
             
-            # Initialize vector store
+            # Initialize vector store - use production vector database if available
             logger.info("🔄 Initializing Vector Store...")
-            self.vector_store = VectorStore()
+            try:
+                from backend.core.vector_service import get_vector_database
+                self.vector_store = get_vector_database()
+                logger.info("✅ Using production vector database")
+            except ImportError as e:
+                logger.warning(f"Production vector database import failed: {e}, using fallback VectorStore")
+                self.vector_store = VectorStore()
+            except Exception as e:
+                logger.warning(f"Production vector database not ready: {e}, using fallback VectorStore")
+                self.vector_store = VectorStore()
             
             # Initialize query engine
             logger.info("🔄 Initializing Query Engine...")
@@ -107,28 +118,75 @@ class KnowledgePipelineService:
         try:
             logger.info(f"🔄 Processing text document: {title or 'Untitled'}")
             
-            # Broadcast processing start if websocket available
-            await self._broadcast_event({
+            # Step 1: Initialize processing
+            await self._broadcast_progress({
                 "type": "knowledge_processing_started",
-                "timestamp": time.time(),
+                "step": "initialization",
+                "progress": 0,
+                "message": "Starting document processing",
                 "title": title or "Untitled",
                 "content_length": len(content)
             })
             
-            # ENHANCED: Process through NLP first to get raw extracted data
-            logger.info(f"🔍 PIPELINE SERVICE: Processing content through NLP processor")
+            # Step 2: Text chunking
+            await self._broadcast_progress({
+                "type": "knowledge_processing_progress",
+                "step": "chunking",
+                "progress": 10,
+                "message": "Splitting text into processing chunks"
+            })
+            
+            # ENHANCED: Process through Enhanced NLP first to get raw extracted data
+            logger.info(f"🔍 PIPELINE SERVICE: Processing content through Enhanced NLP processor")
             processed_data = await self.nlp_processor.process(content)
-            logger.info(f"🔍 PIPELINE SERVICE: NLP processing complete, extracted {len(processed_data.get('entities', []))} entities and {len(processed_data.get('relationships', []))} relationships")
+            
+            # Step 3: NLP processing complete
+            entities_count = len(processed_data.get('entities', []))
+            relationships_count = len(processed_data.get('relationships', []))
+            chunks_count = len(processed_data.get('chunks', []))
+            
+            await self._broadcast_progress({
+                "type": "knowledge_processing_progress",
+                "step": "nlp_extraction",
+                "progress": 40,
+                "message": f"Extracted {entities_count} entities and {relationships_count} relationships from {chunks_count} chunks"
+            })
+            
+            logger.info(f"🔍 PIPELINE SERVICE: NLP processing complete, extracted {entities_count} entities and {relationships_count} relationships")
+            
+            # Step 4: Knowledge graph building
+            await self._broadcast_progress({
+                "type": "knowledge_processing_progress",
+                "step": "graph_building",
+                "progress": 60,
+                "message": "Building knowledge graph structure"
+            })
             
             # Process through the extraction pipeline
-            created_items = await self.pipeline.process_documents([content])
+            logger.info(f"🔍 PIPELINE SERVICE: Starting DataExtractionPipeline.process_documents()")
+            try:
+                created_items = await self.pipeline.process_documents([content])
+                logger.info(f"🔍 PIPELINE SERVICE: DataExtractionPipeline completed, created {len(created_items)} items")
+                logger.info(f"🔍 PIPELINE SERVICE: Item types: {[type(item).__name__ for item in created_items]}")
+            except Exception as e:
+                logger.error(f"❌ PIPELINE SERVICE: DataExtractionPipeline failed: {e}")
+                logger.error(f"🔍 PIPELINE SERVICE: Exception traceback: {traceback.format_exc()}")
+                raise
+            
+            # Step 5: Vector indexing
+            await self._broadcast_progress({
+                "type": "knowledge_processing_progress",
+                "step": "vector_indexing",
+                "progress": 80,
+                "message": "Creating semantic embeddings and vector index"
+            })
             
             # Update metrics
             self.documents_processed += 1
-            entities_count = len([item for item in created_items if isinstance(item, Fact)])
-            relationships_count = len([item for item in created_items if isinstance(item, Relationship)])
-            self.entities_extracted += entities_count
-            self.relationships_extracted += relationships_count
+            entities_extracted = len([item for item in created_items if isinstance(item, Fact)])
+            relationships_extracted = len([item for item in created_items if isinstance(item, Relationship)])
+            self.entities_extracted += entities_extracted
+            self.relationships_extracted += relationships_extracted
             
             # Add items to vector store for semantic search
             vector_items = []
@@ -147,6 +205,61 @@ class KnowledgePipelineService:
             if vector_items:
                 self.vector_store.add_items(vector_items)
                 logger.info(f"Added {len(vector_items)} items to vector store")
+            
+            # Step 6: Finalization
+            await self._broadcast_progress({
+                "type": "knowledge_processing_progress",
+                "step": "finalization",
+                "progress": 100,
+                "message": "Processing complete"
+            })
+            
+            processing_time = time.time() - start_time
+            
+            # Log metrics
+            logger.info(f"✅ Document processed successfully:")
+            logger.info(f"   - Entities extracted: {entities_extracted}")
+            logger.info(f"   - Relationships extracted: {relationships_extracted}")
+            logger.info(f"   - Processing time: {processing_time:.2f}s")
+            logger.info(f"   - Total documents processed: {self.documents_processed}")
+            
+            # Broadcast processing completion
+            await self._broadcast_progress({
+                "type": "knowledge_processing_completed",
+                "step": "complete",
+                "progress": 100,
+                "message": f"Successfully processed document with {entities_extracted} entities and {relationships_extracted} relationships",
+                "title": title or "Untitled",
+                "entities_extracted": entities_extracted,
+                "relationships_extracted": relationships_extracted,
+                "processing_time_seconds": processing_time,
+                "total_items_created": len(created_items),
+                "deduplication_stats": processed_data.get('deduplication_stats', {}),
+                "categories": processed_data.get('categories', [])
+            })
+            
+            return {
+                "success": True,
+                "items_created": len(created_items),
+                "entities_extracted": entities_extracted,
+                "relationships_extracted": relationships_extracted,
+                "processing_time_seconds": processing_time,
+                "knowledge_items": [{"id": item.id, "type": item.type.value} for item in created_items],
+                "processed_data": processed_data,  # CRITICAL: Include the raw processed data
+                "performance_stats": self.nlp_processor.get_performance_stats() if hasattr(self.nlp_processor, 'get_performance_stats') else {}
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to process document: {e}")
+            await self._broadcast_progress({
+                "type": "knowledge_processing_failed",
+                "step": "error",
+                "progress": 0,
+                "message": f"Processing failed: {str(e)}",
+                "title": title or "Untitled",
+                "error": str(e)
+            })
+            raise
             
             processing_time = time.time() - start_time
             
@@ -395,6 +508,16 @@ class KnowledgePipelineService:
                 "components_active": 0,
                 "total_components": 6
             }
+    
+    async def _broadcast_progress(self, progress_data: Dict[str, Any]):
+        """Broadcast detailed progress information via websocket if available."""
+        if self.websocket_manager and self.websocket_manager.has_connections():
+            try:
+                # Add timestamp to progress data
+                progress_data["timestamp"] = time.time()
+                await self.websocket_manager.broadcast(progress_data)
+            except Exception as e:
+                logger.warning(f"Failed to broadcast progress: {e}")
     
     async def _broadcast_event(self, event: Dict[str, Any]):
         """Broadcast an event via websocket if available."""

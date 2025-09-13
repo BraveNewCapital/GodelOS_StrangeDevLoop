@@ -1667,46 +1667,6 @@ async def get_knowledge_graph():
         logger.error(f"Error retrieving unified knowledge graph: {e}")
         raise HTTPException(status_code=500, detail=f"Knowledge graph error: {str(e)}")
 
-@app.get("/api/knowledge/statistics")
-async def get_knowledge_statistics():
-    """Get knowledge graph statistics."""
-    try:
-        # Import here to avoid circular dependency
-        from backend.cognitive_transparency_integration import cognitive_transparency_api
-        
-        if cognitive_transparency_api and cognitive_transparency_api.knowledge_graph:
-            try:
-                # Get statistics from the unified transparency system
-                stats = await cognitive_transparency_api.knowledge_graph.get_statistics()
-                graph_data = await cognitive_transparency_api.knowledge_graph.export_graph()
-                
-                return {
-                    "node_count": len(graph_data.get("nodes", [])),
-                    "edge_count": len(graph_data.get("edges", [])),
-                    "document_count": 0,  # TODO: Add document tracking
-                    "last_updated": datetime.now().isoformat(),
-                    "detailed_stats": stats,
-                    "data_source": "unified_dynamic_transparency_system"
-                }
-            except Exception as e:
-                logger.warning(f"Failed to get unified dynamic knowledge statistics: {e}")
-                raise HTTPException(status_code=500, detail=f"Knowledge statistics error: {str(e)}")
-        else:
-            # System not ready
-            logger.warning("Cognitive transparency system not initialized for statistics")
-            return {
-                "node_count": 0,
-                "edge_count": 0,
-                "document_count": 0,
-                "last_updated": datetime.now().isoformat(),
-                "data_source": "system_not_ready",
-                "error": "Cognitive transparency system not initialized"
-            }
-        
-    except Exception as e:
-        logger.error(f"Error retrieving knowledge statistics: {e}")
-        raise HTTPException(status_code=500, detail=f"Knowledge statistics error: {str(e)}")
-
 @app.post("/api/knowledge/reanalyze")
 async def reanalyze_all_documents():
     """Re-analyze all stored documents and rebuild the unified knowledge graph."""
@@ -2628,6 +2588,140 @@ async def import_knowledge_batch(request: dict):
     sources = request.get("sources", [])
     import_ids = [f"batch_{i}_{int(time.time()*1000)}" for i, _ in enumerate(sources)]
     return {"import_ids": import_ids, "batch_size": len(import_ids), "status": "queued"}
+
+# Additional KG stats and analytics endpoints
+@app.get("/api/knowledge/graph/stats")
+async def get_knowledge_graph_stats():
+    """Get comprehensive knowledge graph statistics."""
+    try:
+        # Import here to avoid circular dependency
+        from backend.cognitive_transparency_integration import cognitive_transparency_api
+        
+        if cognitive_transparency_api and cognitive_transparency_api.knowledge_graph:
+            kg = cognitive_transparency_api.knowledge_graph
+            
+            # Get basic graph statistics using the correct attributes
+            stats = {
+                "total_nodes": len(kg.nodes),  # kg.nodes is a dict
+                "total_edges": len(kg.edges),  # kg.edges is a dict
+                "node_types": {},
+                "edge_types": {},
+                "last_updated": datetime.now().isoformat(),
+                "data_source": "cognitive_transparency"
+            }
+            
+            # Count node types from the nodes dictionary
+            for node_id, node_obj in kg.nodes.items():
+                node_type = getattr(node_obj, 'type', 'unknown')
+                stats["node_types"][node_type] = stats["node_types"].get(node_type, 0) + 1
+            
+            # Count edge types from the edges dictionary
+            for edge_id, edge_obj in kg.edges.items():
+                edge_type = getattr(edge_obj, 'type', 'unknown')
+                stats["edge_types"][edge_type] = stats["edge_types"].get(edge_type, 0) + 1
+                
+            return stats
+        else:
+            # Fallback to empty stats
+            return {
+                "total_nodes": 0,
+                "total_edges": 0,
+                "node_types": {},
+                "edge_types": {},
+                "last_updated": datetime.now().isoformat(),
+                "data_source": "system_not_ready",
+                "error": "Knowledge graph not initialized"
+            }
+            
+    except Exception as e:
+        logger.error(f"Error getting knowledge graph stats: {e}")
+        raise HTTPException(status_code=500, detail=f"Knowledge graph stats error: {str(e)}")
+
+@app.get("/api/knowledge/entities/recent")
+async def get_recent_entities(limit: int = 10):
+    """Get recently added entities from the knowledge graph."""
+    try:
+        # Import here to avoid circular dependency
+        from backend.cognitive_transparency_integration import cognitive_transparency_api
+        
+        entities = []
+        
+        if cognitive_transparency_api and cognitive_transparency_api.knowledge_graph:
+            kg = cognitive_transparency_api.knowledge_graph
+            
+            # Get nodes with timestamps, sorted by most recent
+            nodes_with_timestamps = []
+            for node_id, node_obj in kg.nodes.items():
+                timestamp = getattr(node_obj, 'created_at', getattr(node_obj, 'timestamp', 0))
+                nodes_with_timestamps.append((timestamp, node_id, node_obj))
+            
+            # Sort by timestamp (most recent first) and take the limit
+            nodes_with_timestamps.sort(key=lambda x: x[0], reverse=True)
+            
+            for timestamp, node_id, node_obj in nodes_with_timestamps[:limit]:
+                entities.append({
+                    "id": node_id,
+                    "type": getattr(node_obj, 'type', 'unknown'),
+                    "label": getattr(node_obj, 'label', node_id),
+                    "created_at": timestamp,
+                    "confidence": getattr(node_obj, 'confidence', 0.0),
+                    "source": getattr(node_obj, 'source', 'unknown')
+                })
+        
+        return {
+            "entities": entities,
+            "total": len(entities),
+            "limit": limit,
+            "last_updated": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting recent entities: {e}")
+        raise HTTPException(status_code=500, detail=f"Recent entities error: {str(e)}")
+
+@app.get("/api/knowledge/embeddings/stats")
+async def get_embeddings_stats():
+    """Get statistics about embeddings in the knowledge system."""
+    try:
+        # Import vector database if available
+        stats = {
+            "total_embeddings": 0,
+            "embedding_dimensions": 0,
+            "embedding_models": [],
+            "last_updated": datetime.now().isoformat(),
+            "data_source": "unknown"
+        }
+        
+        # Try to get stats from vector database
+        try:
+            if VECTOR_DATABASE_AVAILABLE and get_vector_database:
+                vector_db = get_vector_database()
+                if hasattr(vector_db, 'get_stats'):
+                    vector_stats = vector_db.get_stats()
+                    stats.update(vector_stats)
+                    stats["data_source"] = "vector_database"
+                elif hasattr(vector_db, 'collection') and hasattr(vector_db.collection, 'count'):
+                    stats["total_embeddings"] = vector_db.collection.count()
+                    stats["data_source"] = "vector_database_basic"
+        except Exception as e:
+            logger.warning(f"Could not get vector database stats: {e}")
+        
+        # Try to get enhanced NLP processor stats
+        try:
+            from godelOS.knowledge_extraction.enhanced_nlp_processor import EnhancedNlpProcessor
+            processor = EnhancedNlpProcessor()
+            if hasattr(processor, 'get_embedding_stats'):
+                nlp_stats = processor.get_embedding_stats()
+                stats.update(nlp_stats)
+                stats["data_source"] = "enhanced_nlp_processor"
+        except Exception as e:
+            logger.warning(f"Could not get enhanced NLP processor stats: {e}")
+        
+        return stats
+        
+    except Exception as e:
+        logger.error(f"Error getting embeddings stats: {e}")
+        raise HTTPException(status_code=500, detail=f"Embeddings stats error: {str(e)}")
 
 # WebSocket endpoint for real-time streaming
 @app.websocket("/ws/cognitive-stream")

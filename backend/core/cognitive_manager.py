@@ -105,6 +105,12 @@ class CognitiveManager:
         self.knowledge_pipeline = knowledge_pipeline
         self.websocket_manager = websocket_manager
         
+        # Configuration - MUST be set before any component initialization
+        self.max_reasoning_depth = 10
+        self.min_confidence_threshold = 0.6
+        self.enable_autonomous_reasoning = True
+        self.enable_self_reflection = True
+        
         # Initialize consciousness engine
         self.consciousness_engine = ConsciousnessEngine(
             llm_driver=llm_driver,
@@ -157,12 +163,6 @@ class CognitiveManager:
             "gaps_identified": 0,
             "gaps_resolved": 0
         }
-        
-        # Configuration
-        self.max_reasoning_depth = 10
-        self.min_confidence_threshold = 0.6
-        self.enable_autonomous_reasoning = True
-        self.enable_self_reflection = True
         
         logger.info("CognitiveManager initialized")
 

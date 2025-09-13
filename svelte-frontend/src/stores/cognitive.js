@@ -213,6 +213,7 @@ export const pendingProposals = derived(
 // WebSocket integration for real-time cognitive updates
 let cognitiveWebSocket = null;
 import { WS_BASE_URL } from '../config.js';
+import { handleProgressUpdate } from './importProgress.js';
 
 export function initCognitiveStream() {
   if (cognitiveWebSocket?.readyState === WebSocket.OPEN) {
@@ -270,6 +271,14 @@ export function initCognitiveStream() {
                 focusDepth: update.data.depth || 'surface'
               }
             }));
+            break;
+            
+          // Handle new knowledge processing progress updates
+          case 'knowledge_processing_started':
+          case 'knowledge_processing_progress':
+          case 'knowledge_processing_completed':
+          case 'knowledge_processing_failed':
+            handleProgressUpdate(update);
             break;
         }
       } catch (error) {

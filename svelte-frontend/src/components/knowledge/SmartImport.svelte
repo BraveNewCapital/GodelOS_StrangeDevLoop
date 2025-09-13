@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { knowledgeState, uiState } from '../../stores/cognitive.js';
-  import { importProgressState } from '../../stores/importProgress.js';
+  import { importProgressState, handleProgressUpdate, PROGRESS_STEPS } from '../../stores/importProgress.js';
   import { GödelOSAPI } from '../../utils/api.js';
   import { get } from 'svelte/store';
   import { apiHelpers } from '../../stores/cognitive.js';
@@ -415,6 +415,26 @@
                     </span>
                   </div>
                   
+                  <!-- Enhanced Progress Details -->
+                  {#if importProgress[item.id].step_name && PROGRESS_STEPS[importProgress[item.id].step_name]}
+                    <div class="step-indicator">
+                      <div class="step-progress">
+                        {#each Object.entries(PROGRESS_STEPS) as [stepKey, stepInfo], index}
+                          {#if stepKey !== 'error'}
+                            <div 
+                              class="step-dot"
+                              class:completed={stepInfo.order <= (importProgress[item.id].completed_steps || 0)}
+                              class:current={stepKey === importProgress[item.id].step_name}
+                            >
+                              <span class="step-number">{stepInfo.order}</span>
+                              <span class="step-label">{stepInfo.label}</span>
+                            </div>
+                          {/if}
+                        {/each}
+                      </div>
+                    </div>
+                  {/if}
+                  
                   <!-- File Details -->
                   <div class="file-details">
                     <div class="detail-row">
@@ -431,6 +451,30 @@
                       <div class="detail-row">
                         <span class="detail-label">Steps:</span>
                         <span class="detail-value">{importProgress[item.id].completed_steps}/{importProgress[item.id].total_steps}</span>
+                      </div>
+                    {/if}
+                    {#if importProgress[item.id].entities_extracted !== undefined}
+                      <div class="detail-row">
+                        <span class="detail-label">Entities:</span>
+                        <span class="detail-value">{importProgress[item.id].entities_extracted}</span>
+                      </div>
+                    {/if}
+                    {#if importProgress[item.id].relationships_extracted !== undefined}
+                      <div class="detail-row">
+                        <span class="detail-label">Relations:</span>
+                        <span class="detail-value">{importProgress[item.id].relationships_extracted}</span>
+                      </div>
+                    {/if}
+                    {#if importProgress[item.id].categories && importProgress[item.id].categories.length > 0}
+                      <div class="detail-row">
+                        <span class="detail-label">Categories:</span>
+                        <span class="detail-value">{importProgress[item.id].categories.map(c => c.category).join(', ')}</span>
+                      </div>
+                    {/if}
+                    {#if importProgress[item.id].deduplication_stats}
+                      <div class="detail-row">
+                        <span class="detail-label">Deduplicates:</span>
+                        <span class="detail-value">{importProgress[item.id].deduplication_stats.duplicates_removed || 0} removed</span>
                       </div>
                     {/if}
                     {#if importProgress[item.id].started_at}
@@ -997,6 +1041,87 @@
   .detail-value.warning {
     color: #fbbf24;
     font-weight: 600;
+  }
+
+  /* Step Indicator */
+  .step-indicator {
+    margin: 1rem 0;
+    padding: 1rem;
+    background: rgba(255,255,255,0.02);
+    border-radius: 0.5rem;
+    border: 1px solid rgba(255,255,255,0.05);
+  }
+
+  .step-progress {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .step-dot {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    min-width: 80px;
+    padding: 0.5rem;
+    border-radius: 0.375rem;
+    transition: all 0.2s;
+    background: rgba(255,255,255,0.03);
+  }
+
+  .step-dot.completed {
+    background: rgba(74, 158, 255, 0.1);
+    border: 1px solid rgba(74, 158, 255, 0.3);
+  }
+
+  .step-dot.current {
+    background: rgba(74, 158, 255, 0.2);
+    border: 1px solid rgba(74, 158, 255, 0.5);
+    animation: pulse 2s infinite;
+  }
+
+  .step-number {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    line-height: 20px;
+    background: #4a4a6a;
+    color: #fff;
+    border-radius: 50%;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+  }
+
+  .step-dot.completed .step-number {
+    background: #4a9eff;
+  }
+
+  .step-dot.current .step-number {
+    background: #4a9eff;
+    box-shadow: 0 0 10px rgba(74, 158, 255, 0.5);
+  }
+
+  .step-label {
+    font-size: 0.7rem;
+    color: #aaa;
+    line-height: 1.2;
+  }
+
+  .step-dot.completed .step-label {
+    color: #4a9eff;
+  }
+
+  .step-dot.current .step-label {
+    color: #4a9eff;
+    font-weight: 600;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
   }
 
   /* Responsive */

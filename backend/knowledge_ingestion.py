@@ -549,11 +549,28 @@ class KnowledgeIngestionService:
             await self._broadcast_completion(import_id, False, str(e))
     
     async def _process_content(self, content: str, title: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """Process raw content using basic knowledge extraction (temporarily bypassing advanced pipeline)."""
+        """Process raw content using enhanced knowledge pipeline or fallback to basic processing."""
         try:
             logger.info(f"🔍 DEBUG: _process_content called with title: {title}")
             
-            # TEMPORARILY USE BASIC PROCESSING ONLY
+            # Try enhanced pipeline first
+            if knowledge_pipeline_service and knowledge_pipeline_service.initialized:
+                logger.info("🚀 Using enhanced knowledge pipeline processing")
+                try:
+                    # Use enhanced pipeline
+                    result = await knowledge_pipeline_service.process_text_document(
+                        content=content,
+                        title=title,
+                        metadata=metadata
+                    )
+                    logger.info(f"✅ Enhanced pipeline processing completed successfully")
+                    return result
+                except Exception as e:
+                    logger.warning(f"⚠️ Enhanced pipeline failed, falling back to basic processing: {e}")
+            else:
+                logger.warning(f"⚠️ Enhanced pipeline not available (service: {knowledge_pipeline_service is not None}, initialized: {knowledge_pipeline_service.initialized if knowledge_pipeline_service else False})")
+            
+            # Fallback to basic processing
             logger.info("🔄 Using basic knowledge extraction processing")
             
             # Basic processing for backward compatibility
@@ -677,11 +694,33 @@ class KnowledgeIngestionService:
             # Broadcast progress update
             await self._broadcast_progress_update(import_id, progress)
             
+            # Handle both enhanced pipeline format (nested processed_data) and basic format
+            if 'processed_data' in processed_data and isinstance(processed_data['processed_data'], dict):
+                # Enhanced pipeline format
+                data = processed_data['processed_data']
+                content = data.get('content', content)  # fallback to original content
+                title_field = data.get('title', title)
+                word_count = data.get('word_count', len(content.split()))
+                char_count = data.get('char_count', len(content))
+                chunks = data.get('chunks', [])
+                keywords = data.get('keywords', [])
+                language = data.get('language', 'en')
+            else:
+                # Basic format
+                data = processed_data
+                content = data.get('content', content)
+                title_field = data.get('title', title)
+                word_count = data.get('word_count', len(content.split()))
+                char_count = data.get('char_count', len(content))
+                chunks = data.get('chunks', [])
+                keywords = data.get('keywords', [])
+                language = data.get('language', 'en')
+            
             knowledge_item = KnowledgeItem(
                 id=f"text-{import_id}",
-                content=processed_data['content'],
+                content=content,
                 knowledge_type="fact",  # Default type, could be enhanced with classification
-                title=processed_data['title'],
+                title=title_field,
                 source=request.source,
                 import_id=import_id,
                 confidence=0.9,  # High confidence for manual entry
@@ -690,11 +729,11 @@ class KnowledgeIngestionService:
                 auto_categories=[],
                 manual_categories=request.categorization_hints or ["manual"],
                 metadata={
-                    'word_count': processed_data['word_count'],
-                    'char_count': processed_data['char_count'],
-                    'chunks': len(processed_data['chunks']),
-                    'keywords': processed_data['keywords'],
-                    'language': processed_data['language']
+                    'word_count': word_count,
+                    'char_count': char_count,
+                    'chunks': len(chunks),
+                    'keywords': keywords,
+                    'language': language
                 }
             )
             
