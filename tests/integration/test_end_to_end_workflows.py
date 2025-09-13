@@ -283,7 +283,7 @@ class TestWebSocketIntegration:
     
     def setup_method(self):
         """Set up WebSocket test environment."""
-        self.ws_url = "ws://localhost:8000/ws/cognitive-stream"
+        self.ws_url = "ws://localhost:8000/ws/unified-cognitive-stream"
     
     @pytest.mark.asyncio
     async def test_websocket_connection(self):

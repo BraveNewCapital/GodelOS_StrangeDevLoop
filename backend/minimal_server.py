@@ -167,7 +167,7 @@ async def root():
             "/llm/cognitive-query",
             "/llm/test-integration",
             "/llm/tools",
-            "/ws/cognitive-stream"
+            "/ws/unified-cognitive-stream"
         ],
         "new_features": [
             "Tool-based LLM integration",
@@ -387,7 +387,7 @@ async def llm_cognitive_query(request: LLMCognitiveRequest):
             cognitive_changes = update_cognitive_state_from_tools(result.get("tool_results", []))
             
             # Broadcast cognitive event to WebSocket clients
-            await broadcast_cognitive_event({
+            await broadcast_unified_event({
                 "type": "llm_query_processed",
                 "query": request.query,
                 "tools_used": result.get("tools_used", []),
@@ -767,12 +767,12 @@ def update_cognitive_state_from_query(request: LLMCognitiveRequest, tools_used: 
     
     return changes
 
-async def broadcast_cognitive_event(event: Dict[str, Any]):
+async def broadcast_unified_event(event: Dict[str, Any]):
     """Broadcast cognitive event to all WebSocket clients."""
     if manager.active_connections:
         await manager.broadcast(json.dumps(event))
 
-@app.websocket("/ws/cognitive-stream")
+@app.websocket("/ws/unified-cognitive-stream")
 async def websocket_cognitive_stream(websocket: WebSocket, granularity: str = Query(default="standard")):
     """WebSocket endpoint for real-time cognitive event streaming."""
     await manager.connect(websocket)

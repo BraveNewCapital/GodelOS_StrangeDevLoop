@@ -389,6 +389,46 @@ export class GödelOSAPI {
     }
   }
 
+  static async cancelAllImports() {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/knowledge/import/all`, {
+        method: 'DELETE'
+      });
+      
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.error('Failed to cancel all imports:', error);
+      throw error;
+    }
+  }
+
+  static async resetStuckImports() {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/knowledge/import/stuck`, {
+        method: 'DELETE'
+      });
+      
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.error('Failed to reset stuck imports:', error);
+      throw error;
+    }
+  }
+
+  static async getActiveImports() {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/knowledge/import/active`);
+      
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.error('Failed to get active imports:', error);
+      throw error;
+    }
+  }
+
   // Additional knowledge management methods
   static async addKnowledge(knowledgeData) {
     try {

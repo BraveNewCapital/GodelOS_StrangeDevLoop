@@ -121,7 +121,7 @@ def test_config():
     return {
         "backend_url": "http://localhost:8000",
         "frontend_url": "http://localhost:3000",
-        "websocket_url": "ws://localhost:8000/ws/cognitive-stream",
+        "websocket_url": "ws://localhost:8000/ws/unified-cognitive-stream",
         "timeout": 10,
         "slow_timeout": 30,
         "performance_thresholds": {

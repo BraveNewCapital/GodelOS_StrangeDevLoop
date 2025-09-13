@@ -149,7 +149,7 @@ class GodelOSArchitectureReviewer:
         # Test WebSocket cognitive stream
         try:
             self.websocket_events = []
-            ws_url = f"ws://localhost:8000/ws/cognitive-stream"
+            ws_url = f"ws://localhost:8000/ws/unified-cognitive-stream"
             
             def on_message(ws, message):
                 try:

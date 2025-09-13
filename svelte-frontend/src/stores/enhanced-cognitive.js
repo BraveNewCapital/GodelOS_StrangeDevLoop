@@ -207,20 +207,14 @@ class EnhancedCognitiveStateManager {
         return;
       }
 
-      // Build WebSocket URL with parameters
-      const params = new URLSearchParams({
-        granularity: config.cognitiveStreaming.granularity,
-        subscriptions: config.cognitiveStreaming.subscriptions?.join(',') || ''
-      });
-
-      // Derive WebSocket URL dynamically from central WS base
-      const wsUrl = `${WS_BASE_URL}/ws/cognitive-stream?${params}`;
+      // Use unified streaming endpoint instead of legacy cognitive-stream
+      const wsUrl = `${WS_BASE_URL}/ws/unified-cognitive-stream`;
       
-      console.log('🔗 Connecting to cognitive stream:', wsUrl);
+      console.log('🔗 Connecting to unified cognitive stream:', wsUrl);
       cognitiveWebSocket = new WebSocket(wsUrl);
 
       cognitiveWebSocket.onopen = () => {
-        console.log('🔗 Cognitive stream connected successfully');
+        console.log('🔗 Unified cognitive stream connected successfully');
         this.reconnectAttempts = 0;
         
         // Clear any pending reconnection attempts
@@ -228,6 +222,37 @@ class EnhancedCognitiveStateManager {
           clearTimeout(this.reconnectTimeout);
           this.reconnectTimeout = null;
         }
+        
+        // Subscribe to enhanced cognitive events via unified streaming
+        const subscription = {
+          type: "subscribe",
+          event_types: [
+            "cognitive_stream",
+            "cognitive_state", 
+            "consciousness_update",
+            "transparency",
+            "cognitive_transparency",
+            "system_status",
+            "knowledge_update"
+          ]
+        };
+        
+        if (config.cognitiveStreaming.subscriptions?.length > 0) {
+          // Map legacy subscriptions to unified event types if needed
+          const legacyMapping = {
+            'cognitive_state': 'cognitive_state',
+            'transparency': 'transparency',
+            'consciousness': 'consciousness_update',
+            'system_health': 'system_status'
+          };
+          
+          subscription.event_types = config.cognitiveStreaming.subscriptions.map(
+            sub => legacyMapping[sub] || sub
+          );
+        }
+        
+        cognitiveWebSocket.send(JSON.stringify(subscription));
+        console.log('📡 Enhanced cognitive store subscribed to:', subscription.event_types);
         
         enhancedCognitiveState.update(state => ({
           ...state,

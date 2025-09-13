@@ -105,7 +105,7 @@ from backend.main import create_app
 
 def test_service_injection_allows_mocks():
     print("Given 🧪 mock services and a fake WebSocket manager")
-    ws_mock = WebSocketManager()
+    ws_mock = # DEPRECATED: WebSocketManager()
     ingestion = DummyService()
     management = DummyService()
     pipeline = DummyPipeline()

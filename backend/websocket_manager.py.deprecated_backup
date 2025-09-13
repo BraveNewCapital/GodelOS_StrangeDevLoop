@@ -839,7 +839,7 @@ class WebSocketManager:
         except Exception as e:
             logger.error(f"Error sending recent events: {e}")
     
-    async def broadcast_cognitive_event(self, event_type: str, data: Dict[str, Any]):
+    async def unified_stream_manager.stream_event(self, event_type: str, data: Dict[str, Any]):
         """Broadcast a cognitive event with proper formatting."""
         cognitive_event = {
             "type": "cognitive_event",
@@ -1037,7 +1037,7 @@ class WebSocketManager:
             self.cognitive_subscriptions[client_id].difference_update(event_types)
             logger.info(f"Cognitive WebSocket unsubscribed from events for client {client_id}: {event_types}")
     
-    async def broadcast_cognitive_event(self, event_type: str, data: Dict[str, Any], client_id: Optional[str] = None):
+    async def unified_stream_manager.stream_event(self, event_type: str, data: Dict[str, Any], client_id: Optional[str] = None):
         """Broadcast a cognitive event to all or specific clients."""
         cognitive_event = {
             "type": "cognitive_event",

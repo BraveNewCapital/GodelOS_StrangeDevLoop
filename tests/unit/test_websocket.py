@@ -8,8 +8,8 @@ import websockets
 
 async def test_websocket():
     try:
-        print('Attempting to connect to ws://localhost:8000/ws/cognitive-stream...')
-        async with websockets.connect('ws://localhost:8000/ws/cognitive-stream') as websocket:
+        print('Attempting to connect to ws://localhost:8000/ws/unified-cognitive-stream...')
+        async with websockets.connect('ws://localhost:8000/ws/unified-cognitive-stream') as websocket:
             print('✅ WebSocket connected successfully!')
             
             # Send a ping

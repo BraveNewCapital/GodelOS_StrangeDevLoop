@@ -614,6 +614,18 @@
             </div>
           </div>
         </div>
+
+      {:else if activeView === 'enhanced'}
+        <!-- Enhanced Cognitive Dashboard -->
+        <div class="expanded-view" data-testid="enhanced-view">
+          <div class="view-header">
+            <h2>🚀 Enhanced Cognitive Dashboard</h2>
+            <p class="view-description">Unified cognitive enhancement overview with real-time monitoring</p>
+          </div>
+          <div class="component-container">
+            <EnhancedCognitiveDashboard />
+          </div>
+        </div>
         
       {:else if viewConfig[activeView]?.modal}
         <!-- Modal-based Views -->
@@ -717,27 +729,24 @@
     {/if}
   </Modal>
 
-  <Modal 
-    bind:show={showSmartImportModal} 
-    title="Smart Knowledge Import"
-    size="large"
-    on:close={() => showSmartImportModal = false}
-  >
-    {#if showSmartImportModal}
-      {#await import('./components/knowledge/SmartImport.svelte')}
+  {#if showSmartImportModal}
+    {#await import('./components/knowledge/SmartImport.svelte')}
+      <div class="modal-backdrop">
         <div class="loading-container">
           <div class="loading-spinner"></div>
           <p>Loading Smart Import...</p>
         </div>
-      {:then module}
-        <svelte:component this={module.default} />
-      {:catch error}
+      </div>
+    {:then module}
+      <svelte:component this={module.default} bind:show={showSmartImportModal} on:close={() => showSmartImportModal = false} />
+    {:catch error}
+      <div class="modal-backdrop">
         <div class="error-container">
           <p>Failed to load Smart Import: {error.message}</p>
         </div>
-      {/await}
-    {/if}
-  </Modal>
+      </div>
+    {/await}
+  {/if}
 
   <!-- New Lazy-loaded Modals -->
   <Modal 

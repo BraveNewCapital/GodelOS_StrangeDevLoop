@@ -221,10 +221,28 @@ export function initCognitiveStream() {
   }
 
   try {
-    cognitiveWebSocket = new WebSocket(`${WS_BASE_URL}/ws/cognitive-stream`);
+    // Use unified streaming endpoint for better performance and unified event management
+    cognitiveWebSocket = new WebSocket(`${WS_BASE_URL}/ws/unified-cognitive-stream`);
     
     cognitiveWebSocket.onopen = () => {
-      console.log('🧠 Cognitive state stream connected');
+      console.log('🧠 Unified cognitive stream connected');
+      
+      // Subscribe to relevant event types for the cognitive frontend
+      const subscription = {
+        type: "subscribe",
+        event_types: [
+          "cognitive_state",
+          "cognitive_stream", 
+          "consciousness_update",
+          "system_status",
+          "transparency",
+          "cognitive_transparency"
+        ]
+      };
+      
+      cognitiveWebSocket.send(JSON.stringify(subscription));
+      console.log('📡 Subscribed to cognitive events:', subscription.event_types);
+      
       cognitiveState.update(state => ({
         ...state,
         systemHealth: {
@@ -236,29 +254,72 @@ export function initCognitiveStream() {
     
     cognitiveWebSocket.onmessage = (event) => {
       try {
-        const update = JSON.parse(event.data);
+        const message = JSON.parse(event.data);
+        
+        // Handle unified streaming event format
+        // Unified events have: { id, type, timestamp, data, source, priority }
+        // Legacy events may still come as: { type, data, ... }
+        
+        let eventType, eventData;
+        
+        if (message.type && message.data && message.id) {
+          // New unified event format
+          eventType = message.type;
+          eventData = message.data;
+          console.log(`📡 Received unified event: ${eventType}`, message);
+        } else {
+          // Legacy event format for backward compatibility
+          eventType = message.type;
+          eventData = message.data || message;
+          console.log(`📡 Received legacy event: ${eventType}`, message);
+        }
         
         // Route different types of cognitive updates
-        switch (update.type) {
+        switch (eventType) {
           case 'cognitive_state':
+          case 'cognitive_state_update':
+            // Handle both unified and legacy cognitive state updates
+            const cognitiveData = eventData.data || eventData;
             cognitiveState.update(state => ({
               ...state,
-              ...update.data,
+              ...cognitiveData,
               lastUpdate: Date.now()
+            }));
+            break;
+            
+          case 'cognitive_stream':
+          case 'cognitive_processing_complete':
+            // Handle cognitive processing events
+            cognitiveState.update(state => ({
+              ...state,
+              processingStatus: eventData,
+              lastUpdate: Date.now()
+            }));
+            break;
+            
+          case 'consciousness_update':
+            // Handle consciousness assessment updates
+            cognitiveState.update(state => ({
+              ...state,
+              manifestConsciousness: {
+                ...state.manifestConsciousness,
+                ...eventData,
+                lastAssessment: Date.now()
+              }
             }));
             break;
             
           case 'knowledge_update':
             knowledgeState.update(state => ({
               ...state,
-              ...update.data
+              ...eventData
             }));
             break;
             
           case 'evolution_event':
             evolutionState.update(state => ({
               ...state,
-              timeline: [update.data, ...state.timeline.slice(0, 49)]
+              timeline: [eventData, ...state.timeline.slice(0, 49)]
             }));
             break;
             
@@ -267,27 +328,59 @@ export function initCognitiveStream() {
               ...state,
               manifestConsciousness: {
                 ...state.manifestConsciousness,
-                attention: update.data.attention,
-                focusDepth: update.data.depth || 'surface'
+                attention: eventData.attention,
+                focusDepth: eventData.depth || 'surface'
               }
             }));
             break;
             
-          // Handle new knowledge processing progress updates
+          case 'transparency':
+          case 'cognitive_transparency':
+            // Handle transparency events from unified streaming
+            if (eventData.transparency_event) {
+              // Process nested transparency event
+              console.log('🔍 Transparency update:', eventData.transparency_event);
+            }
+            break;
+            
+          case 'system_status':
+            // Handle system status updates
+            cognitiveState.update(state => ({
+              ...state,
+              systemHealth: {
+                ...state.systemHealth,
+                ...eventData
+              }
+            }));
+            break;
+            
+          // Handle legacy knowledge processing progress updates (maintain compatibility)
           case 'knowledge_processing_started':
           case 'knowledge_processing_progress':
           case 'knowledge_processing_completed':
           case 'knowledge_processing_failed':
-            handleProgressUpdate(update);
+            handleProgressUpdate(message); // Pass full message for legacy compatibility
             break;
+            
+          // Handle unified streaming specific events
+          case 'subscription_confirmed':
+            console.log('✅ Event subscription confirmed:', eventData);
+            break;
+            
+          case 'connection_status':
+            console.log('📊 Connection status:', eventData);
+            break;
+            
+          default:
+            console.log(`📡 Unhandled event type: ${eventType}`, eventData);
         }
       } catch (error) {
-        // Silently handle cognitive update processing errors
+        console.error('❌ Error processing cognitive update:', error);
       }
     };
     
     cognitiveWebSocket.onclose = () => {
-      console.log('🧠 Cognitive state stream disconnected');
+      console.log('🧠 Unified cognitive stream disconnected');
       cognitiveState.update(state => ({
         ...state,
         systemHealth: {
@@ -304,7 +397,7 @@ export function initCognitiveStream() {
         if (reconnectAttempt < maxReconnectAttempts && cognitiveWebSocket?.readyState !== WebSocket.OPEN) {
           reconnectAttempt++;
           const delay = Math.min(1000 * Math.pow(2, reconnectAttempt), 10000); // Max 10 seconds
-          console.log(`Scheduling reconnection attempt ${reconnectAttempt} in ${delay}ms`);
+          console.log(`🔄 Scheduling unified stream reconnection attempt ${reconnectAttempt} in ${delay}ms`);
           setTimeout(() => {
             if (cognitiveWebSocket?.readyState !== WebSocket.OPEN) {
               initCognitiveStream();

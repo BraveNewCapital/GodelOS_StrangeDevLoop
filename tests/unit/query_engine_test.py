@@ -97,7 +97,7 @@ def test_query_engine():
             
         # Quick WebSocket connection test
         ws = websocket.WebSocketApp(
-            "ws://localhost:8000/ws/cognitive-stream",
+            "ws://localhost:8000/ws/unified-cognitive-stream",
             on_open=on_open,
             on_error=on_error
         )

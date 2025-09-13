@@ -221,19 +221,28 @@ export async function setupWebSocket() {
   await loadInitialData();
 
   try {
-    // Connect to GödelOS backend WebSocket endpoint
-    ws = new WebSocket(`${WS_BASE_URL}/ws/cognitive-stream`);
+    // Connect to GödelOS unified cognitive stream endpoint
+    ws = new WebSocket(`${WS_BASE_URL}/ws/unified-cognitive-stream`);
     
     ws.onopen = (event) => {
-      console.log('Connected to GödelOS cognitive stream');
+      console.log('Connected to GödelOS unified cognitive stream');
       reconnectAttempts = 0;
       updateConnectionStatus(true);
       
-      // Request initial state
-      sendMessage({
-        type: 'request_state',
-        components: ['cognitive', 'knowledge', 'evolution']
-      });
+      // Subscribe to relevant event types for this utility
+      const subscription = {
+        type: "subscribe",
+        event_types: [
+          "cognitive_state",
+          "cognitive_stream", 
+          "knowledge_update",
+          "evolution_event",
+          "system_status"
+        ]
+      };
+      
+      ws.send(JSON.stringify(subscription));
+      console.log('📡 WebSocket utility subscribed to events:', subscription.event_types);
     };
 
     ws.onmessage = (event) => {

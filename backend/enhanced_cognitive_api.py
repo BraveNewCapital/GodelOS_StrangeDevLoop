@@ -623,7 +623,7 @@ async def send_cognitive_event(
                 source="EnhancedCognitiveAPI"
             )
         elif hasattr(ws_manager, 'broadcast_cognitive_event'):
-            await ws_manager.broadcast_cognitive_event(event_input.type, enhanced_data)
+            await ws_manager._broadcast_unified_event(event_input.type, enhanced_data)
         else:
             # Fallback: send as regular message
             event_data = {

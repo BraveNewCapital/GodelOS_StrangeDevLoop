@@ -88,7 +88,7 @@ def startup_services() -> None:
     management_override = _service_overrides.get("management")
     pipeline_override = _service_overrides.get("pipeline")
 
-    websocket_manager = ws_override or WebSocketManager()
+    websocket_manager = ws_override or # DEPRECATED: WebSocketManager()
     knowledge_ingestion_service = ingestion_override or default_knowledge_ingestion_service
     knowledge_management_service = management_override or default_knowledge_management_service
     knowledge_pipeline_service = pipeline_override or default_knowledge_pipeline_service
@@ -1159,7 +1159,7 @@ async def get_pipeline_status():
 
 # WebSocket Events Handling
 
-@app.websocket("/ws/cognitive-stream")
+@app.websocket("/ws/unified-cognitive-stream")
 async def cognitive_stream_websocket(websocket: WebSocket):
     """WebSocket endpoint for streaming real-time cognitive events."""
     await websocket_manager.connect(websocket)

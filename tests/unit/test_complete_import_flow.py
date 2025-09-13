@@ -16,7 +16,7 @@ async def test_complete_flow():
     """Test the complete import flow with WebSocket monitoring."""
     
     # WebSocket connection for monitoring events
-    websocket_uri = "ws://localhost:8000/ws/cognitive-stream"
+    websocket_uri = "ws://localhost:8000/ws/unified-cognitive-stream"
     api_base = "http://localhost:8000"
     
     print("🧪 Testing Complete Import Flow with WebSocket Monitoring")

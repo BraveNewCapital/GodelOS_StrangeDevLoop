@@ -302,6 +302,44 @@ class VectorDatabaseService:
         
         return health
     
+    def get_all_metadata(self) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Get all metadata from the vector database for knowledge graph construction.
+        
+        Returns:
+            Dictionary with model names as keys and lists of metadata as values
+        """
+        if self.use_production and self.production_db:
+            try:
+                all_metadata = {}
+                
+                # Access metadata from production database
+                if hasattr(self.production_db, 'metadata'):
+                    for model_name, model_metadata in self.production_db.metadata.items():
+                        metadata_list = []
+                        for vector_id, metadata in model_metadata.items():
+                            # Convert metadata to dictionary format
+                            if hasattr(metadata, 'to_dict'):
+                                metadata_dict = metadata.to_dict()
+                            elif isinstance(metadata, dict):
+                                metadata_dict = metadata.copy()
+                            else:
+                                metadata_dict = {"text": str(metadata), "id": vector_id}
+                            
+                            metadata_dict["vector_id"] = vector_id
+                            metadata_list.append(metadata_dict)
+                        
+                        all_metadata[model_name] = metadata_list
+                
+                return all_metadata
+                
+            except Exception as e:
+                logger.error(f"Failed to get all metadata: {e}")
+                return {}
+        
+        # No fallback for metadata - legacy store doesn't have structured metadata
+        return {}
+    
     def close(self):
         """Clean shutdown of the vector database service."""
         if self.production_db:
