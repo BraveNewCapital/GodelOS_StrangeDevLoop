@@ -542,6 +542,19 @@ if VECTOR_DATABASE_AVAILABLE and vector_db_router:
 if DISTRIBUTED_VECTOR_AVAILABLE and distributed_vector_router:
     app.include_router(distributed_vector_router, prefix="/api/distributed-vector", tags=["Distributed Vector Search"])
 
+# Include agentic daemon management router
+try:
+    from backend.api.agentic_daemon_endpoints import router as agentic_daemon_router
+    app.include_router(agentic_daemon_router, tags=["Agentic Daemon System"])
+    AGENTIC_DAEMON_AVAILABLE = True
+    logger.info("Agentic daemon management endpoints available")
+except ImportError as e:
+    logger.warning(f"Agentic daemon endpoints not available: {e}")
+    AGENTIC_DAEMON_AVAILABLE = False
+except Exception as e:
+    logger.error(f"Failed to setup agentic daemon endpoints: {e}")
+    AGENTIC_DAEMON_AVAILABLE = False
+
 # Setup replay harness endpoints
 try:
     from backend.api.replay_endpoints import setup_replay_endpoints
@@ -642,6 +655,12 @@ async def health_check():
         probes["enhanced_apis"] = {"available": ENHANCED_APIS_AVAILABLE, "status": "healthy" if ENHANCED_APIS_AVAILABLE else "unavailable"}
     except Exception:
         probes["enhanced_apis"] = {"status": "unknown"}
+
+    # Agentic daemon system probe
+    try:
+        probes["agentic_daemon_system"] = {"available": AGENTIC_DAEMON_AVAILABLE, "status": "healthy" if AGENTIC_DAEMON_AVAILABLE else "unavailable"}
+    except Exception:
+        probes["agentic_daemon_system"] = {"status": "unknown"}
 
     now_iso = datetime.now().isoformat()
     # Stamp each probe with a timestamp to aid diagnostics
