@@ -2063,8 +2063,31 @@ async def llm_chat_message(request: ChatMessage):
                     )
             
             try:
-                # Use the correct method name
-                response = await tool_based_llm.process_query(request.message)
+                # Add timeout to prevent hanging
+                response = await asyncio.wait_for(
+                    tool_based_llm.process_query(request.message),
+                    timeout=30.0  # 30 second timeout
+                )
+                
+                # Check if response contains raw tool call syntax (DeepSeek model issue)
+                response_text = response.get("response", "")
+                if "|<tool_call_begin|" in response_text or "|>function<|" in response_text:
+                    logger.warning("Detected raw tool call syntax, falling back to basic processing")
+                    
+                    # Use fallback to GödelOS integration
+                    if godelos_integration:
+                        fallback_response = await godelos_integration.process_query(request.message, context={"source": "chat"})
+                        return ChatResponse(
+                            response=fallback_response.get("response", f"I understand you're asking: '{request.message}'. I'm processing this through the core cognitive architecture since the advanced LLM tool integration detected formatting issues."),
+                            tool_calls=[],
+                            reasoning=["LLM tool format mismatch detected", "Using cognitive architecture fallback", "Response from core GödelOS system"]
+                        )
+                    else:
+                        return ChatResponse(
+                            response=f"I received your message: '{request.message}'. The LLM is experiencing tool call formatting issues. The system is operational but using simplified processing.",
+                            tool_calls=[],
+                            reasoning=["LLM tool format issue", "Simplified processing active"]
+                        )
                 
                 logger.info("LLM chat completed successfully", extra={
                     "operation": "llm_chat",
@@ -2077,6 +2100,26 @@ async def llm_chat_message(request: ChatMessage):
                     tool_calls=response.get("tool_calls", []),
                     reasoning=response.get("reasoning", [])
                 )
+                
+            except asyncio.TimeoutError:
+                logger.warning("LLM chat request timed out, using fallback", extra={
+                    "operation": "llm_chat",
+                    "fallback_reason": "timeout"
+                })
+                
+                if godelos_integration:
+                    response = await godelos_integration.process_query(request.message, context={"source": "chat"})
+                    return ChatResponse(
+                        response=response.get("response", f"I understand you're asking: '{request.message}'. The advanced LLM processing timed out, so I'm using the core cognitive architecture to respond."),
+                        tool_calls=[],
+                        reasoning=["LLM processing timeout", "Using cognitive architecture fallback", "Response from core GödelOS system"]
+                    )
+                else:
+                    return ChatResponse(
+                        response=f"I received your message: '{request.message}'. The LLM processing is taking longer than expected. The core system is operational.",
+                        tool_calls=[],
+                        reasoning=["LLM processing timeout", "Core system operational"]
+                    )
                 
             except Exception as e:
                 logger.error(f"Error in LLM chat: {e}", extra={
