@@ -635,6 +635,8 @@ class ToolBasedLLMIntegration:
             base_url=base_url
         )
     
+
+
     async def process_query(self, user_query: str) -> Dict[str, Any]:
         """
         Process user query using tool-based LLM interaction.
@@ -659,6 +661,12 @@ class ToolBasedLLMIntegration:
 
 CRITICAL: You must use the provided tools to interact with the cognitive architecture. Do not hallucinate or make up responses. Every piece of information about the system state, memory, attention, or knowledge must come from actual tool calls.
 
+TOOL CALLING FORMAT: You MUST use OpenAI's standard function calling format. When you need to use a tool:
+1. Use the provided tools through the function calling interface
+2. DO NOT output raw tool syntax like "|<tool_call_begin|" or "|>function<|"
+3. Use the structured function calling provided by the API
+4. Wait for tool results before generating your response
+
 Available tools allow you to:
 - Get cognitive state and system health
 - Access and modify attention focus  
@@ -667,7 +675,7 @@ Available tools allow you to:
 - Perform reasoning and analysis
 - Engage in meta-cognitive reflection
 
-Always start by using tools to gather relevant information before responding. Base your responses entirely on tool results."""
+Always start by using tools to gather relevant information before responding. Base your responses entirely on tool results. Use the OpenAI function calling interface, not custom markup syntax."""
 
             # First call: Analyze the query and gather information
             response = await self.client.chat.completions.create(
@@ -690,6 +698,9 @@ Always start by using tools to gather relevant information before responding. Ba
             
             # Execute any tool calls the LLM requested
             tool_results = []
+            response_text = response.choices[0].message.content
+            
+            # Check for OpenAI-style structured tool calls first
             if response.choices[0].message.tool_calls:
                 for tool_call in response.choices[0].message.tool_calls:
                     tool_name = tool_call.function.name
@@ -718,6 +729,54 @@ Always start by using tools to gather relevant information before responding. Ba
                 )
                 
                 response_text = final_response.choices[0].message.content
+                
+            # Check for DeepSeek-style tool calls in the response text
+            elif response_text and ("| tool_call_begin |" in response_text or "|tool_call_begin|" in response_text):
+                logger.info("Detected DeepSeek-style tool calls, parsing and executing...")
+                
+                # Parse DeepSeek tool calls
+                deepseek_tool_calls = await self._parse_deepseek_tool_calls(response_text)
+                
+                # Execute each tool call
+                for tool_call in deepseek_tool_calls:
+                    tool_name = tool_call["tool_name"]
+                    parameters = tool_call["parameters"]
+                    
+                    result = await self.tool_provider.execute_tool(tool_name, parameters)
+                    tool_results.append({
+                        "tool": tool_name,
+                        "parameters": parameters,
+                        "result": result
+                    })
+                    
+                    # Replace the raw tool call with the result in the response
+                    if result.success:
+                        tool_result_text = f"[Tool: {tool_name}] {json.dumps(result.data, default=str)}"
+                    else:
+                        tool_result_text = f"[Tool: {tool_name}] Error: {result.error}"
+                    
+                    response_text = response_text.replace(tool_call["raw_text"], tool_result_text)
+                
+                # If we executed tools, ask the LLM to synthesize a final response
+                if tool_results:
+                    synthesis_prompt = f"""Based on the following tool results, provide a comprehensive response to the user's query: "{user_query}"
+
+Tool Results:
+{json.dumps(tool_results, indent=2, default=str)}
+
+Provide a natural, conversational response that incorporates the information from the tools."""
+
+                    final_response = await self.client.chat.completions.create(
+                        model=self.model,
+                        messages=[
+                            {"role": "system", "content": "You are a helpful assistant. Synthesize the tool results into a natural response."},
+                            {"role": "user", "content": synthesis_prompt}
+                        ],
+                        max_tokens=1500,
+                        temperature=0.7
+                    )
+                    
+                    response_text = final_response.choices[0].message.content
             else:
                 response_text = response.choices[0].message.content
             

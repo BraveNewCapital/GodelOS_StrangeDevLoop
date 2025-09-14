@@ -114,13 +114,12 @@ except ImportError as e:
     shutdown_unified_streaming = None
 
 try:
-    # Import legacy WebSocket manager (fallback for services that haven't migrated yet)
-    # DEPRECATED: from backend.websocket_manager import WebSocketManager
-    WEBSOCKET_MANAGER_AVAILABLE = True
-    logger.warning("⚠️ Legacy WebSocket manager imported - some services not yet migrated to unified streaming")
-except ImportError as e:
-    logger.info("ℹ️ Legacy WebSocket manager not available - using unified streaming only")
-    # Minimal fallback WebSocket manager for legacy compatibility
+    # Legacy WebSocket manager completely removed - using unified streaming only
+    # The websocket_manager.py file has been moved to .deprecated_backup
+    WEBSOCKET_MANAGER_AVAILABLE = False
+    logger.info("ℹ️ Legacy WebSocket manager removed - using unified streaming architecture")
+    
+    # Minimal fallback WebSocket manager for legacy compatibility during transition
     class WebSocketManager:
         def __init__(self):
             self.active_connections: List[WebSocket] = []
@@ -2068,26 +2067,6 @@ async def llm_chat_message(request: ChatMessage):
                     tool_based_llm.process_query(request.message),
                     timeout=30.0  # 30 second timeout
                 )
-                
-                # Check if response contains raw tool call syntax (DeepSeek model issue)
-                response_text = response.get("response", "")
-                if "|<tool_call_begin|" in response_text or "|>function<|" in response_text:
-                    logger.warning("Detected raw tool call syntax, falling back to basic processing")
-                    
-                    # Use fallback to GödelOS integration
-                    if godelos_integration:
-                        fallback_response = await godelos_integration.process_query(request.message, context={"source": "chat"})
-                        return ChatResponse(
-                            response=fallback_response.get("response", f"I understand you're asking: '{request.message}'. I'm processing this through the core cognitive architecture since the advanced LLM tool integration detected formatting issues."),
-                            tool_calls=[],
-                            reasoning=["LLM tool format mismatch detected", "Using cognitive architecture fallback", "Response from core GödelOS system"]
-                        )
-                    else:
-                        return ChatResponse(
-                            response=f"I received your message: '{request.message}'. The LLM is experiencing tool call formatting issues. The system is operational but using simplified processing.",
-                            tool_calls=[],
-                            reasoning=["LLM tool format issue", "Simplified processing active"]
-                        )
                 
                 logger.info("LLM chat completed successfully", extra={
                     "operation": "llm_chat",
