@@ -218,11 +218,12 @@
   </header>
 
   {#if isExpanded}
-    <!-- Consciousness Overview -->
-    <section class="consciousness-section">
-      <div class="consciousness-grid">
-        <!-- Attention Focus -->
-        <div class="consciousness-card attention-card">
+    <div class="monitor-content">
+      <!-- Consciousness Overview -->
+      <section class="consciousness-section">
+        <div class="consciousness-grid">
+          <!-- Attention Focus -->
+          <div class="consciousness-card attention-card">
           <div class="card-header">
             <h4 class="card-title">
               <span class="card-icon">🎯</span>
@@ -506,6 +507,7 @@
         {/each}
       </div>
     </section>
+    </div>
   {/if}
 </div>
 
@@ -514,8 +516,11 @@
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 16px;
-    overflow: hidden;
     backdrop-filter: blur(10px);
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%; /* Ensure full width */
   }
 
   .cognitive-monitor.compact {
@@ -527,10 +532,11 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 1.5rem;
+    padding: 1rem; /* Reduced from 1.5rem */
     background: rgba(255, 255, 255, 0.05);
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     gap: 1rem;
+    flex-shrink: 0; /* Prevent header from shrinking */
   }
 
   .header-left {
@@ -639,12 +645,39 @@
     font-size: 0.875rem;
   }
 
+  /* Monitor Content Container */
+  .monitor-content {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    max-height: calc(100% - 80px); /* Account for header height */
+  }
+
+  /* Custom scrollbar for webkit browsers */
+  .monitor-content::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .monitor-content::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+  }
+
+  .monitor-content::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 3px;
+  }
+
+  .monitor-content::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.5);
+  }
+
   /* Section Styles */
   .consciousness-section,
   .history-section,
   .agents-section,
   .health-section {
-    padding: 1.5rem;
+    padding: 1rem; /* Reduced from 1.5rem */
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   }
 
@@ -659,7 +692,7 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    margin: 0 0 1.5rem 0;
+    margin: 0 0 1rem 0; /* Reduced from 1.5rem */
     font-size: 1.125rem;
     font-weight: 600;
     color: white;
@@ -682,16 +715,19 @@
   /* Consciousness Grid */
   .consciousness-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 1.5rem;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); /* Reduced min width from 300px */
+    gap: 1rem; /* Reduced from 1.5rem */
+    width: 100%; /* Ensure full width */
   }
 
   .consciousness-card {
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 12px;
-    padding: 1.5rem;
+    padding: 1rem; /* Reduced from 1.5rem */
     transition: all 0.2s ease;
+    width: 100%; /* Ensure full width */
+    box-sizing: border-box; /* Include padding in width calculation */
   }
 
   .consciousness-card:hover {
@@ -703,7 +739,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 1rem;
+    margin-bottom: 0.75rem; /* Reduced from 1rem */
   }
 
   .card-title {
@@ -1407,11 +1443,11 @@
     .history-section,
     .agents-section,
     .health-section {
-      padding: 1rem;
+      padding: 0.75rem; /* Reduced from 1rem */
     }
 
     .consciousness-card {
-      padding: 1rem;
+      padding: 0.75rem; /* Reduced from 1rem */
     }
 
     .health-grid {
