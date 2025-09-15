@@ -252,7 +252,66 @@ cognitive_streaming_task = None
 # Observability instances
 correlation_tracker = CorrelationTracker()
 
-# Simulated cognitive state for fallback
+# Health normalization (single source of truth)
+def score_to_label(score: Optional[float]) -> str:
+    """Convert numeric health score (0.0-1.0) to categorical label."""
+    if score is None:
+        return "unknown"
+    if score >= 0.8:
+        return "healthy"
+    if score >= 0.4:
+        return "degraded"
+    return "down"
+
+def get_system_health_with_labels() -> Dict[str, Any]:
+    """Get system health with both numeric values and derived labels."""
+    # Get actual health scores from components
+    health_scores = {
+        "websocketConnection": 1.0 if websocket_manager and len(websocket_manager.active_connections) > 0 else 0.0,
+        "pipeline": 0.85,  # Mock value, should come from pipeline service
+        "knowledgeStore": 0.92,  # Mock value, should come from knowledge store
+        "vectorIndex": 0.88,  # Mock value, should come from vector index
+    }
+    
+    # Compute labels from scores
+    labels = {key: score_to_label(value) for key, value in health_scores.items()}
+    
+    return {
+        **health_scores,
+        "_labels": labels
+    }
+
+def get_manifest_consciousness_canonical() -> Dict[str, Any]:
+    """Get manifest consciousness in canonical camelCase format."""
+    return {
+        "attention": {
+            "intensity": 0.7,
+            "focus": ["System monitoring"],
+            "coverage": 0.85
+        },
+        "awareness": {
+            "level": 0.8,
+            "breadth": 0.75
+        },
+        "metaReflection": {
+            "depth": 0.6,
+            "coherence": 0.85
+        },
+        "processMonitoring": {
+            "latency": 150.0,  # ms
+            "throughput": 0.9
+        }
+    }
+
+def get_knowledge_stats() -> Dict[str, Any]:
+    """Get knowledge statistics."""
+    return {
+        "totalConcepts": 0,
+        "totalConnections": 0,
+        "totalDocuments": 0
+    }
+
+# Simulated cognitive state for fallback (legacy format)
 cognitive_state = {
     "processing_load": 0.65,
     "active_queries": 0,
@@ -864,21 +923,68 @@ async def api_get_cognitive_state():
 
 @app.get("/api/cognitive-state") 
 async def api_get_cognitive_state_alias():
-    """API cognitive state endpoint with hyphenated path (compatibility wrapper)."""
-    data = await get_cognitive_state_endpoint()
-    # Ensure expected fields for legacy integration tests
-    if isinstance(data, dict):
-        compat = {
-            "manifest_consciousness": data.get("manifest_consciousness") or {},
-            "agentic_processes": data.get("agentic_processes") or [],
-            "daemon_threads": data.get("daemon_threads") or [],
-            "working_memory": data.get("working_memory") or {},
-            "attention_focus": data.get("attention_focus") or {},
-            "metacognitive_state": data.get("metacognitive_state") or data.get("metacognitive_status") or {},
-            "timestamp": data.get("timestamp") or time.time(),
+    """API cognitive state endpoint with canonical data contract."""
+    try:
+        # Get data from GödelOS integration if available
+        godelos_data = None
+        if godelos_integration:
+            try:
+                godelos_data = await godelos_integration.get_cognitive_state()
+            except Exception as e:
+                logger.error(f"Error getting cognitive state from GödelOS: {e}")
+        
+        # Build canonical response with both camelCase and snake_case
+        manifest_consciousness = get_manifest_consciousness_canonical()
+        
+        # If we have GödelOS data, merge it with manifest consciousness
+        if godelos_data and "manifest_consciousness" in godelos_data:
+            legacy_manifest = godelos_data["manifest_consciousness"]
+            # Extract relevant data but keep canonical structure
+            if "attention_focus" in legacy_manifest:
+                focus = legacy_manifest["attention_focus"]
+                if isinstance(focus, dict) and "primary" in focus:
+                    manifest_consciousness["attention"]["focus"] = [focus["primary"]]
+                    manifest_consciousness["attention"]["intensity"] = focus.get("intensity", 0.7)
+            
+            if "metacognitive_status" in godelos_data:
+                meta = godelos_data["metacognitive_status"]
+                if isinstance(meta, dict):
+                    manifest_consciousness["metaReflection"]["depth"] = meta.get("self_awareness", 0.6)
+                    manifest_consciousness["metaReflection"]["coherence"] = meta.get("confidence", 0.85)
+        
+        # Build canonical response
+        canonical_response = {
+            "version": "v1",
+            "systemHealth": get_system_health_with_labels(),
+            "manifestConsciousness": manifest_consciousness,
+            "knowledgeStats": get_knowledge_stats(),
+            # Legacy compatibility (snake_case mirror)
+            "manifest_consciousness": manifest_consciousness,
         }
-        return compat
-    return data
+        
+        return canonical_response
+        
+    except Exception as e:
+        logger.error(f"Error building cognitive state response: {e}")
+        # Return minimal fallback that satisfies the contract
+        return {
+            "version": "v1",
+            "systemHealth": {
+                "websocketConnection": 0.0,
+                "pipeline": 0.0,
+                "knowledgeStore": 0.0,
+                "vectorIndex": 0.0,
+                "_labels": {
+                    "websocketConnection": "unknown",
+                    "pipeline": "unknown", 
+                    "knowledgeStore": "unknown",
+                    "vectorIndex": "unknown"
+                }
+            },
+            "manifestConsciousness": get_manifest_consciousness_canonical(),
+            "knowledgeStats": get_knowledge_stats(),
+            "manifest_consciousness": get_manifest_consciousness_canonical(),
+        }
 
 # Consciousness endpoints
 @app.get("/api/v1/consciousness/state")

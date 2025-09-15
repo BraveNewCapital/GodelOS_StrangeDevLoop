@@ -1,6 +1,96 @@
 // Reactive Cognitive State Management for GödelOS
 import { writable, derived } from 'svelte/store';
 
+// Health normalization (single source of truth)
+export const healthHelpers = {
+  /**
+   * Convert numeric health score (0.0-1.0) to categorical label
+   * @param {number|null|undefined} score - Health score
+   * @returns {'healthy'|'degraded'|'down'|'unknown'} Health label
+   */
+  scoreToLabel: (score) => {
+    if (score == null) return 'unknown';
+    if (score >= 0.8) return 'healthy';
+    if (score >= 0.4) return 'degraded';
+    return 'down';
+  },
+
+  /**
+   * Get system health score (mean of numeric fields)
+   * @param {object} systemHealth - System health object
+   * @returns {number} Mean health score
+   */
+  getSystemHealthScore: (systemHealth) => {
+    if (!systemHealth || typeof systemHealth !== 'object') return 0;
+    
+    const numericFields = ['websocketConnection', 'pipeline', 'knowledgeStore', 'vectorIndex'];
+    const validScores = numericFields
+      .map(field => systemHealth[field])
+      .filter(score => typeof score === 'number' && !isNaN(score));
+    
+    return validScores.length > 0 
+      ? validScores.reduce((sum, score) => sum + score, 0) / validScores.length 
+      : 0;
+  },
+
+  /**
+   * Normalize cognitive state data from backend to canonical format
+   * @param {object} backendData - Raw data from API
+   * @returns {object} Normalized cognitive state
+   */
+  normalizeCognitiveData: (backendData) => {
+    if (!backendData || typeof backendData !== 'object') {
+      return {
+        manifestConsciousness: healthHelpers.getDefaultManifestConsciousness(),
+        systemHealth: healthHelpers.getDefaultSystemHealth(),
+        knowledgeStats: { totalConcepts: 0, totalConnections: 0, totalDocuments: 0 }
+      };
+    }
+
+    // Handle both canonical (camelCase) and legacy (snake_case) formats
+    const manifestConsciousness = backendData.manifestConsciousness || 
+                                  backendData.manifest_consciousness || 
+                                  healthHelpers.getDefaultManifestConsciousness();
+
+    const systemHealth = backendData.systemHealth || healthHelpers.getDefaultSystemHealth();
+    const knowledgeStats = backendData.knowledgeStats || { totalConcepts: 0, totalConnections: 0, totalDocuments: 0 };
+
+    return {
+      manifestConsciousness,
+      systemHealth,
+      knowledgeStats,
+      version: backendData.version || 'v1',
+      lastUpdate: Date.now()
+    };
+  },
+
+  /**
+   * Get default manifest consciousness structure
+   */
+  getDefaultManifestConsciousness: () => ({
+    attention: { intensity: 0, focus: [], coverage: 0 },
+    awareness: { level: 0, breadth: 0 },
+    metaReflection: { depth: 0, coherence: 0 },
+    processMonitoring: { latency: 0, throughput: 0 }
+  }),
+
+  /**
+   * Get default system health structure
+   */
+  getDefaultSystemHealth: () => ({
+    websocketConnection: 0.0,
+    pipeline: 0.0,
+    knowledgeStore: 0.0,
+    vectorIndex: 0.0,
+    _labels: {
+      websocketConnection: 'unknown',
+      pipeline: 'unknown',
+      knowledgeStore: 'unknown',
+      vectorIndex: 'unknown'
+    }
+  })
+};
+
 // Enhanced API integration functions
 export const apiHelpers = {
   // Sanitize health data to ensure all values are valid numbers between 0 and 1
@@ -24,16 +114,17 @@ export const apiHelpers = {
     try {
       const backendData = await (await import('../utils/api.js')).GödelOSAPI.fetchCognitiveState();
       if (backendData) {
-        const sanitizedHealth = apiHelpers.sanitizeHealthData(backendData.systemHealth);
+        const normalizedData = healthHelpers.normalizeCognitiveData(backendData);
+        
         cognitiveState.update(state => ({
           ...state,
-          ...backendData,
-          lastUpdate: Date.now(),
+          manifestConsciousness: normalizedData.manifestConsciousness,
           systemHealth: {
-            ...state.systemHealth,
-            ...sanitizedHealth,
-            websocketConnection: 1.0
-          }
+            ...normalizedData.systemHealth,
+            websocketConnection: 1.0 // Mark as connected since we got data
+          },
+          knowledgeStats: normalizedData.knowledgeStats,
+          lastUpdate: Date.now()
         }));
       }
     } catch (error) {
@@ -82,25 +173,21 @@ export const apiHelpers = {
   }
 };
 
-// Core cognitive state - mirrors the actual GödelOS cognitive architecture
+// Core cognitive state - mirrors the canonical GödelOS cognitive architecture
 export const cognitiveState = writable({
-  manifestConsciousness: {
-    attention: null,
-    workingMemory: [],
-    processingLoad: 0,
-    currentQuery: null,
-    focusDepth: 'surface' // 'surface', 'deep', 'meta'
+  // Canonical camelCase format
+  manifestConsciousness: healthHelpers.getDefaultManifestConsciousness(),
+  systemHealth: healthHelpers.getDefaultSystemHealth(),
+  knowledgeStats: {
+    totalConcepts: 0,
+    totalConnections: 0,
+    totalDocuments: 0
   },
+  
+  // Legacy fields for backward compatibility
   agenticProcesses: [],
   daemonThreads: [],
   cognitiveEvents: [], // Stream of consciousness events from transparency engine
-  systemHealth: {
-    inferenceEngine: 0.87,
-    knowledgeStore: 0.94,
-    reflectionEngine: 0.71,
-    learningModules: 0.85,
-    websocketConnection: 0.0
-  },
   alerts: [],
   capabilities: {
     reasoning: 0.0,
@@ -109,6 +196,7 @@ export const cognitiveState = writable({
     reflection: 0.0,
     learning: 0.0
   },
+  version: 'v1',
   lastUpdate: Date.now()
 });
 
@@ -152,12 +240,24 @@ export const uiState = writable({
 // Derived stores for specific UI components
 export const attentionFocus = derived(
   cognitiveState,
-  $state => $state.attention_focus || $state.manifestConsciousness?.attention || null
+  $state => $state.manifestConsciousness?.attention || null
 );
 
 export const processingLoad = derived(
   cognitiveState,
-  $state => $state.processing_load ?? $state.manifestConsciousness?.processingLoad ?? 0
+  $state => $state.manifestConsciousness?.processMonitoring?.throughput ?? 0
+);
+
+// System health score (mean of numeric health values)
+export const systemHealthScore = derived(
+  cognitiveState,
+  $state => healthHelpers.getSystemHealthScore($state.systemHealth)
+);
+
+// Active agents count (for compatibility)
+export const activeAgents = derived(
+  cognitiveState,
+  $state => $state.agenticProcesses?.length || $state.daemonThreads?.length || 0
 );
 
 export const activeAgents = derived(
