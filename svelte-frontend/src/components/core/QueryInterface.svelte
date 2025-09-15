@@ -26,23 +26,30 @@
   function generateSuggestions(cognitive) {
     const suggestions = [];
     
-    // Suggest queries based on current attention
-    if (cognitive.attention_focus && cognitive.attention_focus.length > 0) {
+    // Suggest queries based on current attention using canonical format
+    if (cognitive.manifestConsciousness?.attention?.focus?.length > 0) {
+      const focusItems = cognitive.manifestConsciousness.attention.focus;
+      suggestions.push(`Tell me more about ${focusItems[0]}`);
+      suggestions.push(`How does "${focusItems[0]}" relate to other concepts?`);
+    }
+    
+    // Fallback to legacy format for backward compatibility
+    if (suggestions.length === 0 && cognitive.attention_focus && cognitive.attention_focus.length > 0) {
       const focusItem = cognitive.attention_focus[0];
       suggestions.push(`Tell me more about ${focusItem.description || focusItem.item_type}`);
       suggestions.push(`How does ${focusItem.description || focusItem.item_type} relate to other concepts?`);
     }
     
     // Suggest exploration of active processes
-    if (cognitive.agentic_processes && cognitive.agentic_processes.length > 0) {
+    if (cognitive.agenticProcesses && cognitive.agenticProcesses.length > 0) {
       suggestions.push('What are the current agentic processes working on?');
       suggestions.push('Show me the reasoning behind the current agent goals');
     }
     
     // Suggest system introspection based on metacognitive state
-    if (cognitive.metacognitive_state && cognitive.metacognitive_state.confidence_in_reasoning < 0.8) {
-      suggestions.push('Why is the reasoning confidence low?');
-      suggestions.push('How can the system improve its reasoning capabilities?');
+    if (cognitive.manifestConsciousness?.metaReflection?.coherence < 0.8) {
+      suggestions.push('Why is the reasoning coherence low?');
+      suggestions.push('How can the system improve its meta-reflection capabilities?');
     }
     
     // Default exploratory suggestions
@@ -70,16 +77,37 @@
     historyIndex = -1;
     
     try {
-      // Update cognitive state to show current query
+      // Update cognitive state to show current query using canonical format
       cognitiveState.update(state => ({
         ...state,
         manifestConsciousness: {
           ...state.manifestConsciousness,
-          currentQuery: currentQuery,
-          processingLoad: Math.min(1.0, state.manifestConsciousness.processingLoad + 0.2)
+          attention: {
+            ...state.manifestConsciousness.attention,
+            focus: [currentQuery],
+            intensity: Math.min(1.0, (state.manifestConsciousness.attention?.intensity || 0) + 0.2),
+            coverage: 0.8
+          },
+          processMonitoring: {
+            ...state.manifestConsciousness.processMonitoring,
+            latency: Date.now(), // Start time
+            throughput: Math.min(1.0, (state.manifestConsciousness.processMonitoring?.throughput || 0) + 0.1)
+          }
         },
         lastUpdate: Date.now()
       }));
+      
+      // Add to query history
+      const queryEntry = {
+        id: Date.now(),
+        text: currentQuery,
+        timestamp: Date.now(),
+        source: 'human',
+        options: queryOptions
+      };
+      
+      // Store in a queryHistory array (we can add this to the store later if needed)
+      queryHistory = [queryEntry, ...queryHistory.slice(0, 49)];
       
       // Try WebSocket first, then fallback to HTTP API
       let queryResult = null;
@@ -126,13 +154,20 @@
       
     } catch (error) {
       console.error('Failed to send query:', error);
-      // Update cognitive state to show error
+      // Update cognitive state to show error using canonical format
       cognitiveState.update(state => ({
         ...state,
         manifestConsciousness: {
           ...state.manifestConsciousness,
-          currentQuery: null,
-          processingLoad: Math.max(0, state.manifestConsciousness.processingLoad - 0.2)
+          attention: {
+            ...state.manifestConsciousness.attention,
+            focus: [], // Clear focus on error
+            intensity: Math.max(0, (state.manifestConsciousness.attention?.intensity || 0) - 0.2)
+          },
+          processMonitoring: {
+            ...state.manifestConsciousness.processMonitoring,
+            throughput: Math.max(0, (state.manifestConsciousness.processMonitoring?.throughput || 0) - 0.2)
+          }
         },
         lastUpdate: Date.now()
       }));
