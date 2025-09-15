@@ -93,6 +93,7 @@ export const cognitiveState = writable({
   },
   agenticProcesses: [],
   daemonThreads: [],
+  cognitiveEvents: [], // Stream of consciousness events from transparency engine
   systemHealth: {
     inferenceEngine: 0.87,
     knowledgeStore: 0.94,
@@ -340,6 +341,31 @@ export function initCognitiveStream() {
             if (eventData.transparency_event) {
               // Process nested transparency event
               console.log('🔍 Transparency update:', eventData.transparency_event);
+            }
+            break;
+
+          case 'cognitive_event':
+            // Handle cognitive events from transparency engine
+            console.log('🧠 Cognitive event received:', eventData);
+            if (eventData.data && eventData.data.event_type) {
+              const event = eventData.data;
+              // Add to cognitive event stream for Stream of Consciousness Monitor
+              cognitiveState.update(state => ({
+                ...state,
+                cognitiveEvents: [
+                  ...(state.cognitiveEvents || []).slice(-99), // Keep last 100 events
+                  {
+                    id: Date.now(),
+                    type: event.event_type,
+                    content: event.details?.content || 'Cognitive activity',
+                    timestamp: event.timestamp,
+                    component: event.component,
+                    priority: event.priority || 5,
+                    metadata: event.details?.metadata || {}
+                  }
+                ],
+                lastUpdate: Date.now()
+              }));
             }
             break;
             

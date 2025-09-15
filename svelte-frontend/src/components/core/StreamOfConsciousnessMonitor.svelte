@@ -8,6 +8,7 @@
     export let showFilters = true;
     export let autoScroll = true;
     export let compactMode = false;
+    export let formatJson = true; // New prop to control JSON formatting
 
     // Local reactive state
     let streamEvents = [];
@@ -29,7 +30,16 @@
         unsubscribe = enhancedCognitive.subscribe(state => {
             if (state.cognitiveStreaming && state.cognitiveStreaming.connected) {
                 isConnected = true;
-                streamEvents = state.cognitiveStreaming.eventHistory?.slice(-maxEvents) || [];
+                // Process event history with same structure validation
+                const rawEvents = state.cognitiveStreaming.eventHistory?.slice(-maxEvents) || [];
+                streamEvents = rawEvents.map(event => ({
+                    id: event.id || `${Date.now()}-${Math.random()}`,
+                    event_type: event.event_type || event.type || 'unknown',
+                    content: event.content || event.message || (typeof event.data === 'string' ? event.data : ''),
+                    timestamp: event.timestamp || Date.now(),
+                    granularity: event.granularity || 'detailed',
+                    metadata: event.metadata || {}
+                })).filter(event => event.content && event.content.trim() !== '');
                 eventRate = state.cognitiveStreaming.eventRate || 0;
                 filterEvents();
             } else {
@@ -39,7 +49,23 @@
 
         // Subscribe to real-time stream events
         streamUnsubscribe = enhancedCognitive.subscribeToStream((event) => {
-            streamEvents = [...streamEvents.slice(-(maxEvents-1)), event];
+            // Ensure event has proper structure for rendering
+            const processedEvent = {
+                id: event.id || `${Date.now()}-${Math.random()}`,
+                event_type: event.event_type || event.type || 'unknown',
+                content: event.content || event.message || (typeof event.data === 'string' ? event.data : ''),
+                timestamp: event.timestamp || Date.now(),
+                granularity: event.granularity || 'detailed',
+                metadata: event.metadata || {}
+            };
+            
+            // Skip events that don't have meaningful content
+            if (!processedEvent.content || processedEvent.content.trim() === '') {
+                console.log('Skipping event with no content:', event);
+                return;
+            }
+            
+            streamEvents = [...streamEvents.slice(-(maxEvents-1)), processedEvent];
             filterEvents();
             
             if (autoScroll && eventContainer) {

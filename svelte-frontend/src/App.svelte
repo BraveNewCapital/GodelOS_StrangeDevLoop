@@ -617,14 +617,8 @@
 
       {:else if activeView === 'enhanced'}
         <!-- Enhanced Cognitive Dashboard -->
-        <div class="expanded-view" data-testid="enhanced-view">
-          <div class="view-header">
-            <h2>🚀 Enhanced Cognitive Dashboard</h2>
-            <p class="view-description">Unified cognitive enhancement overview with real-time monitoring</p>
-          </div>
-          <div class="component-container">
-            <EnhancedCognitiveDashboard />
-          </div>
+        <div class="enhanced-dashboard-wrapper" data-testid="enhanced-view">
+          <EnhancedCognitiveDashboard />
         </div>
         
       {:else if viewConfig[activeView]?.modal}
@@ -1488,6 +1482,14 @@
     overflow: auto;
     min-height: 0;
     max-height: 100%;
+  }
+
+  .enhanced-dashboard-wrapper {
+    width: 100%;
+    min-height: 100vh;
+    padding: 0;
+    margin: 0;
+    overflow: hidden;
   }
 
   .query-layout {

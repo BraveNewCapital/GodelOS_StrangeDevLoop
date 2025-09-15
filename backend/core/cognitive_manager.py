@@ -29,7 +29,6 @@ from .enhanced_coordination import (
 from .cognitive_orchestrator import (
     CognitiveOrchestrator, CognitiveProcess, ProcessPriority, ProcessState
 )
-from .streaming_models import CognitiveEvent, EventType
 from .circuit_breaker import circuit_breaker_manager, CircuitBreakerOpenException
 from .metacognitive_monitor import metacognitive_monitor
 from .autonomous_learning import autonomous_learning_system
@@ -100,13 +99,11 @@ class CognitiveManager:
                  godelos_integration=None,
                  llm_driver=None,
                  knowledge_pipeline=None,
-                 websocket_manager=None,
-                 unified_stream_manager=None):
+                 websocket_manager=None):
         self.godelos_integration = godelos_integration
         self.llm_driver = llm_driver
         self.knowledge_pipeline = knowledge_pipeline
         self.websocket_manager = websocket_manager
-        self.unified_stream_manager = unified_stream_manager
         
         # Configuration - MUST be set before any component initialization
         self.max_reasoning_depth = 10
@@ -323,7 +320,7 @@ class CognitiveManager:
                 logger.warning(f"{op_name} failed (attempt {attempt}/{retries + 1}): {e}")
                 # Broadcast non-fatal failure event to WS clients if available
                 try:
-                    if (self.unified_stream_manager or self.websocket_manager) and attempt <= retries:
+                    if self.websocket_manager and attempt <= retries:
                         err = ExternalServiceError(
                             code=op_name,
                             message=str(e),
@@ -332,17 +329,13 @@ class CognitiveManager:
                             service="llm" if "llm" in op_name else "external",
                             operation=op_name,
                         )
-                        await self._broadcast_unified_event(
-                            event_type=EventType.ERROR,
-                            data={
-                                "type": "recoverable_error",
-                                "operation": op_name,
-                                "attempt": attempt,
-                                "max_attempts": retries + 1,
-                                "error": err.to_dict(),
-                            },
-                            priority=3  # High priority for errors
-                        )
+                        await self.websocket_manager.broadcast_cognitive_update({
+                            "type": "recoverable_error",
+                            "operation": op_name,
+                            "attempt": attempt,
+                            "max_attempts": retries + 1,
+                            "error": err.to_dict(),
+                        })
                 except Exception:
                     # Do not let telemetry failures bubble up
                     pass
@@ -422,38 +415,6 @@ class CognitiveManager:
         except Exception as e:
             logger.error(f"❌ Failed to initialize CognitiveManager: {e}")
             return False
-    
-    async def _broadcast_unified_event(self, event_type: EventType, data: Dict[str, Any], 
-                                       priority: int = 5, source: str = "cognitive_manager") -> None:
-        """
-        Broadcast a cognitive event using unified stream manager with fallback to legacy websocket.
-        
-        Args:
-            event_type: Type of cognitive event to broadcast
-            data: Event data payload
-            priority: Event priority (1=highest, 10=lowest)
-            source: Source component name
-        """
-        # Use unified streaming if available
-        if self.unified_stream_manager:
-            try:
-                event = CognitiveEvent(
-                    event_type=event_type,
-                    data=data,
-                    priority=priority,
-                    source=source
-                )
-                await self.unified_stream_manager.broadcast_event(event)
-                return
-            except Exception as e:
-                logger.error(f"Failed to broadcast via unified streaming: {e}")
-        
-        # Fallback to legacy websocket manager
-        if self.websocket_manager:
-            try:
-                await self.websocket_manager.broadcast_cognitive_update(data)
-            except Exception as e:
-                logger.error(f"Failed to broadcast via legacy websocket: {e}")
     
     async def process_query(self, 
                           query: str, 
@@ -718,17 +679,14 @@ class CognitiveManager:
             )
             
             # Broadcast update via WebSocket
-            await self._broadcast_unified_event(
-                event_type=EventType.COGNITIVE_STREAM,
-                data={
+            if self.websocket_manager:
+                await self.websocket_manager.broadcast_cognitive_update({
                     "type": "cognitive_processing_complete",
                     "session_id": session_id,
                     "processing_time": processing_time,
                     "confidence": cognitive_response.confidence,
                     "knowledge_used": len(cognitive_response.knowledge_used)
-                },
-                priority=4  # Normal priority for completion events
-            )
+                })
             
             logger.info(f"✅ Query processed successfully (session: {session_id[:8]}...) in {processing_time:.2f}s")
             
@@ -1205,15 +1163,12 @@ class CognitiveManager:
             logger.info(f"💡 Cognitive transparency logged for session {session_id[:8]}...")
             
             # Broadcast transparency update
-            await self._broadcast_unified_event(
-                event_type=EventType.TRANSPARENCY,
-                data={
+            if self.websocket_manager:
+                await self.websocket_manager.broadcast_cognitive_update({
                     "type": "transparency_update",
                     "session_id": session_id,
                     "transparency_data": transparency_log["transparency_metadata"]
-                },
-                priority=5  # Normal priority for transparency events
-            )
+                })
             
         except Exception as e:
             logger.error(f"Error logging cognitive transparency: {e}")

@@ -468,6 +468,42 @@ print('🚀 System ready to start')
     }
 }
 
+# Pre-cache ML models to avoid startup delays
+cache_models() {
+    log_step "Checking ML model cache..."
+    
+    # Ensure we're in the right virtual environment
+    local venv_path="$SCRIPT_DIR/godelos_venv"
+    if [ -d "$venv_path" ] && [ -z "$VIRTUAL_ENV" ]; then
+        log_info "Activating virtual environment..."
+        source "$venv_path/bin/activate"
+    fi
+    
+    # Check if cache_models.py script exists
+    if [ ! -f "$SCRIPT_DIR/scripts/cache_models.py" ]; then
+        log_warning "Model caching script not found - skipping cache check"
+        return 0
+    fi
+    
+    # Check if models are already cached
+    local cache_dir="$SCRIPT_DIR/data/vector_db/model_cache"
+    if [ -d "$cache_dir" ] && [ "$(ls -A "$cache_dir" 2>/dev/null | wc -l)" -gt 2 ]; then
+        log_info "ML models already cached - skipping download"
+        return 0
+    fi
+    
+    log_info "Caching ML models to improve startup performance..."
+    log_info "This may take a few minutes on first run..."
+    
+    # Run the caching script
+    if python3 "$SCRIPT_DIR/scripts/cache_models.py"; then
+        log_success "ML models cached successfully"
+    else
+        log_warning "Model caching failed - models will be downloaded on demand"
+        log_warning "This may cause longer startup times"
+    fi
+}
+
 # Stop existing processes
 stop_processes() {
     log_step "Stopping existing GödelOS processes..."
@@ -532,7 +568,7 @@ start_backend() {
     fi
     
     # Prepare startup command - use unified server
-    local cmd="python3 -m uvicorn unified_server:app --host $BACKEND_HOST --port $BACKEND_PORT"
+    local cmd="python3 -m uvicorn unified_server:app --host $BACKEND_HOST --port $BACKEND_PORT" 
     
     if [ "$DEBUG_MODE" = "true" ]; then
         cmd="$cmd --reload --log-level debug"
@@ -549,7 +585,7 @@ start_backend() {
     # Wait for backend to start with sophisticated health checking
     log_step "Waiting for backend initialization..."
     local attempts=0
-    local max_attempts=90  # Increased for ML model loading (transformers, spacy, etc.)
+    local max_attempts=150  # Increased for ML model loading (transformers, spacy, etc.)
     local health_checks=0
     local required_health_checks=3  # Require 3 consecutive successful health checks
     
@@ -917,6 +953,9 @@ main() {
     if [ "$SETUP_FLAG" = "true" ]; then
         install_dependencies
     fi
+    
+    # Cache ML models to avoid startup delays
+    cache_models
     
     # Stop existing processes
     stop_processes

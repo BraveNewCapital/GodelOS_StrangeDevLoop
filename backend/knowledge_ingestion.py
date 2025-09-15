@@ -8,8 +8,11 @@ URLs, files, Wikipedia, and manual text input with robust processing and validat
 import asyncio
 from asyncio import TimeoutError as AsyncioTimeoutError
 
-# Optimized timeout for fast processing - aggressive fallback to basic processing
-CONTENT_PROCESS_TIMEOUT = 60  # Reduced to 1 minute - fail fast and use fallback
+# Optimized timeout for fast processing - use chunking for large content
+CONTENT_PROCESS_TIMEOUT = 180  # Increased to 3 minutes for better handling
+LARGE_CONTENT_THRESHOLD = 25000  # 25K chars - chunk anything larger
+CHUNK_SIZE = 20000  # 20K char chunks for manageable processing
+CHUNK_OVERLAP = 2000  # 2K char overlap between chunks
 import hashlib
 import json
 import logging
@@ -49,8 +52,13 @@ from .persistence import get_persistence_layer
 # Will be set by main.py to avoid circular imports
 knowledge_management_service = None
 
-# Import knowledge pipeline service
-from .knowledge_pipeline_service import knowledge_pipeline_service
+# Import knowledge pipeline service with fallback
+try:
+    from .knowledge_pipeline_service import knowledge_pipeline_service
+except ImportError:
+    knowledge_pipeline_service = None
+
+logger = logging.getLogger(__name__)
 
 logger = logging.getLogger(__name__)
 
@@ -705,6 +713,11 @@ class KnowledgeIngestionService:
                 chunks = data.get('chunks', [])
                 keywords = data.get('keywords', [])
                 language = data.get('language', 'en')
+                # Extract enhanced entities and relationships for KG integration
+                enhanced_entities = data.get('entities', [])
+                enhanced_relationships = data.get('relationships', [])
+                enhanced_categories = data.get('categories', [])
+                logger.info(f"🔍 ENHANCED: Extracted {len(enhanced_entities)} entities, {len(enhanced_relationships)} relationships, {len(enhanced_categories)} categories")
             else:
                 # Basic format
                 data = processed_data
@@ -715,6 +728,10 @@ class KnowledgeIngestionService:
                 chunks = data.get('chunks', [])
                 keywords = data.get('keywords', [])
                 language = data.get('language', 'en')
+                # No enhanced data in basic format
+                enhanced_entities = []
+                enhanced_relationships = []
+                enhanced_categories = []
             
             knowledge_item = KnowledgeItem(
                 id=f"text-{import_id}",
@@ -733,7 +750,13 @@ class KnowledgeIngestionService:
                     'char_count': char_count,
                     'chunks': len(chunks),
                     'keywords': keywords,
-                    'language': language
+                    'language': language,
+                    # Enhanced pipeline data for KG integration
+                    'enhanced_entities': enhanced_entities,
+                    'enhanced_relationships': enhanced_relationships,
+                    'enhanced_categories': enhanced_categories,
+                    'entity_count': len(enhanced_entities),
+                    'relationship_count': len(enhanced_relationships)
                 }
             )
             
@@ -899,210 +922,23 @@ class KnowledgeIngestionService:
                 logger.info(f"🔍 PDF DEBUG: First 200 chars: {repr(raw_content[:200])}")
                 logger.info(f"🔍 PDF DEBUG: Content preview: {raw_content[:500] if raw_content else 'EMPTY'}")
                 
-                # Apply aggressive size limits for efficiency
-                MAX_PDF_CONTENT = 75000  # 75K character limit for PDF processing
-                if len(raw_content) > MAX_PDF_CONTENT:
-                    logger.warning(f"🔍 PDF OPTIMIZATION: Large PDF content ({len(raw_content)} chars), truncating to {MAX_PDF_CONTENT} for efficiency")
-                    raw_content = raw_content[:MAX_PDF_CONTENT]
+                # Smart content processing with chunking for large PDFs
+                if len(raw_content) > LARGE_CONTENT_THRESHOLD:
+                    logger.info(f"🔍 PDF CHUNKING: Large PDF content ({len(raw_content)} chars), processing in chunks")
+                    processed_content = await self._process_large_content_in_chunks(
+                        raw_content, request.filename, import_id, request
+                    )
+                    content = processed_content.get('content', raw_content[:30000])
+                    enhanced_content_data = type('ProcessedData', (), processed_content.get('metadata', {}))()
+                else:
+                    logger.info(f"🔍 PDF PROCESSING: Standard processing for {len(raw_content)} characters")
+                    processed_content = await self._process_single_content_chunk(
+                        raw_content, request.filename, request
+                    )
+                    content = processed_content.get('content', raw_content)
+                    enhanced_content_data = type('ProcessedData', (), processed_content.get('metadata', {}))()
                 
-                # Use the existing knowledge pipeline service for semantic analysis
-                logger.info(f"🔍 PDF ENHANCED: Processing PDF content with advanced knowledge pipeline")
-                logger.info(f"🔍 PDF DEBUG: Pipeline service available: {knowledge_pipeline_service is not None}")
-                logger.info(f"🔍 PDF DEBUG: Pipeline service initialized: {knowledge_pipeline_service.initialized if knowledge_pipeline_service else False}")
-                
-                try:
-                    # Use the existing knowledge pipeline service that has spaCy and HuggingFace models
-                    if knowledge_pipeline_service and knowledge_pipeline_service.initialized:
-                        logger.info(f"🔍 PDF DEBUG: Processing {len(raw_content)} characters through pipeline with timeout {CONTENT_PROCESS_TIMEOUT}s")
-                        try:
-                            pipeline_result = await asyncio.wait_for(
-                                knowledge_pipeline_service.process_text_document(
-                                    content=raw_content,
-                                    title=request.filename,
-                                    metadata={
-                                        'file_type': request.file_type,
-                                        'filename': request.filename,
-                                        'encoding': request.encoding,
-                                        'source': 'pdf_extraction'
-                                    }
-                                ),
-                                timeout=CONTENT_PROCESS_TIMEOUT
-                            )
-                        except asyncio.TimeoutError:
-                            logger.error(f"❌ Timeout during PDF pipeline processing for import {import_id}")
-                            # Continue with basic processing instead of failing
-                            pipeline_result = None
-                        
-                        logger.info(f"🔍 PDF DEBUG: Pipeline result keys: {list(pipeline_result.keys()) if pipeline_result else 'None'}")
-                        logger.info(f"🔍 PDF DEBUG: Pipeline result entities count: {pipeline_result.get('entities_extracted', 0)}")
-                        logger.info(f"🔍 PDF DEBUG: Pipeline result relationships count: {pipeline_result.get('relationships_extracted', 0)}")
-                        logger.info(f"🔍 PDF DEBUG: Pipeline result knowledge items: {len(pipeline_result.get('knowledge_items', []))}")
-                        
-                        # Extract semantic concepts from the pipeline results using the correct keys
-                        entities_count = pipeline_result.get('entities_extracted', 0)
-                        relationships_count = pipeline_result.get('relationships_extracted', 0)
-                        knowledge_items = pipeline_result.get('knowledge_items', [])
-                        
-                        # CRITICAL FIX: Get the actual extracted entities from the pipeline result
-                        # The pipeline stores extracted data in the 'processed_data' key
-                        processed_pipeline_data = pipeline_result.get('processed_data', {})
-                        raw_entities = processed_pipeline_data.get('entities', [])
-                        raw_relationships = processed_pipeline_data.get('relationships', [])
-                        
-                        logger.info(f"🔍 PDF DEBUG: Raw entities from pipeline: {len(raw_entities)}")
-                        logger.info(f"🔍 PDF DEBUG: First 3 raw entities: {raw_entities[:3] if raw_entities else 'NONE'}")
-                        logger.info(f"🔍 PDF DEBUG: Raw relationships from pipeline: {len(raw_relationships)}")
-                        
-                        # Extract meaningful entity names from the ACTUAL pipeline results with SMART FILTERING
-                        meaningful_entities = []
-                        meaningful_relationships = []
-                        semantic_concepts = []
-                        
-                        # Define filtering criteria for meaningful concepts
-                        def is_meaningful_concept(text: str, entity_label: str = None) -> bool:
-                            """Filter for semantically meaningful concepts only."""
-                            if not text or len(text.strip()) < 3:
-                                return False
-                            
-                            text = text.strip()
-                            
-                            # Skip generic/noise terms
-                            noise_terms = {
-                                'file', 'document', 'pdf', 'docx', 'txt', 'upload', 'download',
-                                'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with',
-                                'this', 'that', 'these', 'those', 'what', 'where', 'when', 'how', 'why',
-                                'today', 'yesterday', 'tomorrow', 'now', 'then', 'here', 'there'
-                            }
-                            if text.lower() in noise_terms:
-                                return False
-                            
-                            # Skip pure numbers or single characters
-                            if text.isdigit() or len(text) == 1:
-                                return False
-                            
-                            # Skip file extensions and paths
-                            if '.' in text and len(text.split('.')[-1]) <= 4:
-                                return False
-                            
-                            # Prioritize meaningful entity types
-                            if entity_label:
-                                high_value_labels = {'ORG', 'PERSON', 'PRODUCT', 'TECHNOLOGY', 'SYSTEM'}
-                                low_value_labels = {'CARDINAL', 'ORDINAL', 'DATE', 'TIME', 'GPE'}
-                                
-                                if entity_label in high_value_labels:
-                                    return True  # Always include organizations, people, products
-                                elif entity_label in low_value_labels:
-                                    # Only include if it's a substantial term
-                                    return len(text) > 4 and not text.isdigit()
-                            
-                            # Include multi-word technical terms (likely meaningful)
-                            if ' ' in text and len(text) > 6:
-                                return True
-                            
-                            # Include capitalized terms (likely proper nouns)
-                            if text[0].isupper() and len(text) > 3:
-                                return True
-                            
-                            # Include terms with mixed case (likely technical/compound terms)
-                            if any(c.isupper() for c in text[1:]) and len(text) > 4:
-                                return True
-                            
-                            return False
-                        
-                        if raw_entities:
-                            logger.info(f"🔍 FILTERING: Processing {len(raw_entities)} raw entities")
-                            for i, entity in enumerate(raw_entities):
-                                try:
-                                    if isinstance(entity, dict) and 'text' in entity:
-                                        entity_text = entity['text'].strip()
-                                        entity_label = entity.get('label', '')
-                                        
-                                        if is_meaningful_concept(entity_text, entity_label):
-                                            meaningful_entities.append(entity_text)
-                                            semantic_concepts.append(entity_text)
-                                            logger.info(f"🔍 FILTERED: Kept meaningful entity '{entity_text}' ({entity_label})")
-                                        else:
-                                            logger.info(f"🔍 FILTERED: Skipped noise entity '{entity_text}' ({entity_label})")
-                                    
-                                    # Limit entity processing to prevent timeout
-                                    if len(semantic_concepts) >= 20:  # Cap at 20 meaningful entities
-                                        logger.info(f"🔍 FILTERING: Reached entity limit (20), stopping entity processing")
-                                        break
-                                        
-                                except Exception as e:
-                                    logger.warning(f"🔍 FILTERING: Error processing entity {i}: {e}")
-                                    continue
-                        
-                        if raw_relationships:
-                            logger.info(f"🔍 FILTERING: Processing {len(raw_relationships)} raw relationships")
-                            processed_relationships = 0
-                            for i, rel in enumerate(raw_relationships):
-                                try:
-                                    if isinstance(rel, dict):
-                                        source_text = rel.get('source', {}).get('text', '').strip()
-                                        target_text = rel.get('target', {}).get('text', '').strip()
-                                        source_label = rel.get('source', {}).get('label', '')
-                                        target_label = rel.get('target', {}).get('label', '')
-                                        relation = rel.get('relation', '').strip()
-                                        
-                                        # Only create relationships between meaningful concepts
-                                        if (source_text and target_text and relation and 
-                                            is_meaningful_concept(source_text, source_label) and 
-                                            is_meaningful_concept(target_text, target_label)):
-                                            rel_description = f"{source_text} {relation} {target_text}"
-                                            meaningful_relationships.append(rel_description)
-                                            
-                                            # Add both entities as concepts if not already present
-                                            if source_text not in semantic_concepts:
-                                                semantic_concepts.append(source_text)
-                                            if target_text not in semantic_concepts:
-                                                semantic_concepts.append(target_text)
-                                            logger.info(f"🔍 FILTERED: Kept meaningful relationship '{rel_description}'")
-                                            processed_relationships += 1
-                                        else:
-                                            logger.info(f"🔍 FILTERED: Skipped noise relationship '{source_text}' → '{target_text}'")
-                                    
-                                    # Limit relationship processing to prevent timeout
-                                    if processed_relationships >= 15:  # Cap at 15 meaningful relationships
-                                        logger.info(f"🔍 FILTERING: Reached relationship limit (15), stopping relationship processing")
-                                        break
-                                        
-                                except Exception as e:
-                                    logger.warning(f"🔍 FILTERING: Error processing relationship {i}: {e}")
-                                    continue
-                        
-                        enhanced_metadata = {
-                            'pipeline_entities': entities_count,
-                            'pipeline_relationships': relationships_count,
-                            'pipeline_processing_time': pipeline_result.get('processing_time_seconds', 0),
-                            'semantic_concepts': semantic_concepts,  # Real entity names like "Psychometric Engine"
-                            'extracted_entities': meaningful_entities,  # Real entity names  
-                            'extracted_relationships': meaningful_relationships  # Real relationship descriptions
-                        }
-                        
-                        logger.info(f"✅ PDF ENHANCED: Pipeline extracted {entities_count} entities and {relationships_count} relationships")
-                        logger.info(f"✅ PDF ENHANCED: Created {len(semantic_concepts)} MEANINGFUL semantic concepts: {semantic_concepts[:5]}")
-                        
-                        # Use enhanced metadata for better concept extraction with REAL entity names
-                        enhanced_content_data = type('PipelineResult', (), {
-                            'concepts': [{'concept': concept} for concept in semantic_concepts[:10]],
-                            'topics': meaningful_entities[:5],
-                            'summary': f"PDF document containing entities: {', '.join(meaningful_entities[:5])}..." if meaningful_entities else "PDF document processed with no entities",
-                            'metadata': enhanced_metadata
-                        })()
-                        logger.info(f"✅ PDF ENHANCED: Created enhanced content data with {len(semantic_concepts)} MEANINGFUL concepts")
-                    else:
-                        logger.warning(f"🔍 PDF FALLBACK: Knowledge pipeline service not available (service: {knowledge_pipeline_service is not None}, initialized: {knowledge_pipeline_service.initialized if knowledge_pipeline_service else False})")
-                        enhanced_content_data = None
-                        
-                except Exception as e:
-                    logger.error(f"❌ PDF ERROR: Error in pipeline processing: {e}")
-                    import traceback
-                    logger.error(f"❌ PDF ERROR: Traceback: {traceback.format_exc()}")
-
-                    enhanced_content_data = None
-                
-                content = raw_content
+                logger.info(f"✅ PDF PROCESSING: Completed processing {request.filename}")
                 
             elif request.file_type == "docx":
                 if not HAS_DOCX:
@@ -1504,6 +1340,34 @@ class KnowledgeIngestionService:
                         concepts.extend(filtered_semantic[:6])  # Top 6 semantic concepts
                         logger.info(f"🔍 GRAPH SYNC: Added FILTERED semantic pipeline concepts: {filtered_semantic[:6]}")
                 
+                # ENHANCED: Add entities from enhanced NLP pipeline
+                if knowledge_item.metadata and 'enhanced_entities' in knowledge_item.metadata:
+                    enhanced_entities = knowledge_item.metadata['enhanced_entities']
+                    logger.info(f"🔍 ENHANCED DEBUG: Found enhanced_entities: {enhanced_entities}")
+                    if isinstance(enhanced_entities, list):
+                        # Extract entity texts and filter for meaningful concepts
+                        entity_texts = []
+                        low_confidence_entities = []
+                        for entity in enhanced_entities:
+                            logger.info(f"🔍 ENHANCED DEBUG: Processing entity: {entity}")
+                            if isinstance(entity, dict) and 'text' in entity:
+                                entity_text = entity['text']
+                                # Check confidence level
+                                confidence = entity.get('confidence', 0.0)
+                                logger.info(f"🔍 ENHANCED DEBUG: Entity '{entity_text}' confidence: {confidence}")
+                                
+                                if confidence >= 0.5 and is_meaningful_graph_concept(entity_text):  # Lower threshold
+                                    entity_texts.append(entity_text)
+                                elif confidence < 0.5:
+                                    low_confidence_entities.append(f"{entity_text}({confidence:.2f})")
+                        
+                        # Add top entities to graph
+                        if entity_texts:
+                            concepts.extend(entity_texts[:8])  # Top 8 enhanced entities
+                            logger.info(f"🔍 GRAPH SYNC: Added FILTERED enhanced entities: {entity_texts[:8]}")
+                        else:
+                            logger.info(f"🔍 GRAPH SYNC: No meaningful enhanced entities to add (low confidence: {low_confidence_entities})")
+                
                 # Add semantic entity keywords (high value entities from NLP)
                 if knowledge_item.metadata and 'keywords' in knowledge_item.metadata:
                     keywords = knowledge_item.metadata['keywords']
@@ -1642,6 +1506,63 @@ class KnowledgeIngestionService:
             else:
                 logger.warning(f"🔍 GRAPH SYNC: Cognitive transparency knowledge graph not available")
                 
+            # ENHANCED: Add entities to vector database for semantic search
+            if knowledge_item.metadata and 'enhanced_entities' in knowledge_item.metadata:
+                try:
+                    from backend.core.vector_service import get_vector_database
+                    vector_db = get_vector_database()
+                    
+                    enhanced_entities = knowledge_item.metadata['enhanced_entities']
+                    vector_items = []
+                    
+                    # Create vector items from enhanced entities
+                    for entity in enhanced_entities:
+                        if isinstance(entity, dict) and 'text' in entity:
+                            entity_text = entity['text']
+                            confidence = entity.get('confidence', 0.0)
+                            
+                            # Only index high-confidence entities
+                            if confidence >= 0.7 and len(entity_text.strip()) > 2:
+                                vector_items.append({
+                                    'id': f"{knowledge_item.id}_entity_{len(vector_items)}",
+                                    'text': entity_text,
+                                    'metadata': {
+                                        'source_item_id': knowledge_item.id,
+                                        'entity_type': entity.get('label', 'UNKNOWN'),
+                                        'confidence': confidence,
+                                        'source': 'enhanced_nlp'
+                                    }
+                                })
+                    
+                    # Add title as a vector item too
+                    if knowledge_item.title:
+                        vector_items.append({
+                            'id': f"{knowledge_item.id}_title",
+                            'text': knowledge_item.title,
+                            'metadata': {
+                                'source_item_id': knowledge_item.id,
+                                'entity_type': 'TITLE',
+                                'confidence': 1.0,
+                                'source': 'title'
+                            }
+                        })
+                    
+                    # Index the vector items using the correct VectorDatabaseService method
+                    if vector_items:
+                        # Convert to (id, text) tuples format expected by add_items
+                        vector_tuples = [(item['id'], item['text']) for item in vector_items]
+                        metadata_list = [item['metadata'] for item in vector_items]
+                        
+                        success = vector_db.add_items(vector_tuples, metadata=metadata_list)
+                        logger.info(f"🔍 VECTOR DB: Successfully indexed {len(vector_tuples)} entities from {knowledge_item.id}: {success}")
+                    else:
+                        logger.info(f"🔍 VECTOR DB: No entities to index from {knowledge_item.id}")
+                        
+                except ImportError:
+                    logger.warning(f"🔍 VECTOR DB: Vector database not available for indexing")
+                except Exception as e:
+                    logger.warning(f"🔍 VECTOR DB: Failed to index entities: {e}")
+                    
         except Exception as e:
             logger.error(f"🔍 GRAPH SYNC: Failed to add knowledge item {knowledge_item.id} to transparency knowledge graph: {e}")
             logger.error(f"🔍 GRAPH SYNC: Exception details: {type(e).__name__}: {str(e)}")
@@ -1742,6 +1663,185 @@ class KnowledgeIngestionService:
             
         except Exception as e:
             logger.error(f"🔍 ERROR: Failed to send progress updates for {import_id}: {e}")
+
+    async def _process_large_content_in_chunks(self, content: str, filename: str, import_id: str, request) -> Dict[str, Any]:
+        """Process large content by splitting into manageable chunks."""
+        try:
+            logger.info(f"🔄 CHUNKING: Processing {len(content)} characters in chunks for {filename}")
+            
+            # Split content into chunks of manageable size
+            chunk_size = 25000  # 25K characters per chunk
+            chunks = []
+            
+            for i in range(0, len(content), chunk_size):
+                chunk = content[i:i + chunk_size]
+                # Ensure we don't break words
+                if i + chunk_size < len(content) and not chunk.endswith(' '):
+                    last_space = chunk.rfind(' ')
+                    if last_space > chunk_size * 0.8:  # Only adjust if space is reasonably close
+                        chunk = chunk[:last_space]
+                chunks.append(chunk)
+            
+            logger.info(f"🔄 CHUNKING: Split content into {len(chunks)} chunks")
+            
+            # Process chunks with timeout protection
+            all_concepts = []
+            all_entities = []
+            all_relationships = []
+            processed_chunks = 0
+            
+            for i, chunk in enumerate(chunks):
+                try:
+                    logger.info(f"🔄 CHUNK {i+1}/{len(chunks)}: Processing {len(chunk)} characters")
+                    
+                    # Process chunk with reduced timeout
+                    chunk_result = await asyncio.wait_for(
+                        self._process_single_content_chunk(chunk, f"{filename}_chunk_{i+1}", request),
+                        timeout=120  # 2 minutes per chunk
+                    )
+                    
+                    # Aggregate results
+                    if chunk_result and isinstance(chunk_result, dict):
+                        metadata = chunk_result.get('metadata', {})
+                        all_concepts.extend(metadata.get('semantic_concepts', []))
+                        all_entities.extend(metadata.get('extracted_entities', []))
+                        all_relationships.extend(metadata.get('extracted_relationships', []))
+                    
+                    processed_chunks += 1
+                    
+                    # Update progress
+                    chunk_progress = 25 + (processed_chunks / len(chunks)) * 25  # 25-50% range
+                    progress = self.active_imports.get(import_id)
+                    if progress:
+                        progress.progress_percentage = chunk_progress
+                        progress.current_step = f"Processing chunk {processed_chunks}/{len(chunks)}"
+                        await self._broadcast_progress_update(import_id, progress)
+                    
+                    # Limit processing to prevent timeouts
+                    if processed_chunks >= 10:  # Max 10 chunks
+                        logger.info(f"🔄 CHUNKING: Processed {processed_chunks} chunks, stopping to prevent timeout")
+                        break
+                        
+                except asyncio.TimeoutError:
+                    logger.warning(f"🔄 CHUNK TIMEOUT: Chunk {i+1} timed out, skipping")
+                    continue
+                except Exception as e:
+                    logger.warning(f"🔄 CHUNK ERROR: Error processing chunk {i+1}: {e}")
+                    continue
+            
+            # Deduplicate and limit results
+            unique_concepts = list(dict.fromkeys(all_concepts))[:20]
+            unique_entities = list(dict.fromkeys(all_entities))[:15]
+            unique_relationships = list(dict.fromkeys(all_relationships))[:10]
+            
+            logger.info(f"✅ CHUNKING: Processed {processed_chunks} chunks, extracted {len(unique_concepts)} concepts")
+            
+            return {
+                'content': content[:50000],  # Truncate final content for storage
+                'title': filename,
+                'metadata': {
+                    'semantic_concepts': unique_concepts,
+                    'extracted_entities': unique_entities,
+                    'extracted_relationships': unique_relationships,
+                    'chunks_processed': processed_chunks,
+                    'total_chunks': len(chunks),
+                    'original_length': len(content),
+                    'processing_method': 'chunked'
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ CHUNKING ERROR: {e}")
+            # Fallback to simple processing
+            return await self._process_single_content_chunk(content[:30000], filename, request)
+
+    async def _process_single_content_chunk(self, content: str, filename: str, request) -> Dict[str, Any]:
+        """Process a single content chunk with enhanced error handling."""
+        try:
+            logger.info(f"🔄 SINGLE CHUNK: Processing {len(content)} characters for {filename}")
+            
+            # Truncate if still too large
+            if len(content) > 30000:
+                content = content[:30000]
+                logger.info(f"🔄 TRUNCATION: Truncated content to 30K characters")
+            
+            # Try enhanced processing with timeout
+            try:
+                if knowledge_pipeline_service and knowledge_pipeline_service.initialized:
+                    logger.info(f"🔄 PIPELINE: Attempting enhanced processing")
+                    
+                    pipeline_result = await asyncio.wait_for(
+                        knowledge_pipeline_service.process_document(content, filename),
+                        timeout=180  # 3 minutes for single chunk
+                    )
+                    
+                    if pipeline_result and isinstance(pipeline_result, dict):
+                        # Extract meaningful content
+                        entities = pipeline_result.get('entities', [])
+                        relationships = pipeline_result.get('relationships', [])
+                        
+                        # Filter for meaningful entities
+                        meaningful_entities = []
+                        for entity in entities[:20]:  # Limit entities
+                            if isinstance(entity, dict) and entity.get('text'):
+                                text = entity['text'].strip()
+                                if len(text) > 2 and not text.isdigit():
+                                    meaningful_entities.append(text)
+                        
+                        # Filter for meaningful relationships
+                        meaningful_relationships = []
+                        for rel in relationships[:10]:  # Limit relationships
+                            if isinstance(rel, dict):
+                                source = rel.get('source', {}).get('text', '').strip()
+                                target = rel.get('target', {}).get('text', '').strip()
+                                relation = rel.get('relation', '').strip()
+                                if source and target and relation:
+                                    meaningful_relationships.append(f"{source} {relation} {target}")
+                        
+                        return {
+                            'content': content,
+                            'title': filename,
+                            'metadata': {
+                                'semantic_concepts': meaningful_entities,
+                                'extracted_entities': meaningful_entities,
+                                'extracted_relationships': meaningful_relationships,
+                                'pipeline_entities': len(entities),
+                                'pipeline_relationships': len(relationships),
+                                'processing_method': 'enhanced_pipeline'
+                            }
+                        }
+                    
+            except asyncio.TimeoutError:
+                logger.warning(f"🔄 PIPELINE TIMEOUT: Enhanced processing timed out, using fallback")
+            except Exception as e:
+                logger.warning(f"🔄 PIPELINE ERROR: Enhanced processing failed: {e}")
+            
+            # Fallback to basic processing
+            logger.info(f"🔄 FALLBACK: Using basic content processing")
+            return {
+                'content': content,
+                'title': filename,
+                'metadata': {
+                    'semantic_concepts': [filename.replace('.pdf', '').replace('_', ' ')],
+                    'extracted_entities': [],
+                    'extracted_relationships': [],
+                    'processing_method': 'basic_fallback'
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ SINGLE CHUNK ERROR: {e}")
+            return {
+                'content': content[:10000],  # Emergency truncation
+                'title': filename,
+                'metadata': {
+                    'semantic_concepts': [],
+                    'extracted_entities': [],
+                    'extracted_relationships': [],
+                    'processing_method': 'error_fallback',
+                    'error': str(e)
+                }
+            }
 
 
 # Global instance

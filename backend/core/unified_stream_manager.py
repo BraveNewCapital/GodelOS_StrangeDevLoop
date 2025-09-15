@@ -417,8 +417,8 @@ class UnifiedStreamingManager:
                 type=EventType.CONNECTION_STATUS,
                 data={
                     "status": f"subscription_{message.type}d",
-                    "subscriptions": [s.value for s in connection.subscriptions],
-                    "granularity": connection.granularity.value
+                    "subscriptions": [s.value if hasattr(s, 'value') else str(s) for s in connection.subscriptions],
+                    "granularity": connection.granularity.value if hasattr(connection.granularity, 'value') else str(connection.granularity)
                 },
                 target_clients=[client_id],
                 priority=EventPriority.SYSTEM

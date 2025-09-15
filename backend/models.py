@@ -1,11 +1,20 @@
+# -*- coding: utf-8 -*-
 """
-Pydantic models for the GödelOS API
+Pydantic models for the GodelOS API
 
 Defines request and response models for type validation and documentation.
 """
 
+from __future__ import annotations
 from typing import Dict, List, Optional, Any, Union
-from pydantic import BaseModel, Field
+try:
+    from pydantic import BaseModel, Field
+except ImportError:
+    # Fallback for environments without pydantic
+    class BaseModel:
+        pass
+    def Field(*args, **kwargs):
+        return None
 
 
 class QueryRequest(BaseModel):
