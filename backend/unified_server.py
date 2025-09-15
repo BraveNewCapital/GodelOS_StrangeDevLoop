@@ -257,6 +257,9 @@ def score_to_label(score: Optional[float]) -> str:
     """Convert numeric health score (0.0-1.0) to categorical label."""
     if score is None:
         return "unknown"
+    # Handle NaN values
+    if isinstance(score, float) and (score != score):  # NaN check
+        return "unknown"
     if score >= 0.8:
         return "healthy"
     if score >= 0.4:
