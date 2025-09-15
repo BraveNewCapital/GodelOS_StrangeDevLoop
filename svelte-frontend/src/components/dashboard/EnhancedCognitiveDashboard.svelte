@@ -1,6 +1,7 @@
 <script>
     import { onMount, onDestroy } from 'svelte';
     import { enhancedCognitiveState, autonomousLearningState, streamState, enhancedCognitive } from '../../stores/enhanced-cognitive.js';
+    import { cognitiveState, healthHelpers } from '../../stores/cognitive.js';
     
     // Import monitoring components
     import StreamOfConsciousnessMonitor from '../core/StreamOfConsciousnessMonitor.svelte';
@@ -14,7 +15,7 @@
     export let autoRefresh = true;
 
     // Local state
-    let cognitiveState = null;
+    let cognitiveStateData = null;
     let systemHealth = null;
     let healthProbes = null;
     let probesError = '';
@@ -72,9 +73,24 @@
         selectedProbe = null;
     }
 
+    // Health badge logic - accepts both _labels and numeric health data
     function getHealthStatus() {
         if (!systemHealth) return { status: 'unknown', color: 'gray', score: 0 };
         
+        // Check if we have _labels from canonical format
+        if (systemHealth._labels) {
+            const labels = systemHealth._labels;
+            const healthyCount = Object.values(labels).filter(label => label === 'healthy').length;
+            const totalCount = Object.keys(labels).length;
+            const score = totalCount > 0 ? (healthyCount / totalCount) * 100 : 0;
+            
+            if (healthyCount === totalCount) return { status: 'excellent', color: 'emerald', score };
+            if (score >= 75) return { status: 'good', color: 'amber', score };
+            if (score >= 50) return { status: 'degraded', color: 'orange', score };
+            return { status: 'critical', color: 'red', score };
+        }
+        
+        // Fallback: derive from numeric values or legacy labels
         const components = [
             systemHealth?.inferenceEngine,
             systemHealth?.knowledgeStore,
@@ -92,12 +108,29 @@
         return { status: 'critical', color: 'red', score };
     }
 
+    // Get health status for a specific component
+    function getComponentHealth(componentKey) {
+        if (!systemHealth) return 'unknown';
+        
+        // Check _labels first (canonical format)
+        if (systemHealth._labels && systemHealth._labels[componentKey]) {
+            return systemHealth._labels[componentKey];
+        }
+        
+        // Fallback to direct value
+        const value = systemHealth[componentKey];
+        if (typeof value === 'string') return value;
+        if (typeof value === 'number') return healthHelpers.scoreToLabel(value);
+        
+        return 'unknown';
+    }
+
     onMount(() => {
-        // Subscribe to cognitive state
-        unsubscribe = enhancedCognitive.subscribe(state => {
-            cognitiveState = state;
+        // Subscribe to both enhanced and canonical cognitive state
+        unsubscribe = cognitiveState.subscribe(state => {
+            cognitiveStateData = state;
             systemHealth = state.systemHealth;
-            isConnected = state.cognitiveStreaming?.connected || false;
+            isConnected = state.systemHealth?.websocketConnection > 0 || false;
             lastUpdate = new Date();
             isLoading = false;
         });
@@ -113,11 +146,19 @@
         setTimeout(() => {
             if (!systemHealth) {
                 systemHealth = {
-                    inferenceEngine: 'healthy',
-                    knowledgeStore: 'healthy', 
-                    autonomousLearning: 'healthy',
-                    cognitiveStreaming: 'healthy',
-                    uptime: 300 // 5 minutes
+                    websocketConnection: 0.8,
+                    pipeline: 0.9, 
+                    knowledgeStore: 0.85,
+                    vectorIndex: 0.7,
+                    _labels: {
+                        websocketConnection: 'healthy',
+                        pipeline: 'healthy',
+                        knowledgeStore: 'healthy',
+                        vectorIndex: 'healthy'
+                    }
+                };
+            }
+        }, 3000);
                 };
             }
         }, 3000);
@@ -255,40 +296,40 @@
             </div>
             
             <div class="health-grid">
-                <div class="health-card inference" class:healthy={systemHealth?.inferenceEngine === 'healthy'}>
-                    <div class="health-icon">🤖</div>
+                <div class="health-card websocket" class:healthy={getComponentHealth('websocketConnection') === 'healthy'}>
+                    <div class="health-icon">🔌</div>
                     <div class="health-info">
-                        <h4>Inference Engine</h4>
-                        <div class="health-status">{systemHealth?.inferenceEngine || 'unknown'}</div>
+                        <h4>WebSocket Connection</h4>
+                        <div class="health-status">{getComponentHealth('websocketConnection')}</div>
                     </div>
-                    <div class="health-indicator" class:active={systemHealth?.inferenceEngine === 'healthy'}></div>
+                    <div class="health-indicator" class:active={getComponentHealth('websocketConnection') === 'healthy'}></div>
                 </div>
 
-                <div class="health-card knowledge" class:healthy={systemHealth?.knowledgeStore === 'healthy'}>
+                <div class="health-card pipeline" class:healthy={getComponentHealth('pipeline') === 'healthy'}>
+                    <div class="health-icon">⚙️</div>
+                    <div class="health-info">
+                        <h4>Processing Pipeline</h4>
+                        <div class="health-status">{getComponentHealth('pipeline')}</div>
+                    </div>
+                    <div class="health-indicator" class:active={getComponentHealth('pipeline') === 'healthy'}></div>
+                </div>
+
+                <div class="health-card knowledge" class:healthy={getComponentHealth('knowledgeStore') === 'healthy'}>
                     <div class="health-icon">📚</div>
                     <div class="health-info">
                         <h4>Knowledge Store</h4>
-                        <div class="health-status">{systemHealth?.knowledgeStore || 'unknown'}</div>
+                        <div class="health-status">{getComponentHealth('knowledgeStore')}</div>
                     </div>
-                    <div class="health-indicator" class:active={systemHealth?.knowledgeStore === 'healthy'}></div>
+                    <div class="health-indicator" class:active={getComponentHealth('knowledgeStore') === 'healthy'}></div>
                 </div>
 
-                <div class="health-card learning" class:healthy={systemHealth?.autonomousLearning === 'healthy'}>
-                    <div class="health-icon">🧠</div>
+                <div class="health-card vector" class:healthy={getComponentHealth('vectorIndex') === 'healthy'}>
+                    <div class="health-icon">🧮</div>
                     <div class="health-info">
-                        <h4>Autonomous Learning</h4>
-                        <div class="health-status">{systemHealth?.autonomousLearning || 'unknown'}</div>
+                        <h4>Vector Index</h4>
+                        <div class="health-status">{getComponentHealth('vectorIndex')}</div>
                     </div>
-                    <div class="health-indicator" class:active={systemHealth?.autonomousLearning === 'healthy'}></div>
-                </div>
-
-                <div class="health-card streaming" class:healthy={systemHealth?.cognitiveStreaming === 'healthy'}>
-                    <div class="health-icon">📡</div>
-                    <div class="health-info">
-                        <h4>Cognitive Streaming</h4>
-                        <div class="health-status">{systemHealth?.cognitiveStreaming || 'unknown'}</div>
-                    </div>
-                    <div class="health-indicator" class:active={systemHealth?.cognitiveStreaming === 'healthy'}></div>
+                    <div class="health-indicator" class:active={getComponentHealth('vectorIndex') === 'healthy'}></div>
                 </div>
             </div>
         </div>

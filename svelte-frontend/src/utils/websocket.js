@@ -1,13 +1,23 @@
 // WebSocket integration for real-time cognitive state updates
 import { cognitiveState, knowledgeState, evolutionState } from '../stores/cognitive.js';
 import { importProgressState } from '../stores/importProgress.js';
-import { get } from 'svelte/store';
+import { get, writable } from 'svelte/store';
+
+// Connection status state
+export const connectionStatus = writable({
+  websocketConnected: false,
+  lastConnected: null,
+  reconnectAttempts: 0,
+  uptime: 0,
+  restSeeded: false
+});
 
 let ws = null;
 let reconnectTimer = null;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 10;
 const RECONNECT_DELAY = 2000;
+let connectionStartTime = null;
 
 // API client for fetching initial data
 import { API_BASE_URL, WS_BASE_URL } from '../config.js';
@@ -34,10 +44,19 @@ async function fetchFromAPI(endpoint) {
 async function loadInitialData() {
   console.log('🔄 Loading initial data from backend...');
   
-  // Fetch cognitive state
-  const cognitiveData = await fetchFromAPI('/api/cognitive/state');
+  // Import the health helpers for data normalization
+  const { healthHelpers } = await import('../stores/cognitive.js');
+  
+  // Fetch cognitive state from canonical endpoint
+  const cognitiveData = await fetchFromAPI('/api/cognitive-state');
   if (cognitiveData) {
-    updateCognitiveStateFromAPI(cognitiveData);
+    updateCognitiveStateFromAPI(cognitiveData, healthHelpers);
+  }
+  
+  // Fetch health endpoint
+  const healthData = await fetchFromAPI('/api/health');
+  if (healthData) {
+    console.log('📊 Health data loaded:', healthData);
   }
   
   // Fetch knowledge graph data from unified endpoint
@@ -48,6 +67,27 @@ async function loadInitialData() {
     // Calculate document count from unique source_item_ids
     const nodes = knowledgeData.nodes || [];
     const uniqueDocuments = new Set();
+    nodes.forEach(node => {
+      if (node.source_item_id && node.source_item_id !== 'N/A') {
+        uniqueDocuments.add(node.source_item_id);
+      }
+    });
+    
+    knowledgeState.update(state => ({
+      ...state,
+      totalDocuments: uniqueDocuments.size,
+      totalConcepts: nodes.length,
+      totalConnections: knowledgeData.edges?.length || 0
+    }));
+  }
+  
+  // Mark REST seeding as complete
+  connectionStatus.update(status => ({
+    ...status,
+    restSeeded: true
+  }));
+  
+  console.log('✅ Initial data loaded');
     nodes.forEach(node => {
       if (node.properties?.source_item_id) {
         uniqueDocuments.add(node.properties.source_item_id);
@@ -84,44 +124,31 @@ function safeArray(value, defaultValue = []) {
   return defaultValue;
 }
 
-// Update cognitive state from API response  
-function updateCognitiveStateFromAPI(data) {
-  // Temporarily disable cognitive state updates to prevent store corruption
-  console.log('🔧 Cognitive state updates disabled to prevent stability issues');
-  return;
+// Update cognitive state from API response (canonical format)
+function updateCognitiveStateFromAPI(data, healthHelpers) {
+  if (!data || typeof data !== 'object') {
+    console.warn('Invalid cognitive state data received');
+    return;
+  }
+  
+  console.log('🔄 Updating cognitive state from canonical API data');
+  
+  // Normalize the data using health helpers
+  const normalizedData = healthHelpers.normalizeCognitiveData(data);
   
   cognitiveState.update(state => ({
     ...state,
-    manifestConsciousness: {
-      attention: cogState.attention_focus || null,
-      workingMemory: cogState.working_memory?.items || [],
-      processingLoad: safeNumber(cogState.processing_load, 0.0),
-      currentQuery: cogState.current_query || null,
-      focusDepth: 'surface'
-    },
-    agenticProcesses: safeArray(cogState.agentic_processes, []),
-    daemonThreads: safeArray(cogState.daemon_threads, []),
+    manifestConsciousness: normalizedData.manifestConsciousness,
     systemHealth: {
-      inferenceEngine: safeNumber(cogState.system_health?.components?.inference_engine, 0.94),
-      knowledgeStore: safeNumber(cogState.system_health?.components?.knowledge_store, 0.89),
-      reflectionEngine: safeNumber(cogState.system_health?.components?.reflection_engine || cogState.system_health?.components?.attention_manager, 0.95),
-      learningModules: safeNumber(cogState.system_health?.components?.memory_manager, 0.88),
-      websocketConnection: 1.0
+      ...normalizedData.systemHealth,
+      websocketConnection: 1.0 // Mark as connected since we got data via REST
     },
-    capabilities: {
-      reasoning: safeNumber(cogState.system_health?.overall, 0.8),
-      knowledge: safeNumber(cogState.system_health?.overall, 0.8),
-      creativity: safeNumber(cogState.capabilities?.creativity, 0.7),
-      reflection: safeNumber(cogState.capabilities?.reflection, 0.7),
-      learning: safeNumber(cogState.capabilities?.learning, 0.7)
-    },
-    // Store backend data directly for derived stores
-    attention_focus: cogState.attention_focus,
-    processing_load: safeNumber(cogState.processing_load, 0.0),
-    working_memory: cogState.working_memory,
-    system_health: cogState.system_health,
-    active_agents: safeNumber(cogState.active_agents, 0),
-    cognitive_events: safeArray(cogState.cognitive_events, []),
+    knowledgeStats: normalizedData.knowledgeStats,
+    version: normalizedData.version,
+    
+    // Update legacy fields for backward compatibility
+    attention_focus: normalizedData.manifestConsciousness.attention,
+    processing_load: normalizedData.manifestConsciousness.processMonitoring?.throughput || 0,
     lastUpdate: Date.now()
   }));
 }
@@ -614,18 +641,32 @@ function handlePerformanceMetric(metric) {
   });
 }
 
-// Update connection status in cognitive state
+// Update connection status in both stores
 function updateConnectionStatus(connected) {
-  cognitiveState.update(state => {
-    return {
-      ...state,
-      systemHealth: {
-        ...state.systemHealth,
-        websocketConnection: connected ? 1.0 : 0.0
-      },
-      lastUpdate: Date.now()
-    };
-  });
+  const now = Date.now();
+  
+  if (connected) {
+    connectionStartTime = now;
+  }
+  
+  // Update connection status store
+  connectionStatus.update(status => ({
+    ...status,
+    websocketConnected: connected,
+    lastConnected: connected ? now : status.lastConnected,
+    reconnectAttempts: connected ? 0 : reconnectAttempts,
+    uptime: connected && connectionStartTime ? now - connectionStartTime : 0
+  }));
+  
+  // Update cognitive state health
+  cognitiveState.update(state => ({
+    ...state,
+    systemHealth: {
+      ...state.systemHealth,
+      websocketConnection: connected ? 1.0 : 0.0
+    },
+    lastUpdate: now
+  }));
 }
 
 // Send message to backend
