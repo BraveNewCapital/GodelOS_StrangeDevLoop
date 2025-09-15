@@ -644,6 +644,16 @@ if VECTOR_DATABASE_AVAILABLE and vector_db_router:
 if DISTRIBUTED_VECTOR_AVAILABLE and distributed_vector_router:
     app.include_router(distributed_vector_router, prefix="/api/distributed-vector", tags=["Distributed Vector Search"])
 
+# Include adaptive ingestion router
+try:
+    from backend.api.adaptive_ingestion_endpoints import router as adaptive_ingestion_router
+    app.include_router(adaptive_ingestion_router, tags=["Adaptive Ingestion"])
+    logger.info("Adaptive ingestion endpoints included")
+except ImportError as e:
+    logger.warning(f"Adaptive ingestion endpoints not available: {e}")
+except Exception as e:
+    logger.error(f"Failed to setup adaptive ingestion endpoints: {e}")
+
 # Include agentic daemon management router
 try:
     from backend.api.agentic_daemon_endpoints import router as agentic_daemon_router

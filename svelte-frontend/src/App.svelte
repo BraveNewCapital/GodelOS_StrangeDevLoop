@@ -68,6 +68,7 @@
   let showSmartImportModal = false;
   let showCapabilityDashboardModal = false;
   let showArchitectureTimelineModal = false;
+  let showAdaptiveJobsModal = false;
   
   // New modal variables for lazy-loaded heavy components
   let showCognitiveStateModal = false;
@@ -280,8 +281,16 @@
       title: 'System Management',
       icon: '⚙️',
       views: {
-        import: {
+        jobs: {
           icon: '📥',
+          title: 'Ingestion Jobs',
+          description: 'Adaptive knowledge ingestion pipeline',
+          modal: 'jobs',
+          featured: true,
+          badge: 'NEW'
+        },
+        import: {
+          icon: '📁',
           title: 'Knowledge Import',
           description: 'Import and process documents',
           modal: 'import' // Use modal trigger instead of direct component
@@ -642,6 +651,8 @@
                 showTransparencyModal = true;
               } else if (viewConfig[activeView].modal === 'import') {
                 showSmartImportModal = true;
+              } else if (viewConfig[activeView].modal === 'jobs') {
+                showAdaptiveJobsModal = true;
               }
             }}>
               {viewConfig[activeView].icon} Open {viewConfig[activeView].title}
@@ -737,6 +748,27 @@
       <div class="modal-backdrop">
         <div class="error-container">
           <p>Failed to load Smart Import: {error.message}</p>
+        </div>
+      </div>
+    {/await}
+  {/if}
+
+  {#if showAdaptiveJobsModal}
+    {#await import('./components/knowledge/AdaptiveJobsUI.svelte')}
+      <div class="modal-backdrop">
+        <div class="loading-container">
+          <div class="loading-spinner"></div>
+          <p>Loading Adaptive Jobs UI...</p>
+        </div>
+      </div>
+    {:then module}
+      <Modal bind:show={showAdaptiveJobsModal} size="extra-large">
+        <svelte:component this={module.default} />
+      </Modal>
+    {:catch error}
+      <div class="modal-backdrop">
+        <div class="error-container">
+          <p>Failed to load Adaptive Jobs UI: {error.message}</p>
         </div>
       </div>
     {/await}
