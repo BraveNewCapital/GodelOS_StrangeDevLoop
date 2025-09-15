@@ -290,6 +290,12 @@ backend.log
 test_output.log
 test_run_output.txt
 
+# Debug and validation scripts (temporary)
+debug_*.py
+validate_*.py
+*_debug.py
+*_validation.py
+
 # OS files
 .DS_Store
 Thumbs.db
