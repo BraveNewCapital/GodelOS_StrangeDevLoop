@@ -34,6 +34,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 import atexit
 import signal
 import sys
+import threading
 
 # Import FAISS *after* other heavy libs on macOS (prevents conflicts)
 import faiss
@@ -76,6 +77,43 @@ class EmbeddingModel:
     fallback_order: int = 1
 
 
+def check_model_cache_status(cache_dir: Path) -> Dict[str, bool]:
+    """Check which models are available in cache."""
+    models_to_check = [
+        "sentence-transformers_all-MiniLM-L6-v2",
+        "sentence-transformers_all-mpnet-base-v2", 
+        "sentence-transformers_distilbert-base-nli-mean-tokens"
+    ]
+    
+    status = {}
+    for model in models_to_check:
+        model_path = cache_dir / model
+        status[model] = model_path.exists()
+    
+    return status
+
+
+def pre_cache_models(cache_dir: Path, models: List[str] = None) -> None:
+    """Pre-download and cache SentenceTransformer models."""
+    if models is None:
+        models = [
+            "sentence-transformers/all-MiniLM-L6-v2",
+            "sentence-transformers/all-mpnet-base-v2",
+            "sentence-transformers/distilbert-base-nli-mean-tokens"
+        ]
+    
+    # Set cache directory
+    os.environ['SENTENCE_TRANSFORMERS_HOME'] = str(cache_dir)
+    
+    for model in models:
+        try:
+            logger.info(f"Pre-caching model: {model}")
+            _ = SentenceTransformer(model, cache_folder=str(cache_dir))
+            logger.info(f"Successfully cached model: {model}")
+        except Exception as e:
+            logger.warning(f"Failed to cache model {model}: {e}")
+
+
 class PersistentVectorDatabase:
     """
     Production-grade vector database with persistent storage.
@@ -112,6 +150,14 @@ class PersistentVectorDatabase:
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.backup_dir.mkdir(parents=True, exist_ok=True)
         
+        # Set up model cache directory for SentenceTransformers
+        self.model_cache_dir = self.storage_dir / "model_cache"
+        self.model_cache_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Configure SentenceTransformers to use our cache directory
+        os.environ['SENTENCE_TRANSFORMERS_HOME'] = str(self.model_cache_dir)
+        logger.info(f"SentenceTransformers cache directory: {self.model_cache_dir}")
+        
         # Thread safety - disable ThreadPoolExecutor to prevent segfaults
         self.lock = threading.RLock()
         # self.executor = ThreadPoolExecutor(max_workers=4)  # Disabled due to FAISS threading issues
@@ -136,8 +182,17 @@ class PersistentVectorDatabase:
         
         # Register cleanup handlers for FAISS segfault prevention
         atexit.register(self._cleanup_faiss)
-        signal.signal(signal.SIGTERM, self._signal_cleanup)
-        signal.signal(signal.SIGINT, self._signal_cleanup)
+        
+        # Only set signal handlers in main thread
+        try:
+            if threading.current_thread() is threading.main_thread():
+                signal.signal(signal.SIGTERM, self._signal_cleanup)
+                signal.signal(signal.SIGINT, self._signal_cleanup)
+                logger.debug("Signal handlers registered in main thread")
+            else:
+                logger.debug("Skipping signal handler registration in worker thread")
+        except Exception as e:
+            logger.warning(f"Could not set signal handlers: {e}")
         
         logger.info(f"PersistentVectorDatabase initialized with storage at {self.storage_dir}")
     
@@ -165,24 +220,48 @@ class PersistentVectorDatabase:
             )
         ]
         
-        # Test model availability and load
+        # Test model availability and load with better error handling
+        network_available = False
         for model_config in models_config:
             try:
-                # Test network connectivity and model loading
-                import requests
-                response = requests.get("https://huggingface.co", timeout=5)
+                # Check if model exists in cache first
+                model_cache_path = self.model_cache_dir / model_config.model_path.replace("/", "_")
+                cached_model_exists = model_cache_path.exists()
                 
-                model_instance = SentenceTransformer(model_config.model_path)
+                if cached_model_exists:
+                    logger.info(f"Found cached model for {model_config.name} at {model_cache_path}")
+                else:
+                    logger.info(f"Model {model_config.name} not in cache, will attempt download")
+                
+                # Test network connectivity only if model not cached
+                if not cached_model_exists and not network_available:
+                    try:
+                        import requests
+                        response = requests.get("https://huggingface.co", timeout=5)
+                        network_available = True
+                        logger.info("Network connectivity confirmed for model downloads")
+                    except Exception as net_e:
+                        logger.warning(f"No network connectivity for model downloads: {net_e}")
+                        logger.warning("Will attempt to load from cache or use fallback")
+                
+                # Try to load the model (might work from cache even without network)
+                logger.info(f"Loading SentenceTransformer model: {model_config.model_path}")
+                model_instance = SentenceTransformer(
+                    model_config.model_path,
+                    cache_folder=str(self.model_cache_dir)
+                )
                 self.model_instances[model_config.name] = model_instance
                 self.embedding_models[model_config.name] = model_config
                 
                 if model_config.is_primary:
                     self.primary_model = model_config.name
                 
-                logger.info(f"Successfully loaded embedding model: {model_config.name}")
+                logger.info(f"Successfully loaded embedding model: {model_config.name} (from {'cache' if cached_model_exists else 'download'})")
                 
             except Exception as e:
                 logger.warning(f"Could not load embedding model {model_config.name}: {e}")
+                if "requests.exceptions" in str(type(e)) or "ConnectionError" in str(type(e)):
+                    logger.warning(f"Network issue detected for {model_config.name}, will use fallback")
                 model_config.is_available = False
                 self.embedding_models[model_config.name] = model_config
         

@@ -15,13 +15,6 @@ from typing import Dict, List, Optional, Any, Set
 from fastapi import WebSocket, WebSocketDisconnect
 import weakref
 
-# Import unified streaming models for integration
-try:
-    from .streaming_models import CognitiveEvent as UnifiedCognitiveEvent, EventType as UnifiedEventType
-except ImportError:
-    UnifiedCognitiveEvent = None
-    UnifiedEventType = None
-
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -54,13 +47,13 @@ class CognitiveTransparencyEngine:
     and provides visibility into the LLM cognitive architecture's processes.
     """
     
-    def __init__(self, unified_stream_manager=None):
+    def __init__(self, websocket_manager=None):
         self.active_connections: Set[WebSocket] = set()
         self.event_buffer: List[CognitiveEvent] = []
         self.metrics = CognitiveMetrics()
         self.max_buffer_size = 1000
         self.transparency_enabled = True
-        self.unified_stream_manager = unified_stream_manager
+        self.websocket_manager = websocket_manager  # Add reference to main websocket manager
         
         # Event type configurations
         self.event_types = {
@@ -120,50 +113,13 @@ class CognitiveTransparencyEngine:
         self.metrics.events_streamed += 1
         self._update_transparency_metrics(event)
         
-        # Try unified streaming first, fall back to legacy WebSocket
-        if self.unified_stream_manager and UnifiedCognitiveEvent and UnifiedEventType:
-            try:
-                # Map transparency event types to unified event types
-                event_type_mapping = {
-                    "consciousness_assessment": UnifiedEventType.CONSCIOUSNESS_UPDATE,
-                    "meta_cognitive_reflection": UnifiedEventType.TRANSPARENCY,
-                    "autonomous_goal_creation": UnifiedEventType.COGNITIVE_TRANSPARENCY,
-                    "decision_making": UnifiedEventType.COGNITIVE_TRANSPARENCY,
-                    "knowledge_integration": UnifiedEventType.TRANSPARENCY,
-                    "self_monitoring": UnifiedEventType.SYSTEM_TRANSPARENCY,
-                    "component_coordination": UnifiedEventType.SYSTEM_TRANSPARENCY,
-                    "learning_progress": UnifiedEventType.TRANSPARENCY,
-                    "state_transition": UnifiedEventType.SYSTEM_TRANSPARENCY,
-                    "routine_processing": UnifiedEventType.TRANSPARENCY
-                }
-                
-                unified_event_type = event_type_mapping.get(event.event_type, UnifiedEventType.TRANSPARENCY)
-                
-                unified_event = UnifiedCognitiveEvent(
-                    type=unified_event_type,
-                    data={
-                        "transparency_event": event.to_dict(),
-                        "original_type": event.event_type,
-                        "component": event.component,
-                        "llm_reasoning": event.llm_reasoning
-                    },
-                    source="transparency_engine",
-                    priority=event.priority
-                )
-                
-                await self.unified_stream_manager.broadcast_event(unified_event)
-                return
-                
-            except Exception as e:
-                logger.error(f"Failed to broadcast via unified streaming: {e}")
-        
-        # Fallback to legacy WebSocket broadcasting
-        if self.active_connections:
-            message = {
-                "type": "cognitive_event",
-                "data": event.to_dict()
-            }
-            await self._broadcast_message(message)
+        # Stream to all connected clients
+        # Always try to broadcast through main websocket manager first, then fallback to direct connections
+        message = {
+            "type": "cognitive_event",
+            "data": event.to_dict()
+        }
+        await self._broadcast_message(message)
     
     async def log_consciousness_assessment(self, assessment_data: Dict, reasoning: str) -> None:
         """Log consciousness assessment event"""
@@ -356,7 +312,39 @@ class CognitiveTransparencyEngine:
     
     async def _broadcast_message(self, message: Dict) -> None:
         """Broadcast message to all connected clients"""
+        logger.info(f"🔍 TRANSPARENCY: Broadcasting {message.get('type', 'unknown')} event")
+        
+        # Use main websocket manager if available
+        if self.websocket_manager:
+            try:
+                # Check if the websocket manager has connections using the has_connections method
+                if hasattr(self.websocket_manager, 'has_connections') and self.websocket_manager.has_connections():
+                    # Use broadcast_cognitive_update for proper cognitive event formatting.
+                    # Pass raw inner event payload when possible to avoid double wrapping.
+                    if hasattr(self.websocket_manager, 'broadcast_cognitive_update'):
+                        payload = message
+                        if isinstance(message, dict) and message.get('type') == 'cognitive_event' and isinstance(message.get('data'), dict):
+                            payload = message.get('data')
+                        await self.websocket_manager.broadcast_cognitive_update(payload)
+                        logger.info(f"✅ TRANSPARENCY: Event broadcast successful: {message.get('type', 'unknown')}")
+                        return
+                    # Fallback to regular broadcast
+                    elif hasattr(self.websocket_manager, 'broadcast'):
+                        await self.websocket_manager.broadcast(message)
+                        logger.info(f"✅ TRANSPARENCY: Event broadcast successful (fallback): {message.get('type', 'unknown')}")
+                        return
+                else:
+                    logger.info("🔍 TRANSPARENCY: No active WebSocket connections")
+            except Exception as e:
+                logger.error(f"TRANSPARENCY broadcast error: {e}")
+        else:
+            logger.info("🔍 TRANSPARENCY: No WebSocket manager")
+        
+        # Fallback to direct connections
         if not self.active_connections:
+            logger.info("🔍 TRANSPARENCY: No direct connections, event not broadcast")
+            return
+            logger.debug("No direct connections available for transparency broadcast")
             return
         
         message_json = json.dumps(message)
@@ -375,14 +363,11 @@ class CognitiveTransparencyEngine:
         for websocket in disconnected_clients:
             await self.disconnect_client(websocket)
 
-# Global transparency engine instance
-transparency_engine = CognitiveTransparencyEngine()
+# Global transparency engine instance - will be initialized with websocket_manager later
+transparency_engine = None
 
-def configure_transparency_engine_streaming(unified_stream_manager=None):
-    """Configure the global transparency engine with unified streaming support."""
+def initialize_transparency_engine(websocket_manager=None):
+    """Initialize the global transparency engine with websocket manager"""
     global transparency_engine
-    if unified_stream_manager:
-        transparency_engine.unified_stream_manager = unified_stream_manager
-        logger.info("✅ Transparency engine configured with unified streaming support")
-    else:
-        logger.info("⚠️ Transparency engine running in legacy mode (no unified streaming)")
+    transparency_engine = CognitiveTransparencyEngine(websocket_manager=websocket_manager)
+    return transparency_engine

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 GödelOS Backend Package
 
@@ -19,9 +20,9 @@ def get_app():
     return app
 
 def get_integration():
-    """Get the GödelOS integration instance."""
-    from .godelos_integration import GödelOSIntegration
-    return GödelOSIntegration
+    """Get the GodelOS integration instance."""
+    from .godelos_integration import GodelOSIntegration
+    return GodelOSIntegration
 
 def get_websocket_manager():
     """Get the WebSocket manager instance."""

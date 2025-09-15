@@ -9,14 +9,11 @@ This server provides complete functionality with reliable dependencies.
 """
 
 import asyncio
-import glob
 import json
 import logging
 import os
-import random
 import sys
 import time
-import traceback
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -100,61 +97,60 @@ except ImportError as e:
     GödelOSIntegration = None
     GODELOS_AVAILABLE = False
 
-try:
-    # Import unified streaming components (primary streaming system)
-    from backend.core.unified_stream_manager import get_unified_stream_manager, initialize_unified_streaming, shutdown_unified_streaming
-    from backend.core.streaming_models import EventType, CognitiveEvent, EventPriority
-    UNIFIED_STREAMING_AVAILABLE = True
-    logger.info("✅ Unified streaming components loaded successfully")
-except ImportError as e:
-    logger.error(f"❌ Failed to import unified streaming: {e}")
-    UNIFIED_STREAMING_AVAILABLE = False
-    get_unified_stream_manager = None
-    initialize_unified_streaming = None
-    shutdown_unified_streaming = None
-
-try:
-    # Import legacy WebSocket manager (fallback for services that haven't migrated yet)
-    # DEPRECATED: from backend.websocket_manager import WebSocketManager
-    WEBSOCKET_MANAGER_AVAILABLE = True
-    logger.warning("⚠️ Legacy WebSocket manager imported - some services not yet migrated to unified streaming")
-except ImportError as e:
-    logger.info("ℹ️ Legacy WebSocket manager not available - using unified streaming only")
-    # Minimal fallback WebSocket manager for legacy compatibility
-    class WebSocketManager:
-        def __init__(self):
-            self.active_connections: List[WebSocket] = []
-        
-        async def connect(self, websocket: WebSocket):
-            await websocket.accept()
-            self.active_connections.append(websocket)
-        
-        def disconnect(self, websocket: WebSocket):
-            if websocket in self.active_connections:
-                self.active_connections.remove(websocket)
-        
-        async def send_personal_message(self, message: str, websocket: WebSocket):
-            await websocket.send_text(message)
-        
-        async def broadcast(self, message: Union[str, dict]):
-            if isinstance(message, dict):
-                message = json.dumps(message)
-            for connection in self.active_connections:
-                try:
-                    await connection.send_text(message)
-                except:
-                    pass  # Connection closed
-                    
-        async def broadcast_cognitive_update(self, data: dict):
-            """Legacy compatibility method"""
-            await self.broadcast(data)
-        
-        def has_connections(self) -> bool:
-            return len(self.active_connections) > 0
+# Use unified WebSocket manager (no external dependency)
+class WebSocketManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
     
-    WEBSOCKET_MANAGER_AVAILABLE = False
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+    
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+    
+    async def send_personal_message(self, message: str, websocket: WebSocket):
+        await websocket.send_text(message)
+    
+    async def broadcast(self, message: Union[str, dict]):
+        if isinstance(message, dict):
+            message = json.dumps(message)
+        for connection in self.active_connections:
+            try:
+                await connection.send_text(message)
+            except:
+                pass  # Connection closed
+    
+    async def broadcast_cognitive_update(self, event: dict):
+        """Broadcast cognitive update event to all connected clients"""
+        # Allow callers to send either a raw event dict or an already-wrapped
+        # { type: 'cognitive_event', data: {...} } message. Normalize to raw event.
+        try:
+            inner_event = event
+            if isinstance(event, dict) and event.get("type") == "cognitive_event" and isinstance(event.get("data"), dict):
+                inner_event = event.get("data")
+            message = {
+                "type": "cognitive_event",
+                "timestamp": inner_event.get("timestamp", ""),
+                "data": inner_event
+            }
+        except Exception:
+            # Fallback if anything unexpected
+            message = {
+                "type": "cognitive_event",
+                "timestamp": event.get("timestamp", ""),
+                "data": event
+            }
+        await self.broadcast(message)
+    
+    def has_connections(self) -> bool:
+        return len(self.active_connections) > 0
+
+WEBSOCKET_MANAGER_AVAILABLE = True
 
 # Import LLM tool integration
+
 try:
     from backend.llm_tool_integration import ToolBasedLLMIntegration
     LLM_INTEGRATION_AVAILABLE = True
@@ -238,7 +234,7 @@ except ImportError as e:
 try:
     from backend.core.consciousness_engine import ConsciousnessEngine
     from backend.core.cognitive_manager import CognitiveManager
-    from backend.core.cognitive_transparency import transparency_engine, configure_transparency_engine_streaming
+    from backend.core.cognitive_transparency import transparency_engine, initialize_transparency_engine
     CONSCIOUSNESS_AVAILABLE = True
 except ImportError as e:
     logger.warning(f"Consciousness engine not available: {e}")
@@ -252,7 +248,6 @@ websocket_manager = None
 tool_based_llm = None
 cognitive_manager = None
 cognitive_streaming_task = None
-unified_stream_manager = None
 
 # Observability instances
 correlation_tracker = CorrelationTracker()
@@ -281,32 +276,15 @@ cognitive_state = {
 
 async def initialize_core_services():
     """Initialize core services with proper error handling."""
-    global godelos_integration, websocket_manager, tool_based_llm, cognitive_manager, unified_stream_manager
+    global godelos_integration, websocket_manager, tool_based_llm, cognitive_manager, transparency_engine
     
-    # Initialize Unified Streaming Manager (replaces legacy WebSocket services)
-    if UNIFIED_STREAMING_AVAILABLE:
-        try:
-            unified_stream_manager = get_unified_stream_manager()
-            await initialize_unified_streaming()
-            
-            # Configure transparency engine with unified streaming
-            configure_transparency_engine_streaming(unified_stream_manager)
-            
-            logger.info("✅ Unified streaming manager initialized")
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize unified streaming: {e}")
-            unified_stream_manager = None
-    else:
-        logger.warning("⚠️ Unified streaming not available - falling back to legacy WebSocket manager")
+    # Initialize WebSocket manager
+    websocket_manager = WebSocketManager()
+    logger.info("✅ WebSocket manager initialized")
     
-    # Initialize minimal WebSocket manager (legacy fallback for services not yet migrated)
-    if not UNIFIED_STREAMING_AVAILABLE or unified_stream_manager is None:
-        websocket_manager = None  # DEPRECATED: WebSocketManager()
-        logger.warning("⚠️ Using legacy WebSocket manager - consider migrating to unified streaming")
-    else:
-        # Create minimal fallback instance for services that haven't migrated
-        websocket_manager = None  # DEPRECATED: WebSocketManager()
-        logger.info("✅ Minimal legacy WebSocket manager created for backward compatibility")
+    # Initialize transparency engine with websocket manager
+    transparency_engine = initialize_transparency_engine(websocket_manager)
+    logger.info("✅ Cognitive transparency engine initialized with WebSocket integration")
     
     # Initialize GödelOS integration if available
     if GODELOS_AVAILABLE:
@@ -347,13 +325,12 @@ async def initialize_core_services():
             # Use LLM cognitive driver for consciousness if available, otherwise fall back to tool-based LLM
             llm_driver_for_consciousness = llm_cognitive_driver if llm_cognitive_driver else tool_based_llm
             
-            # Modern cognitive manager with unified streaming (preferred)
+            # Correct argument order: (godelos_integration, llm_driver, knowledge_pipeline, websocket_manager)
             cognitive_manager = CognitiveManager(
                 godelos_integration=godelos_integration,
                 llm_driver=llm_driver_for_consciousness,
                 knowledge_pipeline=None,
-                websocket_manager=websocket_manager if not UNIFIED_STREAMING_AVAILABLE else None,  # Only for legacy fallback
-                unified_stream_manager=unified_stream_manager if UNIFIED_STREAMING_AVAILABLE else None,
+                websocket_manager=websocket_manager,
             )
             await cognitive_manager.initialize()
             driver_type = "LLM cognitive driver" if llm_cognitive_driver else "tool-based LLM"
@@ -394,12 +371,30 @@ async def initialize_optional_services():
     # Initialize production vector database (synchronous initialization)
     if VECTOR_DATABASE_AVAILABLE:
         try:
-            # Ensure the global service is created/ready
-            if init_vector_database:
-                init_vector_database()
-            elif get_vector_database:
-                get_vector_database()
-            logger.info("✅ Production vector database initialized successfully!")
+            # Use ThreadPoolExecutor with timeout for resilient model initialization
+            import asyncio
+            from concurrent.futures import ThreadPoolExecutor, TimeoutError
+            
+            def _init_vector_db():
+                """Initialize vector database in thread."""
+                if init_vector_database:
+                    init_vector_database()
+                elif get_vector_database:
+                    get_vector_database()
+                
+            # Initialize with timeout to avoid hanging on model downloads
+            loop = asyncio.get_event_loop()
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                try:
+                    await asyncio.wait_for(
+                        loop.run_in_executor(executor, _init_vector_db),
+                        timeout=30.0  # 30 second timeout
+                    )
+                    logger.info("✅ Production vector database initialized successfully!")
+                except asyncio.TimeoutError:
+                    logger.warning("⚠️ Vector database initialization timed out - will retry on demand")
+                except Exception as e:
+                    logger.warning(f"⚠️ Vector database initialization failed: {e} - will retry on demand")
 
             # Wire telemetry notifier for vector DB recoverable errors
             try:
@@ -443,21 +438,13 @@ async def initialize_optional_services():
 
 async def continuous_cognitive_streaming():
     """Background task for continuous cognitive state streaming."""
-    global websocket_manager, godelos_integration, cognitive_state, unified_stream_manager
+    global websocket_manager, godelos_integration, cognitive_state
     
     logger.info("Starting continuous cognitive streaming...")
     
     while True:
         try:
-            # Check if we have any streaming connections (unified or legacy)
-            has_connections = False
-            if unified_stream_manager and UNIFIED_STREAMING_AVAILABLE:
-                connection_stats = unified_stream_manager.get_connection_stats()
-                has_connections = connection_stats.get("total_connections", 0) > 0
-            elif websocket_manager:
-                has_connections = websocket_manager.has_connections()
-            
-            if has_connections:
+            if websocket_manager and websocket_manager.has_connections():
                 # Get cognitive state from GödelOS or use fallback
                 if godelos_integration:
                     try:
@@ -511,43 +498,11 @@ async def continuous_cognitive_streaming():
                     ]
                 }
                 
-                # Broadcast via unified streaming if available, otherwise use legacy WebSocket
-                if unified_stream_manager and UNIFIED_STREAMING_AVAILABLE:
-                    try:
-                        # Import here to avoid circular imports
-                        from backend.core.streaming_models import CognitiveEvent, EventType
-                        
-                        # Create unified cognitive event
-                        event = CognitiveEvent(
-                            type=EventType.COGNITIVE_STATE,
-                            data={
-                                "type": "cognitive_state_update",
-                                "timestamp": time.time(),
-                                "data": formatted_data
-                            },
-                            source="continuous_streaming",
-                            priority=5
-                        )
-                        
-                        await unified_stream_manager.broadcast_event(event)
-                        
-                    except Exception as e:
-                        logger.error(f"Failed to broadcast via unified streaming: {e}")
-                        # Fallback to legacy WebSocket
-                        if websocket_manager:
-                            await websocket_manager.broadcast({
-                                "type": "cognitive_state_update",
-                                "timestamp": time.time(),
-                                "data": formatted_data
-                            })
-                else:
-                    # Legacy WebSocket broadcasting
-                    if websocket_manager:
-                        await websocket_manager.broadcast({
-                            "type": "cognitive_state_update",
-                            "timestamp": time.time(),
-                            "data": formatted_data
-                        })
+                await websocket_manager.broadcast({
+                    "type": "cognitive_state_update",
+                    "timestamp": time.time(),
+                    "data": formatted_data
+                })
                 
             await asyncio.sleep(4)  # Stream every 4 seconds
             
@@ -580,14 +535,6 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("🛑 Shutting down GödelOS Unified Server...")
-    
-    # Shutdown unified streaming manager
-    if UNIFIED_STREAMING_AVAILABLE and unified_stream_manager:
-        try:
-            await shutdown_unified_streaming()
-            logger.info("✅ Unified streaming shutdown complete")
-        except Exception as e:
-            logger.error(f"❌ Error shutting down unified streaming: {e}")
     
     if cognitive_streaming_task:
         cognitive_streaming_task.cancel()
@@ -690,7 +637,7 @@ async def root():
             "core": ["/", "/health", "/api/health"],
             "cognitive": ["/cognitive/state", "/api/cognitive/state"],
             "llm": ["/api/llm-chat/message", "/api/llm-tools/test", "/api/llm-tools/available"],
-            "streaming": ["/ws/unified-cognitive-stream"],
+            "streaming": ["/ws/cognitive-stream"],
             "enhanced": ["/api/enhanced-cognitive/*", "/api/transparency/*"] if ENHANCED_APIS_AVAILABLE else []
         },
         "features": [
@@ -1717,112 +1664,10 @@ async def get_knowledge_concepts():
 async def get_knowledge_graph():
     """Get the UNIFIED knowledge graph structure - single source of truth."""
     try:
-        # NEW: Load from Vector Database instead of cognitive transparency system
-        if VECTOR_DATABASE_AVAILABLE and get_vector_database:
-            try:
-                vector_db = get_vector_database()
-                
-                # Get all metadata from vector database
-                all_metadata = vector_db.get_all_metadata()
-                stats = vector_db.get_stats()
-                
-                # Build knowledge graph from vector data
-                nodes = []
-                edges = []
-                node_id_counter = 0
-                source_doc_nodes = {}  # Track nodes by source document
-                
-                # For each model in the vector database
-                for model_name, metadata_list in all_metadata.items():
-                    for metadata in metadata_list:
-                        text = metadata.get('text', '')
-                        if not text:
-                            continue
-                            
-                        # Extract useful information from metadata
-                        vector_id = metadata.get('vector_id', metadata.get('id', f'item_{node_id_counter}'))
-                        source_doc = metadata.get('metadata', {}).get('source') or \
-                                   metadata.get('metadata', {}).get('filename') or \
-                                   metadata.get('source') or \
-                                   metadata.get('filename')
-                        
-                        # Create concept text for the node
-                        concept_text = text[:100] + "..." if len(text) > 100 else text
-                        
-                        # Create node
-                        node = {
-                            "id": f"vector_{node_id_counter}",
-                            "label": concept_text,
-                            "type": "concept",
-                            "source": "vector_database",
-                            "model": model_name,
-                            "vector_id": vector_id,
-                            "full_text": text,
-                            "metadata": metadata.get('metadata', {}),
-                            "source_document": source_doc
-                        }
-                        nodes.append(node)
-                        
-                        # Track nodes by source document for edge creation
-                        if source_doc:
-                            if source_doc not in source_doc_nodes:
-                                source_doc_nodes[source_doc] = []
-                            source_doc_nodes[source_doc].append(node["id"])
-                        
-                        node_id_counter += 1
-                        
-                        # Limit nodes to prevent overwhelming the frontend
-                        if len(nodes) >= 200:
-                            break
-                    
-                    if len(nodes) >= 200:
-                        break
-                
-                # Create edges between nodes from the same source document
-                for source_doc, node_ids in source_doc_nodes.items():
-                    for i, source_id in enumerate(node_ids):
-                        for target_id in node_ids[i+1:]:
-                            edges.append({
-                                "source": source_id,
-                                "target": target_id,
-                                "type": "related",
-                                "weight": 0.7,
-                                "relation": "same_document",
-                                "source_document": source_doc
-                            })
-                
-                # Return vector-based knowledge graph
-                return {
-                    "nodes": nodes,
-                    "edges": edges,
-                    "metadata": {
-                        "node_count": len(nodes),
-                        "edge_count": len(edges),
-                        "last_updated": datetime.now().isoformat(),
-                        "data_source": "vector_database",
-                        "vector_stats": stats,
-                        "source_documents": len(source_doc_nodes)
-                    }
-                }
-                
-            except Exception as e:
-                logger.warning(f"Failed to build knowledge graph from vector database: {e}")
-                # Fall back to empty graph rather than error
-                return {
-                    "nodes": [],
-                    "edges": [],
-                    "metadata": {
-                        "node_count": 0,
-                        "edge_count": 0,
-                        "last_updated": datetime.now().isoformat(),
-                        "data_source": "vector_database_fallback",
-                        "error": str(e)
-                    }
-                }
-        
-        # Fallback: Try cognitive transparency system
+        # Import here to avoid circular dependency
         from backend.cognitive_transparency_integration import cognitive_transparency_api
         
+        # UNIFIED SYSTEM: Only one knowledge graph source
         if cognitive_transparency_api and cognitive_transparency_api.knowledge_graph:
             try:
                 # Get dynamic graph data from the UNIFIED transparency system
@@ -2357,111 +2202,6 @@ async def get_import_progress(import_id: str):
             "error": str(e)
         }
 
-@app.delete("/api/knowledge/import/{import_id}")
-async def cancel_import(import_id: str):
-    """Cancel a specific import operation."""
-    try:
-        if not (KNOWLEDGE_SERVICES_AVAILABLE and knowledge_ingestion_service):
-            raise HTTPException(status_code=503, detail="Knowledge ingestion service not available")
-        
-        success = await knowledge_ingestion_service.cancel_import(import_id)
-        
-        if success:
-            return {
-                "import_id": import_id,
-                "status": "cancelled",
-                "message": "Import operation cancelled successfully"
-            }
-        else:
-            return {
-                "import_id": import_id,
-                "status": "not_found",
-                "message": "Import operation not found or already completed"
-            }
-    except Exception as e:
-        logger.error(f"Error cancelling import {import_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to cancel import: {str(e)}")
-
-@app.delete("/api/knowledge/import/all")
-async def cancel_all_imports():
-    """Cancel all active import operations."""
-    try:
-        if not (KNOWLEDGE_SERVICES_AVAILABLE and knowledge_ingestion_service):
-            raise HTTPException(status_code=503, detail="Knowledge ingestion service not available")
-        
-        # Get count of active imports before cancelling
-        active_count = len([imp for imp in knowledge_ingestion_service.active_imports.values() 
-                          if imp.status in ["queued", "processing"]])
-        
-        if active_count == 0:
-            return {
-                "status": "success",
-                "cancelled_count": 0,
-                "message": "No active imports to cancel"
-            }
-        
-        # Cancel all active imports
-        cancelled_count = 0
-        for import_id in list(knowledge_ingestion_service.active_imports.keys()):
-            success = await knowledge_ingestion_service.cancel_import(import_id)
-            if success:
-                cancelled_count += 1
-        
-        return {
-            "status": "success",
-            "cancelled_count": cancelled_count,
-            "message": f"Successfully cancelled {cancelled_count} import operations"
-        }
-    except Exception as e:
-        logger.error(f"Error cancelling all imports: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to cancel imports: {str(e)}")
-
-@app.delete("/api/knowledge/import/stuck")
-async def reset_stuck_imports():
-    """Reset stuck import operations that have been processing too long."""
-    try:
-        if not (KNOWLEDGE_SERVICES_AVAILABLE and knowledge_ingestion_service):
-            raise HTTPException(status_code=503, detail="Knowledge ingestion service not available")
-        
-        reset_count = await knowledge_ingestion_service.reset_stuck_imports()
-        
-        return {
-            "status": "success",
-            "reset_count": reset_count,
-            "message": f"Reset {reset_count} stuck import operations"
-        }
-    except Exception as e:
-        logger.error(f"Error resetting stuck imports: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to reset stuck imports: {str(e)}")
-
-@app.get("/api/knowledge/import/active")
-async def get_active_imports():
-    """Get list of all active import operations."""
-    try:
-        if not (KNOWLEDGE_SERVICES_AVAILABLE and knowledge_ingestion_service):
-            raise HTTPException(status_code=503, detail="Knowledge ingestion service not available")
-        
-        active_imports = []
-        for import_id, progress in knowledge_ingestion_service.active_imports.items():
-            active_imports.append({
-                "import_id": import_id,
-                "status": getattr(progress, 'status', 'unknown'),
-                "progress": getattr(progress, 'progress', 0),
-                "filename": getattr(progress, 'filename', ''),
-                "started_at": getattr(progress, 'started_at', 0),
-                "message": getattr(progress, 'message', ''),
-                "error_message": getattr(progress, 'error_message', None)
-            })
-        
-        return {
-            "status": "success",
-            "active_imports": active_imports,
-            "total_count": len(active_imports)
-        }
-    except Exception as e:
-        logger.error(f"Error getting active imports: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get active imports: {str(e)}")
-
 @app.post("/api/knowledge/import/file")
 async def import_knowledge_from_file(file: UploadFile = File(...), filename: str = Form(None), file_type: str = Form(None)):
     """Import knowledge from uploaded file."""
@@ -2937,6 +2677,101 @@ async def get_knowledge_graph_stats():
         logger.error(f"Error getting knowledge graph stats: {e}")
         raise HTTPException(status_code=500, detail=f"Knowledge graph stats error: {str(e)}")
 
+@app.get("/api/knowledge/statistics")
+async def get_knowledge_statistics():
+    """Provide basic knowledge statistics to satisfy frontend calls.
+
+    If advanced knowledge services are available, derive stats; otherwise return a fallback structure.
+    """
+    try:
+        stats = {
+            "total_items": 0,
+            "items_by_type": {},
+            "items_by_source": {},
+            "items_by_category": {},
+            "average_confidence": 0.0,
+            "quality_distribution": {},
+            "recent_imports": 0,
+            "import_success_rate": 1.0,
+            "last_updated": datetime.now().isoformat(),
+            "data_source": "fallback"
+        }
+
+        if KNOWLEDGE_SERVICES_AVAILABLE and knowledge_management_service and hasattr(knowledge_management_service, 'knowledge_store'):
+            try:
+                store = getattr(knowledge_management_service, 'knowledge_store', {}) or {}
+                stats["total_items"] = len(store)
+                for _id, item in list(store.items())[:5000]:  # cap for safety
+                    # items_by_type
+                    ktype = getattr(item, 'knowledge_type', getattr(item, 'type', 'unknown'))
+                    stats["items_by_type"][ktype] = stats["items_by_type"].get(ktype, 0) + 1
+                    # items_by_source
+                    source = getattr(getattr(item, 'source', None), 'source_type', 'unknown')
+                    stats["items_by_source"][source] = stats["items_by_source"].get(source, 0) + 1
+                    # categories
+                    categories = []
+                    if hasattr(item, 'categories') and isinstance(item.categories, list):
+                        categories.extend(item.categories)
+                    if hasattr(item, 'auto_categories') and isinstance(item.auto_categories, list):
+                        categories.extend(item.auto_categories)
+                    for cat in categories:
+                        stats["items_by_category"][cat] = stats["items_by_category"].get(cat, 0) + 1
+                # average_confidence (best-effort)
+                confidences = [getattr(item, 'confidence', None) for item in store.values() if hasattr(item, 'confidence')]
+                confidences = [c for c in confidences if isinstance(c, (int, float))]
+                if confidences:
+                    stats["average_confidence"] = sum(confidences) / max(1, len(confidences))
+                stats["data_source"] = "knowledge_management_service"
+            except Exception as inner:
+                logger.warning(f"Failed to derive detailed knowledge statistics: {inner}")
+
+        return stats
+    except Exception as e:
+        logger.error(f"Error getting knowledge statistics: {e}")
+        raise HTTPException(status_code=500, detail=f"Knowledge statistics error: {str(e)}")
+
+@app.get("/api/knowledge/evolution")
+async def get_knowledge_evolution(timeframe: str = Query("24h", description="Time window e.g. 1h,24h,7d,30d")):
+    """Return minimal concept evolution data for the requested timeframe.
+
+    Satisfies the frontend ConceptEvolution widget. If knowledge services are available,
+    derive a best-effort set from graph stats; otherwise return a small mock set.
+    """
+    try:
+        results: List[Dict[str, Any]] = []
+
+        # Best-effort: derive from knowledge graph stats if available
+        try:
+            stats = await get_knowledge_graph_stats()
+            if stats and stats.get("total_nodes", 0) > 0:
+                ts = datetime.now().isoformat()
+                for idx, (node_type, count) in enumerate(list(stats.get("node_types", {}).items())[:5]):
+                    results.append({
+                        "id": f"auto-{node_type}-{idx}",
+                        "concept_name": f"{node_type.title()} Concept {idx+1}",
+                        "type": node_type,
+                        "growth_rate": max(0, min(100, int(5 + (count % 20)))),
+                        "connection_count": max(0, min(50, int(count % 50))),
+                        "confidence": round(0.5 + (count % 5) * 0.1, 2),
+                        "timestamp": ts
+                    })
+        except Exception as inner:
+            logger.debug(f"Knowledge evolution derivation fallback: {inner}")
+
+        if not results:
+            # Fallback mock data
+            now = datetime.now().isoformat()
+            results = [
+                {"id": "mock-1", "concept_name": "Core Reasoning", "type": "Core", "growth_rate": 12, "connection_count": 24, "confidence": 0.72, "timestamp": now},
+                {"id": "mock-2", "concept_name": "Knowledge Gaps", "type": "Logic", "growth_rate": 8, "connection_count": 18, "confidence": 0.63, "timestamp": now},
+                {"id": "mock-3", "concept_name": "Autonomous Learning", "type": "System", "growth_rate": 15, "connection_count": 30, "confidence": 0.81, "timestamp": now},
+            ]
+
+        return results
+    except Exception as e:
+        logger.error(f"Error getting knowledge evolution: {e}")
+        raise HTTPException(status_code=500, detail=f"Knowledge evolution error: {str(e)}")
+
 @app.get("/api/knowledge/entities/recent")
 async def get_recent_entities(limit: int = 10):
     """Get recently added entities from the knowledge graph."""
@@ -3023,73 +2858,216 @@ async def get_embeddings_stats():
         logger.error(f"Error getting embeddings stats: {e}")
         raise HTTPException(status_code=500, detail=f"Embeddings stats error: {str(e)}")
 
-# =====================================================================
-# UNIFIED WEBSOCKET STREAMING ENDPOINT
-# =====================================================================
+# WebSocket endpoint for real-time streaming
+@app.websocket("/ws/cognitive-stream")
+async def websocket_cognitive_stream(websocket: WebSocket):
+    """WebSocket endpoint for real-time cognitive state streaming."""
+    correlation_id = correlation_tracker.generate_correlation_id()
+    
+    with correlation_tracker.request_context(correlation_id):
+        logger.info("WebSocket connection initiated", extra={
+            "operation": "websocket_connect",
+            "endpoint": "/ws/cognitive-stream"
+        })
+        
+        if not websocket_manager:
+            logger.warning("WebSocket manager not available")
+            await websocket.close(code=1011, reason="WebSocket manager not available")
+            return
+            
+        await websocket_manager.connect(websocket)
+        logger.info(f"WebSocket connected. Active connections: {len(websocket_manager.active_connections)}", extra={
+            "operation": "websocket_connect",
+            "active_connections": len(websocket_manager.active_connections)
+        })
+        
+        try:
+            # Send an initial state message for compatibility
+            try:
+                await websocket_manager.send_personal_message(json.dumps({"type": "initial_state", "data": {}}), websocket)
+            except Exception:
+                pass
+            while True:
+                # Keep the connection alive and listen for messages
+                try:
+                    data = await websocket.receive_text()
+                    logger.debug(f"Received WebSocket message: {data}", extra={
+                        "operation": "websocket_message",
+                        "message_size": len(data)
+                    })
+                    # Try to parse subscription messages
+                    try:
+                        msg = json.loads(data)
+                        if msg.get("type") == "subscribe":
+                            events = msg.get("event_types", [])
+                            # Store subscription (simplified for fallback manager)
+                            await websocket_manager.send_personal_message(json.dumps({"type": "subscription_confirmed", "event_types": events}), websocket)
+                            logger.info("WebSocket subscription confirmed", extra={
+                                "operation": "websocket_subscribe",
+                                "event_types": events
+                            })
+                            continue
+                    except Exception:
+                        pass
+                    # Default ack
+                    await websocket_manager.send_personal_message(json.dumps({"type": "ack"}), websocket)
+                    
+                except WebSocketDisconnect:
+                    logger.info("WebSocket disconnected by client", extra={
+                        "operation": "websocket_disconnect",
+                        "reason": "client_initiated"
+                    })
+                    break
+                    
+        except Exception as e:
+            logger.error(f"WebSocket error: {e}", extra={
+                "operation": "websocket_error",
+                "error_type": type(e).__name__
+            })
+        finally:
+            websocket_manager.disconnect(websocket)
+            logger.info(f"WebSocket disconnected. Active connections: {len(websocket_manager.active_connections)}", extra={
+                "operation": "websocket_disconnect",
+                "active_connections": len(websocket_manager.active_connections)
+            })
 
-@app.websocket("/ws/unified-cognitive-stream")
-async def websocket_unified_cognitive_stream(
-    websocket: WebSocket,
-    subscriptions: str = Query(default="", description="Comma-separated event types"),
-    granularity: str = Query(default="standard", description="Event granularity level"),
-    client_id: str = Query(default="", description="Optional client identifier")
-):
-    """
-    Unified WebSocket endpoint for all cognitive streaming.
-    
-    Replaces multiple streaming endpoints:
-    - /ws/cognitive-stream
-    - /ws/transparency
-    - /api/enhanced-cognitive/stream
-    
-    Query Parameters:
-    - subscriptions: Comma-separated list of event types to subscribe to
-    - granularity: minimal, standard, detailed, or debug
-    - client_id: Optional client identifier for session management
-    """
-    if not UNIFIED_STREAMING_AVAILABLE or not unified_stream_manager:
-        await websocket.close(code=1011, reason="Unified streaming service not available")
-        return
-    
-    # Parse subscriptions
-    subscription_list = []
-    if subscriptions:
-        subscription_list = [s.strip() for s in subscriptions.split(",") if s.strip()]
-    
-    # Generate client ID if not provided
-    if not client_id:
-        client_id = f"client_{uuid.uuid4().hex[:8]}"
-    
-    client_connection_id = None
+# Enhanced WebSocket endpoint for cognitive transparency
+@app.websocket("/ws/transparency")
+async def websocket_transparency_stream(websocket: WebSocket):
+    """WebSocket endpoint for real-time cognitive transparency streaming."""
     try:
-        # Connect client to unified streaming service
-        client_connection_id = await unified_stream_manager.connect_client(
-            websocket=websocket,
-            subscriptions=subscription_list,
-            granularity=granularity,
-            client_id=client_id
-        )
+        await transparency_engine.connect_client(websocket)
+        logger.info(f"Transparency WebSocket connected. Active: {transparency_engine.metrics.active_connections}")
         
-        logger.info(f"🔗 Unified streaming client connected: {client_connection_id}")
-        
-        # Handle incoming messages
+        # Keep connection alive
         while True:
             try:
-                message = await websocket.receive_text()
-                await unified_stream_manager.handle_client_message(client_connection_id, message)
+                # Listen for any messages from client (though we primarily stream to them)
+                data = await websocket.receive_text()
+                logger.debug(f"Received transparency message: {data}")
+                
+                # Handle client commands
+                try:
+                    message = json.loads(data)
+                    if message.get("type") == "get_metrics":
+                        metrics = await transparency_engine.get_transparency_metrics()
+                        await websocket.send_text(json.dumps({
+                            "type": "metrics_response",
+                            "data": metrics
+                        }))
+                    elif message.get("type") == "get_activity":
+                        activity = await transparency_engine.get_cognitive_activity_summary()
+                        await websocket.send_text(json.dumps({
+                            "type": "activity_response", 
+                            "data": activity
+                        }))
+                except json.JSONDecodeError:
+                    await websocket.send_text(json.dumps({
+                        "type": "error",
+                        "message": "Invalid JSON format"
+                    }))
+                    
             except WebSocketDisconnect:
-                logger.info(f"🔌 Client disconnected: {client_connection_id}")
-                break
-            except Exception as e:
-                logger.error(f"❌ Error handling message from {client_connection_id}: {e}")
                 break
                 
     except Exception as e:
-        logger.error(f"❌ Error in unified streaming endpoint: {e}")
+        logger.error(f"Transparency WebSocket error: {e}")
     finally:
-        # Clean up connection
-        if client_connection_id and unified_stream_manager:
-            await unified_stream_manager.disconnect_client(client_connection_id)
+        await transparency_engine.disconnect_client(websocket)
+
+
+# Unified cognitive stream WebSocket endpoint (for frontend compatibility)
+@app.websocket("/ws/unified-cognitive-stream")
+async def websocket_unified_cognitive_stream(websocket: WebSocket):
+    """WebSocket endpoint for unified cognitive streaming (frontend compatibility)."""
+    correlation_id = correlation_tracker.generate_correlation_id()
+    
+    with correlation_tracker.request_context(correlation_id):
+        logger.info("Unified WebSocket connection initiated", extra={
+            "operation": "websocket_connect",
+            "endpoint": "/ws/unified-cognitive-stream"
+        })
+        
+        if not websocket_manager:
+            logger.warning("WebSocket manager not available for unified stream")
+            await websocket.close(code=1011, reason="WebSocket manager not available")
+            return
+            
+        await websocket_manager.connect(websocket)
+        logger.info(f"Unified WebSocket connected. Active connections: {len(websocket_manager.active_connections)}", extra={
+            "operation": "websocket_connect",
+            "active_connections": len(websocket_manager.active_connections)
+        })
+        
+        try:
+            # Send initial state message
+            await websocket_manager.send_personal_message(json.dumps({
+                "type": "initial_state", 
+                "data": {"status": "connected", "endpoint": "unified-cognitive-stream"}
+            }), websocket)
+            
+            while True:
+                # Listen for client messages (subscriptions, ping, etc.)
+                try:
+                    data = await websocket.receive_text()
+                    logger.debug(f"Received unified WebSocket message: {data}", extra={
+                        "operation": "websocket_message",
+                        "message_size": len(data)
+                    })
+                    
+                    # Parse and handle client messages
+                    try:
+                        msg = json.loads(data)
+                        if msg.get("type") == "subscribe":
+                            events = msg.get("event_types", [])
+                            # Store subscription (simplified for fallback manager)
+                            await websocket_manager.send_personal_message(json.dumps({
+                                "type": "subscription_confirmed", 
+                                "event_types": events
+                            }), websocket)
+                            logger.info("Unified WebSocket subscription confirmed", extra={
+                                "operation": "websocket_subscribe",
+                                "event_types": events
+                            })
+                        elif msg.get("type") == "ping":
+                            await websocket_manager.send_personal_message(json.dumps({
+                                "type": "pong",
+                                "timestamp": datetime.now().isoformat()
+                            }), websocket)
+                        elif msg.get("type") == "request_state":
+                            # Send current cognitive state
+                            await websocket_manager.send_personal_message(json.dumps({
+                                "type": "state_update",
+                                "data": {"status": "active", "timestamp": datetime.now().isoformat()}
+                            }), websocket)
+                        else:
+                            # Default acknowledgment
+                            await websocket_manager.send_personal_message(json.dumps({"type": "ack"}), websocket)
+                    except json.JSONDecodeError:
+                        await websocket_manager.send_personal_message(json.dumps({
+                            "type": "error",
+                            "message": "Invalid JSON format"
+                        }), websocket)
+                    
+                except WebSocketDisconnect:
+                    logger.info("Unified WebSocket disconnected by client", extra={
+                        "operation": "websocket_disconnect",
+                        "reason": "client_initiated"
+                    })
+                    break
+                    
+        except Exception as e:
+            logger.error(f"Unified WebSocket error: {e}", extra={
+                "operation": "websocket_error",
+                "error_type": type(e).__name__
+            })
+        finally:
+            websocket_manager.disconnect(websocket)
+            logger.info(f"Unified WebSocket disconnected. Active connections: {len(websocket_manager.active_connections)}", extra={
+                "operation": "websocket_disconnect",
+                "active_connections": len(websocket_manager.active_connections)
+            })
+
 
 # Enhanced cognitive configuration endpoints
 @app.post("/api/enhanced-cognitive/stream/configure")
@@ -3277,6 +3255,71 @@ async def get_system_capabilities():
     except Exception as e:
         logger.error(f"Error getting capabilities: {e}")
         raise HTTPException(status_code=500, detail=f"Capabilities error: {str(e)}")
+
+@app.post("/api/test/transparency-events")
+async def test_transparency_events():
+    """Test endpoint to generate transparency events that the frontend expects"""
+    global transparency_engine
+    
+    if transparency_engine is None:
+        raise HTTPException(status_code=503, detail="Transparency engine not initialized")
+    
+    try:
+        # Generate test events that match what the frontend Stream of Consciousness Monitor expects
+        events_sent = []
+        
+        # Query started event
+        await transparency_engine.log_cognitive_event(
+            event_type='query_started',
+            content='Testing cognitive event streaming integration',
+            metadata={'test': True, 'query': 'transparency test'}
+        )
+        events_sent.append('query_started')
+        
+        # Knowledge gap detection event
+        await transparency_engine.log_cognitive_event(
+            event_type='gaps_detected', 
+            content='Detected knowledge gap in transparency engine integration',
+            metadata={'gap_type': 'integration', 'priority': 'high'}
+        )
+        events_sent.append('gaps_detected')
+        
+        # Knowledge acquisition event
+        await transparency_engine.log_cognitive_event(
+            event_type='acquisition_started',
+            content='Starting knowledge acquisition for transparency events',
+            metadata={'acquisition_id': 'test_123'}
+        )
+        events_sent.append('acquisition_started')
+        
+        # Reasoning event
+        await transparency_engine.log_cognitive_event(
+            event_type='reasoning',
+            content='Analyzing transparency engine event delivery',
+            metadata={'reasoning_type': 'diagnostic', 'depth': 'deep'}
+        )
+        events_sent.append('reasoning')
+        
+        # Reflection event
+        await transparency_engine.log_cognitive_event(
+            event_type='reflection',
+            content='Reflecting on cognitive event streaming effectiveness',
+            metadata={'reflection_depth': 3, 'meta_level': True}
+        )
+        events_sent.append('reflection')
+        
+        logger.info(f"✅ Generated {len(events_sent)} test transparency events: {events_sent}")
+        
+        return {
+            "success": True,
+            "message": f"Generated {len(events_sent)} test transparency events",
+            "events_sent": events_sent,
+            "timestamp": time.time()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error generating test transparency events: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate test events: {str(e)}")
 
 if __name__ == "__main__":
     uvicorn.run(

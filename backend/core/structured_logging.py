@@ -11,6 +11,7 @@ import logging
 import time
 import uuid
 import threading
+from logging.config import dictConfig
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, asdict, field
@@ -374,6 +375,34 @@ def setup_structured_logging(log_level: str = "INFO",
         else:
             file_handler.setFormatter(console_formatter)
         root_logger.addHandler(file_handler)
+
+
+
+def setup_json_logging():
+    dictConfig({
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "json-default": {
+                "()": "pythonjsonlogger.jsonlogger.JsonFormatter",
+                "format": "timestamp:asctime level:levelname logger:name message:message process:process thread:threadName module:module function:funcName line:lineno",
+            },
+            "json-access": {
+                "()": "pythonjsonlogger.jsonlogger.JsonFormatter",
+                "format": "timestamp:asctime level:levelname logger:name client:client_addr request:request_line status:status_code",
+            },
+        },
+        "handlers": {
+            "default": {"class": "logging.StreamHandler", "formatter": "json-default", "stream": "ext://sys.stderr"},
+            "access": {"class": "logging.StreamHandler", "formatter": "json-access", "stream": "ext://sys.stdout"},
+        },
+        "loggers": {
+            "uvicorn.error": {"level": "INFO", "handlers": ["default"], "propagate": False},
+            "uvicorn.access": {"level": "INFO", "handlers": ["access"], "propagate": False},
+            "backend":        {"level": "INFO", "handlers": ["default"], "propagate": False},
+        },
+        "root": {"level": "INFO", "handlers": ["default"]},
+    })
 
 
 # Context managers for correlation tracking

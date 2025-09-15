@@ -78,7 +78,7 @@ export const cognitiveConfig = writable({
     maxConcurrentAcquisitions: 3
   },
   cognitiveStreaming: {
-    enabled: true, // Re-enabled for cognitive stream functionality
+  enabled: true, // Enable to ensure StreamOfConsciousnessMonitor receives events
     granularity: 'standard',
     maxEventRate: 100,
     bufferSize: 1000,
@@ -190,7 +190,13 @@ class EnhancedCognitiveStateManager {
         return;
       }
       
-      // Disconnect existing connection
+      // Check if there's already an active connection (prevent multiple connections)
+      if (cognitiveWebSocket && cognitiveWebSocket.readyState === WebSocket.OPEN) {
+        console.log('✅ Enhanced cognitive stream already connected, reusing existing connection');
+        return;
+      }
+      
+      // Disconnect existing connection if it exists but not open
       if (cognitiveWebSocket) {
         cognitiveWebSocket.close();
       }
@@ -232,6 +238,7 @@ class EnhancedCognitiveStateManager {
             "consciousness_update",
             "transparency",
             "cognitive_transparency",
+            "cognitive_event", // Added for transparency engine events
             "system_status",
             "knowledge_update"
           ]
@@ -251,17 +258,25 @@ class EnhancedCognitiveStateManager {
           );
         }
         
-        cognitiveWebSocket.send(JSON.stringify(subscription));
-        console.log('📡 Enhanced cognitive store subscribed to:', subscription.event_types);
+        // Add a small delay to ensure WebSocket is fully ready before sending subscription
+        setTimeout(() => {
+          if (cognitiveWebSocket && cognitiveWebSocket.readyState === WebSocket.OPEN) {
+            cognitiveWebSocket.send(JSON.stringify(subscription));
+            console.log('📡 Enhanced cognitive store subscribed to:', subscription.event_types);
+          } else {
+            console.warn('⚠️ WebSocket not ready for subscription, connection state:', cognitiveWebSocket?.readyState);
+          }
+        }, 100);
         
-        enhancedCognitiveState.update(state => ({
+    enhancedCognitiveState.update(state => ({
           ...state,
           cognitiveStreaming: {
             ...state.cognitiveStreaming,
             connected: true,
             enabled: true,
             connectionId: Date.now().toString(),
-            lastEvent: new Date().toISOString()
+      // Keep lastEvent null until a real event arrives to avoid pushing strings to subscribers
+      lastEvent: null
           },
           connectionStatus: 'connected'
         }));
@@ -279,7 +294,13 @@ class EnhancedCognitiveStateManager {
       cognitiveWebSocket.onmessage = (event) => {
         try {
           const cognitiveEvent = JSON.parse(event.data);
-          console.log('📥 Received cognitive event:', cognitiveEvent.type);
+          const evtType = cognitiveEvent?.type;
+          // Ignore non-cognitive control messages
+          const ignoreTypes = new Set(['initial_state', 'subscription_confirmed', 'ack', 'pong', 'state_update', 'configure_ack']);
+          if (ignoreTypes.has(evtType)) {
+            return;
+          }
+          console.log('📥 Received cognitive event:', evtType);
           this.handleCognitiveEvent(cognitiveEvent);
         } catch (error) {
           console.error('❌ Error parsing cognitive event:', error, 'Raw data:', event.data);
@@ -455,10 +476,260 @@ class EnhancedCognitiveStateManager {
    * Handle incoming cognitive events
    */
   handleCognitiveEvent(event) {
-    // Add to event buffer
-    this.eventBuffer.push(event);
-    if (this.eventBuffer.length > this.maxBufferSize) {
-      this.eventBuffer.shift();
+  // Ignore non-cognitive control messages at the handler level as well
+  const t0 = event?.type || event?.event_type;
+  const ignoreTypes = new Set(['initial_state', 'subscription_confirmed', 'ack', 'pong', 'state_update', 'configure_ack']);
+  if (ignoreTypes.has(t0)) return;
+  
+    // Normalize event for UI consumers
+    const normalized = (() => {
+      const baseType = event?.type || event?.event_type;
+      const data = event?.data || event?.details || {};
+      
+      // Extract meaningful content based on event type and structure
+      let content = '';
+      
+      // First, check if we have a JSON string as content that needs to be parsed
+      let parsedContent = null;
+      if (typeof data === 'string' && (data.startsWith('{') || data.startsWith('['))) {
+        try {
+          parsedContent = JSON.parse(data);
+          data = parsedContent; // Use parsed data for extraction
+        } catch (e) {
+          // Not valid JSON, continue with string data
+        }
+      }
+      
+      // Also check if event.content or event.message contains JSON
+      if (event?.content && typeof event.content === 'string' && event.content.startsWith('{')) {
+        try {
+          parsedContent = JSON.parse(event.content);
+          data = parsedContent; // Use parsed content data
+        } catch (e) {
+          // Not valid JSON, continue
+        }
+      }
+      
+      // First, try to get explicit content/message fields
+      if (data?.content && typeof data.content === 'string') {
+        content = data.content;
+      } else if (data?.message && typeof data.message === 'string') {
+        content = data.message;
+      } else if (event?.content && typeof event.content === 'string') {
+        content = event.content;
+      } else if (event?.message && typeof event.message === 'string') {
+        content = event.message;
+      } else {
+        // Generate meaningful descriptions based on event type and data
+        switch (baseType) {
+          case 'cognitive_state_update':
+            if (data?.manifest_consciousness) {
+              const consciousness = data.manifest_consciousness;
+              const focus = consciousness.attention_focus;
+              const workingMemory = consciousness.working_memory;
+              
+              let description = '';
+              if (focus && focus !== 'undefined') {
+                description += `Attention focus: ${focus}%`;
+              }
+              if (workingMemory && Array.isArray(workingMemory) && workingMemory.length > 0) {
+                const memoryItems = workingMemory.filter(item => item && item !== 'undefined').slice(0, 2);
+                if (memoryItems.length > 0) {
+                  description += (description ? ' • ' : '') + `Working on: ${memoryItems.join(', ')}`;
+                }
+              }
+              
+              // Add active processes info
+              if (data?.agentic_processes) {
+                const activeProcesses = data.agentic_processes.filter(p => p.status === 'active');
+                if (activeProcesses.length > 0) {
+                  const processNames = activeProcesses.map(p => p.name).slice(0, 2);
+                  description += (description ? ' • ' : '') + `Active: ${processNames.join(', ')}`;
+                }
+              }
+              
+              // Add daemon thread info
+              if (data?.daemon_threads) {
+                const activeDaemons = data.daemon_threads.filter(d => d.active && d.activity_level > 50);
+                if (activeDaemons.length > 0) {
+                  const daemonNames = activeDaemons.map(d => d.name).slice(0, 2);
+                  description += (description ? ' • ' : '') + `Background: ${daemonNames.join(', ')}`;
+                }
+              }
+              
+              content = description || 'Cognitive state updated';
+            } else if (data?.processingMode && data.processingMode !== 'undefined') {
+              content = `Processing mode: ${data.processingMode}`;
+            } else if (data?.currentFocus && data.currentFocus !== 'undefined') {
+              content = `Focusing on: ${data.currentFocus}`;
+            } else {
+              content = 'Cognitive state updated with new parameters';
+            }
+            break;
+            
+          case 'reasoning':
+          case 'thinking':
+            if (data?.reasoning_chain) {
+              content = `Reasoning: ${data.reasoning_chain}`;
+            } else if (data?.thought) {
+              content = `Thinking: ${data.thought}`;
+            } else if (data?.process) {
+              content = `Processing: ${data.process}`;
+            } else if (data?.analysis) {
+              content = `Analyzing: ${data.analysis}`;
+            } else if (data?.conclusion) {
+              content = `Concluded: ${data.conclusion}`;
+            } else {
+              // Try to extract meaningful info from the event structure
+              if (data?.manifest_consciousness?.working_memory) {
+                const memory = data.manifest_consciousness.working_memory;
+                if (Array.isArray(memory) && memory.length > 0) {
+                  content = `Reasoning about: ${memory[0]}`;
+                } else {
+                  content = 'Engaging in reasoning process';
+                }
+              } else {
+                content = 'Engaging in reasoning process';
+              }
+            }
+            break;
+            
+          case 'knowledge_gap':
+          case 'gaps_detected':
+            if (data?.gap_description) {
+              content = `Knowledge gap identified: ${data.gap_description}`;
+            } else if (data?.domain) {
+              content = `Knowledge gap detected in ${data.domain}`;
+            } else {
+              content = 'Knowledge gap identified requiring investigation';
+            }
+            break;
+            
+          case 'acquisition_started':
+            content = data?.topic ? `Learning about: ${data.topic}` : 'Beginning knowledge acquisition';
+            break;
+            
+          case 'acquisition_completed':
+            content = data?.topic ? `Completed learning: ${data.topic}` : 'Knowledge acquisition completed';
+            break;
+            
+          case 'reflection':
+          case 'self_reflection':
+            if (data?.reflection_text) {
+              content = `Reflecting: ${data.reflection_text}`;
+            } else {
+              content = 'Engaging in self-reflection on recent activities';
+            }
+            break;
+            
+          case 'synthesis':
+            content = data?.synthesis_result ? `Synthesized: ${data.synthesis_result}` : 'Synthesizing knowledge from multiple sources';
+            break;
+            
+          case 'learning':
+            content = data?.learning_outcome ? `Learned: ${data.learning_outcome}` : 'Processing new learning experience';
+            break;
+            
+          default:
+            // Try to extract any meaningful text from the data
+            if (data?.description) {
+              content = data.description;
+            } else if (data?.summary) {
+              content = data.summary;
+            } else if (data?.text) {
+              content = data.text;
+            } else if (typeof data === 'string') {
+              content = data;
+            } else if (data?.timestamp && data?.manifest_consciousness) {
+              // This looks like raw cognitive state data - format it nicely
+              const consciousness = data.manifest_consciousness;
+              const processes = data.agentic_processes || [];
+              const daemons = data.daemon_threads || [];
+              
+              let parts = [];
+              if (consciousness.attention_focus) {
+                parts.push(`Focus: ${consciousness.attention_focus}%`);
+              }
+              
+              if (consciousness.working_memory && Array.isArray(consciousness.working_memory)) {
+                const memory = consciousness.working_memory.filter(m => m && m !== 'undefined');
+                if (memory.length > 0) {
+                  parts.push(`Working: ${memory.slice(0, 2).join(', ')}`);
+                }
+              }
+              
+              const activeProcesses = processes.filter(p => p.status === 'active');
+              if (activeProcesses.length > 0) {
+                parts.push(`Active: ${activeProcesses.map(p => p.name).slice(0, 2).join(', ')}`);
+              }
+              
+              const activeDaemons = daemons.filter(d => d.active && d.activity_level > 50);
+              if (activeDaemons.length > 0) {
+                parts.push(`Background: ${activeDaemons.map(d => d.name).slice(0, 2).join(', ')}`);
+              }
+              
+              content = parts.join(' • ') || 'Cognitive state active';
+            } else {
+              content = `${baseType.replace('_', ' ')} event occurred`;
+            }
+        }
+      }
+      
+      // Final cleanup - ensure no undefined/null values in content
+      if (!content || content.includes('undefined') || content.includes('null')) {
+        content = `${baseType.replace('_', ' ')} activity detected`;
+      }
+      // Map backend event types to UI filter categories the monitor expects
+      const mapToUiEventType = (t) => {
+        switch (t) {
+          case 'gaps_detected':
+          case 'knowledge_gap':
+          case 'autonomous_gaps_detected':
+            return 'knowledge_gap';
+          case 'acquisition_started':
+          case 'acquisition_completed':
+          case 'acquisition_failed':
+          case 'knowledge_acquisition':
+            return 'acquisition';
+          case 'reasoning':
+          case 'thinking':
+            return 'reasoning';
+          case 'reflection':
+          case 'self_reflection':
+            return 'reflection';
+          case 'learning':
+          case 'synthesis':
+            return t;
+          default:
+            // Fall back to a generic bucket so it still shows
+            return 'reasoning';
+        }
+      };
+      const uiType = mapToUiEventType(baseType);
+      return {
+        ...event,
+        original_type: baseType,
+        type: baseType, // keep original for internal switches
+        event_type: uiType, // UI filter uses this
+        content,
+        granularity: event?.granularity || 'detailed'
+      };
+    })();
+
+    // Add to event buffer with deduplication
+    const eventKey = `${normalized.type}_${normalized.timestamp}_${normalized.content}`;
+    const isDuplicate = this.eventBuffer.some(existing => 
+      `${existing.type}_${existing.timestamp}_${existing.content}` === eventKey
+    );
+    
+    if (!isDuplicate) {
+      this.eventBuffer.push(normalized);
+      if (this.eventBuffer.length > this.maxBufferSize) {
+        this.eventBuffer.shift();
+      }
+    } else {
+      console.log('🔄 Skipping duplicate event:', eventKey);
+      return; // Skip processing duplicate events
     }
 
     // Update state based on event type
@@ -472,28 +743,28 @@ class EnhancedCognitiveStateManager {
       
       newState.cognitiveStreaming = {
         ...state.cognitiveStreaming,
-        lastEvent: event,
-        eventHistory: [...safeEventHistory, event].slice(-100),
+        lastEvent: normalized,
+        eventHistory: [...safeEventHistory, normalized].slice(-100),
         eventRate: this.calculateEventRate()
       };
 
       // Handle specific event types with safe array operations
-      switch (event.type) {
+      switch (normalized.type) {
         case 'gaps_detected':
         case 'autonomous_gaps_detected':
-          if (event.data?.gaps && Array.isArray(event.data.gaps)) {
+          if (normalized.data?.gaps && Array.isArray(normalized.data.gaps)) {
             const safeDetectedGaps = Array.isArray(state.autonomousLearning.detectedGaps) 
               ? state.autonomousLearning.detectedGaps 
               : [];
             newState.autonomousLearning = {
               ...state.autonomousLearning,
-              detectedGaps: [...safeDetectedGaps, ...event.data.gaps].slice(-50) // Limit to 50 items
+              detectedGaps: [...safeDetectedGaps, ...normalized.data.gaps].slice(-50) // Limit to 50 items
             };
           }
           break;
 
         case 'acquisition_started':
-          if (event.data?.plan_id) {
+          if (normalized.data?.plan_id) {
             const safeActiveAcquisitions = Array.isArray(state.autonomousLearning.activeAcquisitions) 
               ? state.autonomousLearning.activeAcquisitions 
               : [];
@@ -502,9 +773,9 @@ class EnhancedCognitiveStateManager {
               activeAcquisitions: [
                 ...safeActiveAcquisitions,
                 {
-                  id: event.data.plan_id,
-                  started: event.timestamp,
-                  gap_id: event.data.gap_id
+                  id: normalized.data.plan_id,
+                  started: normalized.timestamp,
+                  gap_id: normalized.data.gap_id
                 }
               ].slice(-20) // Limit to 20 active acquisitions
             };
@@ -513,7 +784,7 @@ class EnhancedCognitiveStateManager {
 
         case 'acquisition_completed':
         case 'acquisition_failed':
-          if (event.data?.plan_id) {
+          if (normalized.data?.plan_id) {
             // Remove from active acquisitions safely
             const safeActiveAcquisitions = Array.isArray(state.autonomousLearning.activeAcquisitions) 
               ? state.autonomousLearning.activeAcquisitions 
@@ -525,16 +796,16 @@ class EnhancedCognitiveStateManager {
             newState.autonomousLearning = {
               ...state.autonomousLearning,
               activeAcquisitions: safeActiveAcquisitions.filter(
-                acq => acq && acq.id !== event.data.plan_id
+                acq => acq && acq.id !== normalized.data.plan_id
               ),
               acquisitionHistory: [
                 ...safeAcquisitionHistory,
                 {
-                  id: event.data.plan_id,
-                  completed: event.timestamp,
-                  success: event.type === 'acquisition_completed',
-                  executionTime: event.data.execution_time,
-                  acquiredConcepts: event.data.acquired_concepts || 0
+                  id: normalized.data.plan_id,
+                  completed: normalized.timestamp,
+                  success: normalized.type === 'acquisition_completed',
+                  executionTime: normalized.data.execution_time,
+                  acquiredConcepts: normalized.data.acquired_concepts || 0
                 }
               ].slice(-50) // Keep last 50
             };
@@ -544,9 +815,9 @@ class EnhancedCognitiveStateManager {
         case 'query_started':
           newState.manifestConsciousness = {
             ...state.manifestConsciousness,
-            currentFocus: event.data?.query || 'Processing query',
+            currentFocus: normalized.data?.query || 'Processing query',
             processingMode: 'active',
-            lastActivity: event.timestamp
+            lastActivity: normalized.timestamp
           };
           break;
 
@@ -554,8 +825,30 @@ class EnhancedCognitiveStateManager {
           newState.manifestConsciousness = {
             ...state.manifestConsciousness,
             processingMode: 'idle',
-            lastActivity: event.timestamp
+            lastActivity: normalized.timestamp
           };
+          break;
+
+        case 'cognitive_event':
+          // Handle transparency engine events - these come wrapped with inner event data
+          if (normalized.data && normalized.data.event_type) {
+            // Extract the inner event and process it recursively
+            const innerEvent = {
+              type: normalized.data.event_type,
+              timestamp: normalized.data.timestamp || normalized.timestamp,
+              data: normalized.data.details || normalized.data,
+              component: normalized.data.component,
+              priority: normalized.data.priority
+            };
+            
+            // Process the inner event by calling this method recursively
+            // but prevent infinite recursion by creating a new event structure
+            setTimeout(() => {
+              this.handleCognitiveEvent(innerEvent);
+            }, 0);
+            
+            console.log('🧠 Processed transparency cognitive event:', innerEvent.type, innerEvent);
+          }
           break;
       }
 
