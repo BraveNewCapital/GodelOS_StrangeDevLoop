@@ -602,6 +602,14 @@
                     <span class="value">{$knowledgeState.totalConnections}</span>
                     <span class="label">Connections</span>
                   </div>
+                  <div class="stat-item">
+                    <span class="value">{$knowledgeState.totalVectors}</span>
+                    <span class="label">Vectors</span>
+                  </div>
+                  <div class="stat-item">
+                    <span class="value">{$knowledgeState.totalDocuments}</span>
+                    <span class="label">Documents</span>
+                  </div>
                 </div>
               </div>
             </div>

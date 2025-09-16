@@ -30,6 +30,12 @@
     let unsubscribe;
 
     import { API_BASE_URL } from '../../config.js';
+    import { GödelOSAPI } from '../../utils/api.js';
+
+    // State for vector DB management
+    let vectorDbStats = null;
+    let clearingVectorDb = false;
+    let showClearConfirm = false;
 
     function fmtBool(v) { return typeof v === 'boolean' ? (v ? 'true' : 'false') : String(v); }
     function fmtTS(ts) {
@@ -125,6 +131,47 @@
         return 'unknown';
     }
 
+    // Vector Database action handlers
+    async function refreshVectorStats() {
+        try {
+            vectorDbStats = await GödelOSAPI.getVectorDbStats();
+            // Also refresh the health probes to get latest data
+            await fetchHealthProbes();
+        } catch (error) {
+            console.error('Failed to refresh vector stats:', error);
+        }
+    }
+
+    function confirmClearVectorDb() {
+        showClearConfirm = true;
+    }
+
+    async function clearVectorDb() {
+        if (clearingVectorDb) return; // Prevent double-clicks
+        
+        clearingVectorDb = true;
+        try {
+            const result = await GödelOSAPI.clearVectorDb();
+            console.log('Vector DB cleared:', result);
+            
+            // Refresh stats and health after clearing
+            await refreshVectorStats();
+            showClearConfirm = false;
+            
+            // Optionally show a success notification
+            alert('Vector database cleared successfully!');
+        } catch (error) {
+            console.error('Failed to clear vector DB:', error);
+            alert(`Failed to clear vector database: ${error.message}`);
+        } finally {
+            clearingVectorDb = false;
+        }
+    }
+
+    function cancelClearVectorDb() {
+        showClearConfirm = false;
+    }
+
     onMount(() => {
         // Subscribe to both enhanced and canonical cognitive state
         unsubscribe = cognitiveState.subscribe(state => {
@@ -141,6 +188,9 @@
         // Start automatic data fetching
         startAutoRefresh();
         fetchHealthProbes();
+        
+        // Initialize vector database stats
+        refreshVectorStats();
         
         // Provide fallback system health if not available after 3 seconds
         setTimeout(() => {
@@ -348,18 +398,67 @@
                              class:healthy={probeData?.status === 'healthy'}
                              class:warning={probeData?.status === 'warning'}
                              class:error={probeData?.status === 'error'}
+                             class:vector-db-card={probeName === 'vector_database'}
                              on:click={() => openProbeModal(probeName, probeData)}
                              on:keydown={(e) => e.key === 'Enter' && openProbeModal(probeName, probeData)}
                              tabindex="0"
                              role="button">
                             <div class="probe-header">
-                                <h4 class="probe-name">{probeName}</h4>
+                                <h4 class="probe-name">
+                                    {probeName === 'vector_database' ? '🧮 Vector Database' : probeName}
+                                </h4>
                                 <div class="probe-status status-{getProbeStatusColor(probeData)}">
                                     <div class="status-dot"></div>
                                     <span>{probeData?.status || 'unknown'}</span>
                                 </div>
                             </div>
                             <div class="probe-details">
+                                {#if probeName === 'vector_database'}
+                                    <!-- Special vector database info -->
+                                    {#if probeData?.total_vectors !== undefined}
+                                        <div class="probe-detail">
+                                            <span class="detail-label">Total Vectors:</span>
+                                            <span class="detail-value">{probeData.total_vectors.toLocaleString()}</span>
+                                        </div>
+                                    {/if}
+                                    {#if probeData?.production_db !== undefined}
+                                        <div class="probe-detail">
+                                            <span class="detail-label">Production DB:</span>
+                                            <span class="detail-value">{probeData.production_db ? '✅' : '❌'}</span>
+                                        </div>
+                                    {/if}
+                                    <!-- Vector DB Actions -->
+                                    <div class="probe-actions">
+                                        <button 
+                                            class="action-btn refresh-btn"
+                                            on:click|stopPropagation={refreshVectorStats}
+                                            title="Refresh vector stats"
+                                        >
+                                            🔄
+                                        </button>
+                                        <button 
+                                            class="action-btn clear-btn"
+                                            on:click|stopPropagation={confirmClearVectorDb}
+                                            title="Clear all vectors"
+                                        >
+                                            🗑️
+                                        </button>
+                                    </div>
+                                {:else}
+                                    <!-- Standard probe details for non-vector DB probes -->
+                                    {#if probeData?.timestamp}
+                                        <div class="probe-detail">
+                                            <span class="detail-label">Last Check:</span>
+                                            <span class="detail-value">{fmtTS(probeData.timestamp)}</span>
+                                        </div>
+                                    {/if}
+                                    {#if probeData?.responseTime}
+                                        <div class="probe-detail">
+                                            <span class="detail-label">Response:</span>
+                                            <span class="detail-value">{probeData.responseTime}ms</span>
+                                        </div>
+                                    {/if}
+                                {/if}
                                 {#if probeData?.timestamp}
                                     <div class="probe-detail">
                                         <span class="detail-label">Last Check:</span>
@@ -423,6 +522,52 @@
                             </div>
                         </div>
                     {/each}
+                </div>
+            </div>
+        </div>
+    </div>
+{/if}
+
+<!-- Vector DB Clear Confirmation Modal -->
+{#if showClearConfirm}
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
+    <div class="modal-overlay" on:click={cancelClearVectorDb}>
+        <div class="modal-content confirm-modal" on:click|stopPropagation>
+            <div class="modal-header">
+                <h2>⚠️ Clear Vector Database</h2>
+                <button class="modal-close" on:click={cancelClearVectorDb} aria-label="Close modal">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="warning-banner">
+                    <div class="warning-icon">🚨</div>
+                    <div class="warning-text">
+                        <p><strong>This action cannot be undone!</strong></p>
+                        <p>All vectors and metadata will be permanently deleted from the database.</p>
+                    </div>
+                </div>
+                
+                {#if vectorDbStats?.total_vectors}
+                    <div class="impact-stats">
+                        <p>This will delete <strong>{vectorDbStats.total_vectors.toLocaleString()} vectors</strong> across all models.</p>
+                    </div>
+                {/if}
+                
+                <div class="action-buttons">
+                    <button 
+                        class="btn btn-secondary" 
+                        on:click={cancelClearVectorDb}
+                        disabled={clearingVectorDb}
+                    >
+                        Cancel
+                    </button>
+                    <button 
+                        class="btn btn-danger" 
+                        on:click={clearVectorDb}
+                        disabled={clearingVectorDb}
+                    >
+                        {clearingVectorDb ? 'Clearing...' : 'Clear Database'}
+                    </button>
                 </div>
             </div>
         </div>
@@ -870,6 +1015,131 @@
         padding: 1rem;
         border-radius: 6px;
         overflow-x: auto;
+    }
+
+    /* --- Vector DB Specific Styles --- */
+    .vector-db-card {
+        border-color: #58A6FF;
+        background: linear-gradient(135deg, #161B22 0%, #1C2128 100%);
+    }
+
+    .probe-actions {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 0.75rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid #30363D;
+    }
+
+    .action-btn {
+        background: #21262D;
+        border: 1px solid #30363D;
+        border-radius: 6px;
+        padding: 0.5rem;
+        color: #F0F6FC;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        font-size: 0.875rem;
+        min-width: 2rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .action-btn:hover {
+        background: #30363D;
+        border-color: #58A6FF;
+        transform: translateY(-1px);
+    }
+
+    .refresh-btn:hover {
+        color: #58A6FF;
+    }
+
+    .clear-btn:hover {
+        color: #F85149;
+        border-color: #F85149;
+    }
+
+    /* --- Confirmation Modal Styles --- */
+    .confirm-modal {
+        max-width: 500px;
+    }
+
+    .warning-banner {
+        display: flex;
+        gap: 1rem;
+        padding: 1rem;
+        background: #DA363330;
+        border: 1px solid #F85149;
+        border-radius: 8px;
+        margin-bottom: 1.5rem;
+    }
+
+    .warning-icon {
+        font-size: 1.5rem;
+        flex-shrink: 0;
+    }
+
+    .warning-text p {
+        margin: 0 0 0.5rem 0;
+        color: #F0F6FC;
+    }
+
+    .warning-text p:last-child {
+        margin-bottom: 0;
+    }
+
+    .impact-stats {
+        background: #21262D;
+        border: 1px solid #30363D;
+        border-radius: 6px;
+        padding: 1rem;
+        margin-bottom: 1.5rem;
+        text-align: center;
+        color: #8B949E;
+    }
+
+    .action-buttons {
+        display: flex;
+        gap: 1rem;
+        justify-content: flex-end;
+    }
+
+    .btn {
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        border: none;
+        font-size: 0.875rem;
+    }
+
+    .btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    .btn-secondary {
+        background: #21262D;
+        color: #F0F6FC;
+        border: 1px solid #30363D;
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+        background: #30363D;
+    }
+
+    .btn-danger {
+        background: #DA3633;
+        color: #F0F6FC;
+        border: 1px solid #F85149;
+    }
+
+    .btn-danger:hover:not(:disabled) {
+        background: #F85149;
+        transform: translateY(-1px);
     }
 
     /* --- Animations --- */

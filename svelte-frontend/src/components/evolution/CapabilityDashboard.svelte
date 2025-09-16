@@ -99,94 +99,15 @@
     } catch (error) {
       console.error('❌ Error loading capability data:', error);
       capabilities = [];
+      // NO MOCK DATA FALLBACK - Show error state to user
+      error = `Failed to load capability data: ${error.message}`;
     }
   }
   
-  function generateMockData() {
-    capabilities = Object.keys(capabilityCategories).map(capability => ({
-      name: capability,
-      current_level: Math.random() * 0.4 + 0.6, // 60-100%
-      baseline_level: Math.random() * 0.3 + 0.4, // 40-70%
-      improvement_rate: (Math.random() - 0.5) * 0.1, // -5% to +5%
-      confidence: Math.random() * 0.3 + 0.7, // 70-100%
-      last_updated: Date.now() - Math.random() * 3600000, // Within last hour
-      milestones: generateMilestones(),
-      bottlenecks: generateBottlenecks(),
-      projections: generateProjections()
-    }));
-    
-    // Generate metrics
-    Object.keys(capabilityCategories).forEach(capability => {
-      capabilityMetrics[capability] = {
-        accuracy: Math.random() * 0.3 + 0.7,
-        efficiency: Math.random() * 0.4 + 0.6,
-        adaptability: Math.random() * 0.5 + 0.5,
-        robustness: Math.random() * 0.3 + 0.6
-      };
-      
-      evolutionTrends[capability] = {
-        short_term: (Math.random() - 0.5) * 0.2,
-        medium_term: (Math.random() - 0.5) * 0.15,
-        long_term: (Math.random() - 0.5) * 0.1
-      };
-      
-      performanceScores[capability] = {
-        current: Math.random() * 0.3 + 0.7,
-        peak: Math.random() * 0.2 + 0.8,
-        average: Math.random() * 0.4 + 0.6
-      };
-    });
-    
-    updateVisualization();
-  }
-  
-  function generateMilestones() {
-    const milestones = [
-      'Initial capability development',
-      'First successful implementation',
-      'Performance optimization',
-      'Integration with other systems',
-      'Advanced feature implementation'
-    ];
-    
-    return milestones.slice(0, Math.floor(Math.random() * 3) + 2).map((milestone, i) => ({
-      name: milestone,
-      achieved: Math.random() > 0.3,
-      date: Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000, // Within last week
-      impact: Math.random() * 0.5 + 0.3
-    }));
-  }
-  
-  function generateBottlenecks() {
-    const bottlenecks = [
-      'Resource allocation limits',
-      'Data quality constraints',
-      'Integration complexity',
-      'Performance optimization needs',
-      'Training data limitations'
-    ];
-    
-    return bottlenecks.slice(0, Math.floor(Math.random() * 2) + 1).map(bottleneck => ({
-      name: bottleneck,
-      severity: Math.random() * 0.6 + 0.2,
-      impact: Math.random() * 0.4 + 0.3,
-      timeline: `${Math.floor(Math.random() * 7) + 1} days`
-    }));
-  }
-  
-  function generateProjections() {
-    const timeframes = ['1_week', '1_month', '3_months', '6_months'];
-    const projections = {};
-    
-    timeframes.forEach(timeframe => {
-      projections[timeframe] = {
-        level: Math.random() * 0.2 + 0.8,
-        confidence: Math.random() * 0.3 + 0.6
-      };
-    });
-    
-    return projections;
-  }
+  // generateMockData function REMOVED - no mock data fallbacks
+  // generateMilestones function REMOVED
+  // generateBottlenecks function REMOVED  
+  // generateProjections function REMOVED
   
   function updateVisualization() {
     drawRadarChart();

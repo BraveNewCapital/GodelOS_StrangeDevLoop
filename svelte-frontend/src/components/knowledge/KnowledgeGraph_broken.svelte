@@ -293,9 +293,10 @@
         console.log(`✅ Enhanced knowledge graph loaded: ${processedNodes.length} nodes, ${allLinks.length} links (${inferredLinks.length} inferred)`);
         
       } else {
-        // Enhanced fallback data with better semantic relationships
-        graphData = generateEnhancedSampleData();
-        console.log('📊 Using enhanced sample data with semantic relationships');
+        // NO SAMPLE DATA FALLBACK - Show empty state
+        console.warn('⚠️ No backend data available - showing empty graph');
+        graphData = { nodes: [], links: [] };
+        error = "No knowledge graph data available. Please ensure the backend has processed documents.";
       }
       
       updateGraph();
@@ -304,7 +305,8 @@
     } catch (err) {
       console.error('❌ Error loading knowledge graph:', err);
       error = err.message;
-      graphData = generateEnhancedSampleData();
+      // NO SAMPLE DATA FALLBACK - Show error state
+      graphData = { nodes: [], links: [] };
       updateGraph();
       loading = false;
     } finally {
@@ -669,17 +671,17 @@
         
         console.log(`✅ Loaded real knowledge graph: ${processedNodes.length} nodes, ${processedLinks.length} total links (${processedLinks.filter(l => l.generated).length} generated)`);
       } else {
-        // Fallback to sample data
-        console.log('⚠️ No backend data available or empty, using sample data');
-        generateSampleData();
+        // NO FALLBACK TO SAMPLE DATA - Show empty state instead
+        console.warn('⚠️ No backend data available - showing empty state');
+        graphData = { nodes: [], links: [] };
+        error = "No knowledge graph data available. Please ensure the backend is running and has processed some documents.";
       }
       
     } catch (err) {
       console.error('❌ Failed to load knowledge graph data:', err);
       error = err.message;
-      // Use sample data as fallback
-      console.log('🔄 Loading sample data due to API error');
-      generateSampleData();
+      // NO FALLBACK TO SAMPLE DATA - Show error state
+      graphData = { nodes: [], links: [] };
     }
     
     // Always call updateGraph after data is set
@@ -766,91 +768,7 @@
     animate3D();
     }
   
-  function generateSampleData() {
-    try {
-      console.log('🔄 Generating sample knowledge graph data...');
-      
-      // Create sample nodes
-      const sampleNodes = [
-        { id: 'ai', label: 'Artificial Intelligence', category: 'topic', importance: 0.9, confidence: 0.8 },
-        { id: 'ml', label: 'Machine Learning', category: 'concept', importance: 0.8, confidence: 0.9 },
-        { id: 'nn', label: 'Neural Networks', category: 'concept', importance: 0.7, confidence: 0.85 },
-        { id: 'dl', label: 'Deep Learning', category: 'concept', importance: 0.75, confidence: 0.8 },
-        { id: 'nlp', label: 'Natural Language Processing', category: 'concept', importance: 0.7, confidence: 0.75 },
-        { id: 'cv', label: 'Computer Vision', category: 'concept', importance: 0.6, confidence: 0.7 },
-        { id: 'bert', label: 'BERT', category: 'entity', importance: 0.5, confidence: 0.9 },
-        { id: 'gpt', label: 'GPT', category: 'entity', importance: 0.6, confidence: 0.95 },
-        { id: 'transformer', label: 'Transformer', category: 'concept', importance: 0.7, confidence: 0.9 },
-        { id: 'attention', label: 'Attention Mechanism', category: 'concept', importance: 0.6, confidence: 0.85 },
-        { id: 'paper1', label: 'Attention Is All You Need', category: 'document', importance: 0.8, confidence: 0.95 },
-        { id: 'paper2', label: 'BERT Paper', category: 'document', importance: 0.7, confidence: 0.9 }
-      ];
-      
-      // Add timestamp for recency
-      sampleNodes.forEach((node, i) => {
-        node.timestamp = Date.now() - (i * 86400000); // Spread over days
-        node.recency = 1 - (i / sampleNodes.length);
-      });
-      
-      // Create sample links
-      const sampleLinks = [
-        { source: 'ai', target: 'ml', strength: 0.9, type: 'contains' },
-        { source: 'ml', target: 'nn', strength: 0.8, type: 'uses' },
-        { source: 'ml', target: 'dl', strength: 0.7, type: 'includes' },
-        { source: 'nn', target: 'dl', strength: 0.9, type: 'foundation' },
-        { source: 'ai', target: 'nlp', strength: 0.6, type: 'branch' },
-        { source: 'ai', target: 'cv', strength: 0.6, type: 'branch' },
-        { source: 'nlp', target: 'bert', strength: 0.8, type: 'uses' },
-        { source: 'nlp', target: 'gpt', strength: 0.8, type: 'uses' },
-        { source: 'bert', target: 'transformer', strength: 0.9, type: 'based_on' },
-        { source: 'gpt', target: 'transformer', strength: 0.9, type: 'based_on' },
-        { source: 'transformer', target: 'attention', strength: 0.95, type: 'uses' },
-        { source: 'paper1', target: 'transformer', strength: 0.95, type: 'introduces' },
-        { source: 'paper2', target: 'bert', strength: 0.95, type: 'introduces' },
-        { source: 'paper1', target: 'attention', strength: 0.9, type: 'describes' }
-      ];
-      
-      // Filter nodes based on search query
-      if (searchQuery.trim()) {
-        const filtered = sampleNodes.filter(node =>
-          node.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          node.category.toLowerCase().includes(searchQuery.toLowerCase())
-        );
-        
-        const filteredIds = new Set(filtered.map(n => n.id));
-        const filteredLinks = sampleLinks.filter(link =>
-          filteredIds.has(link.source) && filteredIds.has(link.target)
-        );
-        
-        graphData = { nodes: filtered, links: filteredLinks };
-        console.log(`✅ Generated filtered sample data: ${filtered.length} nodes, ${filteredLinks.length} links`);
-      } else {
-        graphData = { nodes: sampleNodes, links: sampleLinks };
-        console.log(`✅ Generated sample data: ${sampleNodes.length} nodes, ${sampleLinks.length} links`);
-      }
-      
-      // Ensure graphData is valid
-      if (!graphData || !graphData.nodes || !graphData.links) {
-        throw new Error('Failed to generate valid graph data');
-      }
-      
-    } catch (error) {
-      console.error('❌ Error generating sample data:', error);
-      // Ultimate fallback - minimal but valid data
-      graphData = {
-        nodes: [
-          { id: 'node1', label: 'Sample Node 1', category: 'concept', importance: 0.5, confidence: 0.5, timestamp: Date.now(), recency: 1.0 },
-          { id: 'node2', label: 'Sample Node 2', category: 'entity', importance: 0.6, confidence: 0.6, timestamp: Date.now(), recency: 0.8 },
-          { id: 'node3', label: 'Sample Node 3', category: 'topic', importance: 0.7, confidence: 0.7, timestamp: Date.now(), recency: 0.6 }
-        ],
-        links: [
-          { source: 'node1', target: 'node2', strength: 0.8, type: 'related' },
-          { source: 'node2', target: 'node3', strength: 0.6, type: 'connected' }
-        ]
-      };
-      console.log('✅ Used minimal fallback data');
-    }
-  }
+  // generateSampleData function removed - no more sample data fallbacks
   
   async function performSearch() {
     if (!searchQuery.trim()) {
@@ -924,12 +842,15 @@
         graphData = { nodes: allNodes, links: searchLinks };
         console.log(`✅ Search visualization: 1 query + ${searchNodes.length} results with ${searchLinks.length} relationships`);
       } else {
-        // Fallback to filtering sample data
-        generateSampleData();
+        // No fallback to sample data - show empty results
+        console.warn('⚠️ No search results available from backend');
+        graphData = { nodes: [], links: [] };
+        error = "No search results found. Please try a different search term or ensure the backend has processed some documents.";
       }
     } catch (error) {
-      console.warn('Search failed, filtering sample data:', error);
-      generateSampleData();
+      console.warn('Search failed:', error);
+      graphData = { nodes: [], links: [] };
+      error = `Search failed: ${error.message}`;
     }
     
     updateGraph();

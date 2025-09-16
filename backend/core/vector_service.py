@@ -265,6 +265,35 @@ class VectorDatabaseService:
         
         return False
     
+    def clear_all(self) -> bool:
+        """
+        Clear all vectors and metadata from the database.
+        
+        Returns:
+            True if clearing was successful
+        """
+        if self.use_production and self.production_db:
+            try:
+                return self.production_db.clear_all()
+            except Exception as e:
+                logger.error(f"Failed to clear database: {e}")
+                return False
+        
+        # Clear legacy store if being used
+        if self.legacy_store:
+            try:
+                # Reset legacy store
+                self.legacy_store.id_map = []
+                self.legacy_store.embeddings = []
+                logger.info("Cleared legacy vector store")
+                return True
+            except Exception as e:
+                logger.error(f"Failed to clear legacy store: {e}")
+                return False
+        
+        logger.warning("No vector database available to clear")
+        return False
+    
     def health_check(self) -> Dict[str, Any]:
         """Perform a health check on the vector database."""
         health = {

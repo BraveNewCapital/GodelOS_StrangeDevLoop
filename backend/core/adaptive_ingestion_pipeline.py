@@ -459,18 +459,47 @@ class AdaptiveIngestionPipeline:
         """Provide preflight estimation for all analysis levels."""
         estimates = {}
         
-        # Sample file to estimate characteristics
-        sample_text = await self._sample_file(file_path, max_chars=2048)
-        sample_tokens = len(sample_text.split()) * 1.3
+        # Extract actual text content for more accurate estimation
+        try:
+            # Use the same text extraction method as actual processing
+            full_text = await self._extract_text(file_path)
+            if not full_text:
+                # Fallback to sampling if full extraction fails
+                full_text = await self._sample_file(file_path, max_chars=8192)
+        except Exception as e:
+            logger.warning(f"Failed to extract full text for estimation, using sample: {e}")
+            full_text = await self._sample_file(file_path, max_chars=8192)
         
-        # Get file size
-        file_size = os.path.getsize(file_path)
-        estimated_total_tokens = (sample_tokens / len(sample_text)) * file_size * 0.8  # Conservative
+        # Calculate actual token count using the same method as chunking
+        estimated_total_tokens = len(full_text.split()) * 1.3  # More conservative multiplier
         
         for level, config in ANALYSIS_CONFIGS.items():
-            # Estimate chunks
-            avg_chunk_tokens = (config.chunk_tokens_min + config.chunk_tokens_max) / 2
-            estimated_chunks = max(1, int(estimated_total_tokens / avg_chunk_tokens))
+            # Create a chunker instance to simulate actual chunking
+            chunker = self.get_chunker(level)
+            
+            # Estimate chunks using actual chunking logic on a sample
+            if len(full_text) > 10000:
+                # For large documents, use representative sample
+                sample_text = full_text[:5000] + full_text[len(full_text)//2:len(full_text)//2+2500] + full_text[-2500:]
+            else:
+                sample_text = full_text
+                
+            # Actually chunk the sample to get realistic count
+            sample_chunks = chunker.chunk_text(sample_text, "sample_doc")
+            sample_tokens = len(sample_text.split()) * 1.3
+            
+            # Extrapolate to full document
+            if sample_tokens > 0:
+                chunks_per_token = len(sample_chunks) / sample_tokens
+                estimated_chunks = max(1, int(estimated_total_tokens * chunks_per_token))
+                
+                # Apply deduplication factor (estimated 10-30% reduction)
+                dedup_factor = 0.8  # Conservative estimate for deduplication impact
+                estimated_chunks = max(1, int(estimated_chunks * dedup_factor))
+            else:
+                # Fallback calculation
+                avg_chunk_tokens = (config.chunk_tokens_min + config.chunk_tokens_max) / 2
+                estimated_chunks = max(1, int(estimated_total_tokens / avg_chunk_tokens))
             
             # Estimate processing time based on model and hardware
             base_time_per_chunk = self._estimate_processing_time(level)
@@ -707,8 +736,18 @@ class AdaptiveIngestionPipeline:
                     model_name=None  # Use default model
                 )
                 
-                if not result.get('success', False):
-                    logger.error(f"Failed to store chunk in vector DB: {result.get('message', 'Unknown error')}")
+                # Handle both boolean and dict returns from vector database
+                if isinstance(result, dict):
+                    success = result.get('success', False)
+                    if not success:
+                        logger.error(f"Failed to store chunk in vector DB: {result.get('message', 'Unknown error')}")
+                        return
+                elif isinstance(result, bool):
+                    if not result:
+                        logger.error(f"Failed to store chunk in vector DB: add_items returned False")
+                        return
+                else:
+                    logger.error(f"Unexpected result type from vector DB: {type(result)}")
                     return
                     
                 logger.debug(f"Stored chunk {chunk.metadata.chunk_id} in vector database")
@@ -797,16 +836,25 @@ class AdaptiveIngestionPipeline:
             }.get(job.analysis_level, 0.7)
             
             for similar_result in similar_results:
+                # Handle both tuple (id, score) and dict formats
+                if isinstance(similar_result, tuple):
+                    result_id, similarity_score = similar_result
+                elif isinstance(similar_result, dict):
+                    result_id = similar_result.get('id')
+                    similarity_score = similar_result.get('similarity_score', similar_result.get('score', 0))
+                else:
+                    logger.warning(f"Unexpected result format: {type(similar_result)}")
+                    continue
+                
                 # Skip self-matches
-                if similar_result['id'] == chunk.metadata.chunk_id:
+                if result_id == chunk.metadata.chunk_id:
                     continue
                     
-                similarity_score = similar_result.get('similarity_score', 0)
                 if similarity_score > similarity_threshold:
                     # Create SIMILAR_TO relationship
                     await self._create_knowledge_relationship(
                         chunk.metadata.concept_id,
-                        similar_result['id'],
+                        result_id,
                         'SIMILAR_TO',
                         similarity_score
                     )

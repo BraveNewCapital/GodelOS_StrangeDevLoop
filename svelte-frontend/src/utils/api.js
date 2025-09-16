@@ -156,6 +156,121 @@ export class GödelOSAPI {
     }
   }
 
+  // Vector DB management functions
+  static async getVectorDbStats() {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/vector-db/stats`, {
+        signal: AbortSignal.timeout(5000)
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      return data?.data || {};
+    } catch (error) {
+      console.warn('Failed to get vector DB stats:', error);
+      return {};
+    }
+  }
+
+  static async clearVectorDb() {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/vector-db/clear?confirm=true`, {
+        method: 'DELETE',
+        signal: AbortSignal.timeout(10000) // Longer timeout for clear operation
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Failed to clear vector DB:', error);
+      throw error; // Re-throw to allow UI to handle the error
+    }
+  }
+
+  static async getVectorDbHealth() {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/vector-db/health`, {
+        signal: AbortSignal.timeout(5000)
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      return data?.data || {};
+    } catch (error) {
+      console.warn('Failed to get vector DB health:', error);
+      return {};
+    }
+  }
+
+  // Enhanced knowledge statistics that combines vector DB and legacy data
+  static async fetchKnowledgeStatisticsEnhanced() {
+    try {
+      console.log('📊 Fetching enhanced knowledge statistics...');
+      
+      // Get both vector DB stats and traditional knowledge stats
+      const [vectorStats, knowledgeStats] = await Promise.all([
+        this.getVectorDbStats().catch(err => {
+          console.warn('Vector DB stats failed:', err);
+          return {};
+        }),
+        this.fetchKnowledgeStatistics().catch(err => {
+          console.warn('Knowledge stats failed:', err);
+          return {};
+        })
+      ]);
+
+      // Combine the statistics, prioritizing vector DB where available
+      const combined = {
+        // Use vector DB total if available, otherwise use traditional count
+        total_items: vectorStats.total_vectors || knowledgeStats.total_items || 0,
+        total_vectors: vectorStats.total_vectors || 0,
+        total_documents: knowledgeStats.total_items || 0,
+        
+        // Vector DB specific metrics
+        vector_models: vectorStats.models || {},
+        storage_size_mb: vectorStats.storage_size_mb || 0,
+        primary_model: vectorStats.primary_model || null,
+        
+        // Traditional knowledge metrics  
+        items_by_type: knowledgeStats.items_by_type || {},
+        items_by_source: knowledgeStats.items_by_source || {},
+        items_by_category: knowledgeStats.items_by_category || {},
+        average_confidence: knowledgeStats.average_confidence || 0.0,
+        quality_distribution: knowledgeStats.quality_distribution || {},
+        recent_imports: knowledgeStats.recent_imports || 0,
+        import_success_rate: knowledgeStats.import_success_rate || 1.0,
+        
+        // Metadata
+        data_sources: {
+          vector_db: !!vectorStats.total_vectors,
+          knowledge_base: !!knowledgeStats.total_items,
+          combined: true
+        },
+        last_updated: new Date().toISOString()
+      };
+
+      console.log('✅ Enhanced knowledge statistics fetched:', combined);
+      return combined;
+    } catch (error) {
+      console.warn('Failed to fetch enhanced knowledge statistics:', error);
+      return {
+        total_items: 0,
+        total_vectors: 0,
+        total_documents: 0,
+        vector_models: {},
+        items_by_type: {},
+        items_by_source: {},
+        items_by_category: {},
+        average_confidence: 0.0,
+        quality_distribution: {},
+        recent_imports: 0,
+        import_success_rate: 1.0,
+        data_sources: { vector_db: false, knowledge_base: false, combined: false }
+      };
+    }
+  }
+
   static async fetchSystemHealth() {
     try {
       const response = await fetch(`${API_BASE_URL}/api/health`, {

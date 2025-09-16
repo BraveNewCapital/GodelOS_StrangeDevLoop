@@ -3,6 +3,7 @@
   import { writable } from 'svelte/store';
   import { fade, slide, scale } from 'svelte/transition';
   import { GödelOSAPI } from '../../utils/api.js';
+  import { API_BASE_URL } from '../../config.js';
 
   // Reactive stores
   let jobs = writable([]);
@@ -55,14 +56,11 @@
 
   onMount(async () => {
     await loadJobs();
-    // Refresh every 2 seconds
-    refreshInterval = setInterval(loadJobs, 2000);
+    // Removed aggressive 2-second polling - use manual refresh or WebSocket events for job updates
   });
 
   onDestroy(() => {
-    if (refreshInterval) {
-      clearInterval(refreshInterval);
-    }
+    // No polling interval to clear - manual refresh only
   });
 
   async function loadJobs() {
@@ -104,7 +102,7 @@
       const formData = new FormData();
       formData.append('file', uploadFile);
       
-      const response = await fetch('/api/import/preflight', {
+      const response = await fetch(`${API_BASE_URL}/api/import/preflight`, {
         method: 'POST',
         body: formData
       });
@@ -135,7 +133,7 @@
       formData.append('file', uploadFile);
       formData.append('analysis_level', $selectedAnalysisLevel);
       
-      const response = await fetch('/api/import/jobs', {
+      const response = await fetch(`${API_BASE_URL}/api/import/jobs`, {
         method: 'POST',
         body: formData
       });

@@ -132,21 +132,22 @@ export const apiHelpers = {
     }
   },
 
-  // Update knowledge state from backend
+  // Update knowledge state from backend with enhanced vector DB integration
   updateKnowledgeFromBackend: async () => {
     try {
       const { GödelOSAPI } = await import('../utils/api.js');
       const [concepts, graphData, statistics] = await Promise.all([
         GödelOSAPI.fetchConcepts(),
         GödelOSAPI.fetchKnowledgeGraph(),
-        GödelOSAPI.fetchKnowledgeStatistics()
+        GödelOSAPI.fetchKnowledgeStatisticsEnhanced() // Use enhanced stats
       ]);
 
       knowledgeState.update(state => ({
         ...state,
         totalConcepts: graphData?.nodes?.length || concepts?.length || 0,
         totalConnections: graphData?.edges?.length || 0,
-        totalDocuments: statistics?.total_items || 0,
+        totalDocuments: statistics?.total_documents || statistics?.total_items || 0,
+        totalVectors: statistics?.total_vectors || 0, // Add vector count
         concepts: concepts || [],
         currentGraph: graphData || { nodes: [], edges: [] },
         recentImports: statistics?.recent_imports || state.recentImports || [],
@@ -181,7 +182,8 @@ export const cognitiveState = writable({
   knowledgeStats: {
     totalConcepts: 0,
     totalConnections: 0,
-    totalDocuments: 0
+    totalDocuments: 0,
+    totalVectors: 0
   },
   
   // Legacy fields for backward compatibility
@@ -205,6 +207,7 @@ export const knowledgeState = writable({
   totalConcepts: 0,
   totalDocuments: 0,
   totalConnections: 0,
+  totalVectors: 0,
   recentImports: [],
   searchResults: [],
   currentGraph: { nodes: [], edges: [] },

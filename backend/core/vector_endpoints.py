@@ -359,3 +359,39 @@ async def delete_backup(backup_name: str):
     except Exception as e:
         logger.error(f"Failed to delete backup: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete backup: {str(e)}")
+
+
+@router.delete("/clear")
+async def clear_database(
+    confirm: bool = False,
+    db: VectorDatabaseService = Depends(get_vector_db)
+):
+    """
+    Clear all vectors and metadata from the database.
+    
+    This is a destructive operation that cannot be undone.
+    Requires confirmation parameter to be True.
+    """
+    if not confirm:
+        raise HTTPException(
+            status_code=400, 
+            detail="This is a destructive operation. Set 'confirm=true' parameter to proceed."
+        )
+    
+    try:
+        success = db.clear_all()
+        
+        if success:
+            return {
+                "status": "success",
+                "message": "All vectors and metadata have been cleared from the database",
+                "timestamp": datetime.now().isoformat()
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to clear database")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to clear database: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to clear database: {str(e)}")

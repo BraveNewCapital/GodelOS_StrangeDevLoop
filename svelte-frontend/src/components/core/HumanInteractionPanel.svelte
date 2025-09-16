@@ -13,29 +13,28 @@
   let interactionMode = 'normal'; // normal, enhanced, diagnostic, chat
   let humanPresenceDetected = false;
   let lastInteractionTime = null;
-  let systemResponseiveness = 100;
+  let systemResponseiveness = 0; // Will be populated from backend
   let cognitiveLoad = 0;
   let attentionFocus = 'idle';
-  let communicationQuality = 95;
-  let understandingLevel = 88;
+  let communicationQuality = 0; // Will be populated from backend
+  let understandingLevel = 0; // Will be populated from backend
   
-  // Critical system indicators
+  // Critical system indicators - all populated from real system metrics
   let cpuUsage = 0;
   let memoryUsage = 0;
-  let networkLatency = 12;
-  let processingSpeed = 150; // operations per second
+  let networkLatency = 0; // Will be measured from actual API calls
+  let processingSpeed = 0; // Will be calculated from real operations
   
-  // Metadiagnostic data
-  let consciousnessLevel = 0.85;
-  let integrationMeasure = 0.76;
-  let attentionAwareness = 0.82;
-  let selfModelCoherence = 0.91;
-  let phenomenalDescriptors = 0;
-  let autonomousGoals = 3;
+  // Metadiagnostic data - all from real cognitive state
+  let consciousnessLevel = 0; // From consciousness engine
+  let integrationMeasure = 0; // From cognitive integration metrics
+  let attentionAwareness = 0; // From attention/awareness coupling
+  let selfModelCoherence = 0; // From self-model analysis
+  let phenomenalDescriptors = 0; // From phenomenal experience data
+  let autonomousGoals = 0; // From autonomous learning system
   
   // Real-time monitoring
   let unsubscribeCognitive, unsubscribeEnhanced;
-  let updateInterval;
 
   onMount(() => {
     // Subscribe to cognitive state changes
@@ -52,7 +51,7 @@
           .filter(v => typeof v === 'number' && !isNaN(v) && isFinite(v) && v >= 0 && v <= 1);
         systemResponseiveness = healthValues.length > 0 
           ? Math.round(healthValues.reduce((a, b) => a + b, 0) / healthValues.length * 100)
-          : 85; // Default to reasonable value
+          : 0; // No fallback - wait for real data
       }
     });
 
@@ -74,39 +73,17 @@
       }
     });
 
-    // Start real-time updates (reduced frequency for performance)
-    if (autoRefresh) {
-      updateInterval = setInterval(updateMetrics, 10000); // Changed from 2s to 10s
-    }
-    
-    // Initial metrics update
-    updateMetrics();
+    // Real-time updates removed - using only actual backend data
+    // updateInterval and updateMetrics() calls REMOVED
   });
 
   onDestroy(() => {
     if (unsubscribeCognitive) unsubscribeCognitive();
     if (unsubscribeEnhanced) unsubscribeEnhanced();
-    if (updateInterval) clearInterval(updateInterval);
   });
 
-  function updateMetrics() {
-    // Simulate real-time system metrics with some variance
-    cpuUsage = Math.max(15, Math.min(95, cpuUsage + (Math.random() - 0.5) * 10));
-    memoryUsage = Math.max(20, Math.min(85, memoryUsage + (Math.random() - 0.5) * 8));
-    networkLatency = Math.max(5, Math.min(100, networkLatency + (Math.random() - 0.5) * 5));
-    processingSpeed = Math.max(50, Math.min(300, processingSpeed + (Math.random() - 0.5) * 20));
-    
-    // Update communication metrics
-    communicationQuality = Math.max(70, Math.min(100, communicationQuality + (Math.random() - 0.5) * 5));
-    understandingLevel = Math.max(60, Math.min(100, understandingLevel + (Math.random() - 0.5) * 6));
-    
-    // Update metadiagnostic data with slight variations
-    consciousnessLevel = Math.max(0.1, Math.min(1.0, consciousnessLevel + (Math.random() - 0.5) * 0.05));
-    integrationMeasure = Math.max(0.1, Math.min(1.0, integrationMeasure + (Math.random() - 0.5) * 0.03));
-    attentionAwareness = Math.max(0.1, Math.min(1.0, attentionAwareness + (Math.random() - 0.5) * 0.04));
-    phenomenalDescriptors = Math.max(0, Math.min(10, phenomenalDescriptors + Math.round((Math.random() - 0.5) * 2)));
-  }
-
+  // updateMetrics function REMOVED - no synthetic metric simulation
+  
   function setInteractionMode(mode) {
     interactionMode = mode;
     // Update UI state to reflect mode change
@@ -143,7 +120,7 @@
   $: overallHealth = (() => {
     const values = [systemResponseiveness, communicationQuality, understandingLevel]
       .filter(v => typeof v === 'number' && !isNaN(v) && isFinite(v));
-    return values.length > 0 ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : 85;
+    return values.length > 0 ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : 0;
   })();
 </script>
 

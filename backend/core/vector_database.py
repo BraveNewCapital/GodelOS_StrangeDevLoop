@@ -197,32 +197,37 @@ class PersistentVectorDatabase:
         logger.info(f"PersistentVectorDatabase initialized with storage at {self.storage_dir}")
     
     def _initialize_embedding_models(self):
-        """Initialize default embedding models with fallback strategies."""
+        """Initialize default embedding models with optimized single-model approach."""
+        # OPTIMIZED: Use single primary model to reduce memory overhead
+        # The distilbert-base-nli-mean-tokens model provides best balance of performance/efficiency
         models_config = [
-            EmbeddingModel(
-                name="sentence-transformers/all-MiniLM-L6-v2",
-                model_path="all-MiniLM-L6-v2",
-                dimension=384,
-                fallback_order=2
-            ),
-            EmbeddingModel(
-                name="sentence-transformers/all-mpnet-base-v2",
-                model_path="all-mpnet-base-v2", 
-                dimension=768,
-                fallback_order=3
-            ),
             EmbeddingModel(
                 name="sentence-transformers/distilbert-base-nli-mean-tokens",
                 model_path="distilbert-base-nli-mean-tokens",
                 dimension=768,
                 is_primary=True,
                 fallback_order=1
+            ),
+            # FALLBACK: Keep one lightweight model for emergency fallback only
+            EmbeddingModel(
+                name="sentence-transformers/all-MiniLM-L6-v2",
+                model_path="all-MiniLM-L6-v2",
+                dimension=384,
+                fallback_order=2,
+                is_available=False  # Only load if primary fails
             )
         ]
         
-        # Test model availability and load with better error handling
+        # Test model availability and load with optimized loading strategy
         network_available = False
+        primary_loaded = False
+        
         for model_config in models_config:
+            # Skip fallback models unless primary fails
+            if not model_config.is_primary and primary_loaded:
+                logger.info(f"Skipping fallback model {model_config.name} - primary model loaded")
+                continue
+                
             try:
                 # Check if model exists in cache first
                 model_cache_path = self.model_cache_dir / model_config.model_path.replace("/", "_")
@@ -242,7 +247,9 @@ class PersistentVectorDatabase:
                         logger.info("Network connectivity confirmed for model downloads")
                     except Exception as net_e:
                         logger.warning(f"No network connectivity for model downloads: {net_e}")
-                        logger.warning("Will attempt to load from cache or use fallback")
+                        if model_config.is_primary:
+                            logger.warning("Primary model unavailable, will try fallback")
+                            continue
                 
                 # Try to load the model (might work from cache even without network)
                 logger.info(f"Loading SentenceTransformer model: {model_config.model_path}")
@@ -255,13 +262,16 @@ class PersistentVectorDatabase:
                 
                 if model_config.is_primary:
                     self.primary_model = model_config.name
+                    primary_loaded = True
                 
-                logger.info(f"Successfully loaded embedding model: {model_config.name} (from {'cache' if cached_model_exists else 'download'})")
+                logger.info(f"✅ Successfully loaded embedding model: {model_config.name}")
+                
+                # If primary loaded successfully, break to avoid loading fallbacks
+                if model_config.is_primary:
+                    break
                 
             except Exception as e:
                 logger.warning(f"Could not load embedding model {model_config.name}: {e}")
-                if "requests.exceptions" in str(type(e)) or "ConnectionError" in str(type(e)):
-                    logger.warning(f"Network issue detected for {model_config.name}, will use fallback")
                 model_config.is_available = False
                 self.embedding_models[model_config.name] = model_config
         
@@ -841,6 +851,50 @@ class PersistentVectorDatabase:
                 stats["total_vectors"] += model_stats["vectors"]
             
             return stats
+    
+    def clear_all(self) -> bool:
+        """
+        Clear all vectors and metadata from the database.
+        
+        Returns:
+            True if clearing was successful
+        """
+        with self.lock:
+            try:
+                logger.info("Clearing all vectors from database...")
+                
+                # Clear all FAISS indices
+                for model_name in list(self.indices.keys()):
+                    try:
+                        index = self.indices[model_name]
+                        if hasattr(index, 'reset'):
+                            index.reset()
+                        # Recreate empty index with same dimension
+                        dimension = self.embedding_models[model_name].dimension
+                        self.indices[model_name] = faiss.IndexFlatL2(dimension)
+                        logger.debug(f"Cleared index for model {model_name}")
+                    except Exception as e:
+                        logger.error(f"Error clearing index for {model_name}: {e}")
+                
+                # Clear all metadata
+                self.metadata.clear()
+                
+                # Clear all ID maps
+                self.id_maps.clear()
+                
+                # Save cleared state to disk
+                for model_name in self.embedding_models.keys():
+                    try:
+                        self._save_to_disk(model_name)
+                    except Exception as e:
+                        logger.error(f"Error saving cleared state for {model_name}: {e}")
+                
+                logger.info("Successfully cleared all vectors from database")
+                return True
+                
+            except Exception as e:
+                logger.error(f"Error clearing database: {e}")
+                return False
     
     def _get_storage_size(self) -> float:
         """Get storage directory size in MB."""
