@@ -158,6 +158,7 @@ class IngestionJob:
     """Represents an ingestion job with progress tracking."""
     job_id: str
     file_path: str
+    file_name: str
     analysis_level: AnalysisLevel
     status: str  # queued, processing, completed, failed, cancelled
     total_chunks: int
@@ -165,6 +166,7 @@ class IngestionJob:
     start_time: float
     estimated_completion_time: Optional[float] = None
     error_message: Optional[str] = None
+    document_id: Optional[str] = None
     
     
 @dataclass
@@ -525,18 +527,24 @@ class AdaptiveIngestionPipeline:
         
         return base_times[level] * cpu_factor * memory_factor
         
-    async def start_ingestion_job(self, file_path: str, analysis_level: AnalysisLevel) -> str:
+    async def start_ingestion_job(self, file_path: str, analysis_level: AnalysisLevel, file_name: Optional[str] = None) -> str:
         """Start a new ingestion job."""
+        if file_name is None:
+            file_name = Path(file_path).name
+            
         job_id = f"job_{int(time.time())}_{hash(file_path) % 10000}"
+        document_id = f"doc_{int(time.time())}_{hash(file_name) % 10000}"
         
         job = IngestionJob(
             job_id=job_id,
             file_path=file_path,
+            file_name=file_name,
             analysis_level=analysis_level,
             status="queued",
             total_chunks=0,
             processed_chunks=0,
-            start_time=time.time()
+            start_time=time.time(),
+            document_id=document_id
         )
         
         self.active_jobs[job_id] = job
@@ -687,57 +695,167 @@ class AdaptiveIngestionPipeline:
     async def _store_chunk(self, chunk: ProcessedChunk, job: IngestionJob):
         """Store chunk in vector database and build knowledge graph."""
         try:
-            # Store in vector database
-            if hasattr(self.vector_database, 'upsert_vector'):
-                await self.vector_database.upsert_vector(
-                    vector_id=chunk.metadata.chunk_id,
-                    vector=chunk.embedding,
-                    metadata=asdict(chunk.metadata),
-                    text=chunk.text
+            # Store in vector database using the correct method
+            if self.vector_database and hasattr(self.vector_database, 'add_items'):
+                # Convert chunk to vector database format
+                items = [(chunk.metadata.chunk_id, chunk.text)]
+                metadata = [chunk.metadata.__dict__]
+                
+                result = self.vector_database.add_items(
+                    items=items,
+                    metadata=metadata,
+                    model_name=None  # Use default model
                 )
                 
+                if not result.get('success', False):
+                    logger.error(f"Failed to store chunk in vector DB: {result.get('message', 'Unknown error')}")
+                    return
+                    
+                logger.debug(f"Stored chunk {chunk.metadata.chunk_id} in vector database")
+            
+            # Create concept in knowledge graph
+            await self._create_knowledge_concept(chunk, job)
+            
             # Build knowledge graph relationships
             await self._build_knowledge_relationships(chunk, job)
             
         except Exception as e:
             logger.error(f"Failed to store chunk {chunk.metadata.chunk_id}: {e}")
             
+    async def _create_knowledge_concept(self, chunk: ProcessedChunk, job: IngestionJob):
+        """Create a knowledge concept for this chunk."""
+        if not hasattr(self, 'knowledge_graph_evolution'):
+            # Initialize knowledge graph if not available
+            try:
+                from backend.core.knowledge_graph_evolution import KnowledgeGraphEvolution
+                self.knowledge_graph_evolution = KnowledgeGraphEvolution()
+            except ImportError:
+                logger.warning("Knowledge graph evolution not available")
+                return
+                
+        try:
+            concept_data = {
+                "name": f"Chunk_{chunk.metadata.chunk_id[:8]}",
+                "description": chunk.text[:200] + "..." if len(chunk.text) > 200 else chunk.text,
+                "type": "document_chunk",
+                "properties": {
+                    "document_id": job.document_id,
+                    "chunk_index": chunk.metadata.chunk_index,
+                    "token_count": chunk.metadata.token_count,
+                    "quality_score": chunk.metadata.quality_score,
+                    "file_name": job.file_name,
+                    "analysis_level": job.analysis_level.value
+                },
+                "confidence": chunk.metadata.quality_score,
+                "embedding": chunk.embedding.tolist() if chunk.embedding is not None else None,
+                "evidence": [f"Extracted from {job.file_name}"]
+            }
+            
+            concept = await self.knowledge_graph_evolution.add_concept(
+                concept_data, auto_connect=False  # We'll handle connections manually
+            )
+            
+            # Store concept ID in chunk metadata for relationship building
+            chunk.metadata.concept_id = concept.id
+            
+            # Track concept mapping in job for later lookups
+            if not hasattr(job, 'chunk_concepts'):
+                job.chunk_concepts = {}
+            job.chunk_concepts[chunk.metadata.chunk_id] = concept.id
+            
+            logger.debug(f"Created knowledge concept {concept.id} for chunk {chunk.metadata.chunk_id}")
+            
+        except Exception as e:
+            logger.error(f"Failed to create knowledge concept for chunk {chunk.metadata.chunk_id}: {e}")
+            
     async def _build_knowledge_relationships(self, chunk: ProcessedChunk, job: IngestionJob):
         """Build knowledge graph relationships from vector similarities."""
-        if not self.vector_database or not hasattr(self.vector_database, 'search_similar'):
+        if not self.vector_database or not hasattr(self.vector_database, 'search'):
+            return
+            
+        if not hasattr(chunk.metadata, 'concept_id'):
+            logger.warning(f"No concept ID for chunk {chunk.metadata.chunk_id}, skipping relationships")
             return
             
         try:
-            # Find similar chunks
+            # Find similar chunks using vector database search
             config = ANALYSIS_CONFIGS[job.analysis_level]
-            similar_chunks = await self.vector_database.search_similar(
-                query_vector=chunk.embedding,
-                top_k=config.top_k,
-                exclude_ids=[chunk.metadata.chunk_id]
+            
+            # Use the chunk text to search for similar content
+            similar_results = self.vector_database.search(
+                query_text=chunk.text,
+                k=config.top_k,
+                similarity_threshold=0.3  # Lower threshold for initial search
             )
             
-            # Create relationships based on similarity threshold
-            similarity_threshold = 0.7  # Adjust based on analysis level
+            # Filter out self and create relationships
+            relationship_count = 0
+            similarity_threshold = {
+                AnalysisLevel.FAST: 0.6,
+                AnalysisLevel.BALANCED: 0.7, 
+                AnalysisLevel.DEEP: 0.8
+            }.get(job.analysis_level, 0.7)
             
-            for similar_chunk in similar_chunks:
-                if similar_chunk.get('score', 0) > similarity_threshold:
+            for similar_result in similar_results:
+                # Skip self-matches
+                if similar_result['id'] == chunk.metadata.chunk_id:
+                    continue
+                    
+                similarity_score = similar_result.get('similarity_score', 0)
+                if similarity_score > similarity_threshold:
                     # Create SIMILAR_TO relationship
                     await self._create_knowledge_relationship(
-                        chunk.metadata.chunk_id,
-                        similar_chunk['id'],
+                        chunk.metadata.concept_id,
+                        similar_result['id'],
                         'SIMILAR_TO',
-                        score=similar_chunk['score']
+                        similarity_score
                     )
+                    relationship_count += 1
+                    
+                    # Limit relationships to avoid graph explosion
+                    if relationship_count >= 5:
+                        break
+                    
+            logger.debug(f"Created {relationship_count} relationships for chunk {chunk.metadata.chunk_id}")
                     
         except Exception as e:
             logger.error(f"Failed to build relationships for chunk {chunk.metadata.chunk_id}: {e}")
             
-    async def _create_knowledge_relationship(self, source_id: str, target_id: str, 
-                                           relation_type: str, score: float):
-        """Create a knowledge graph relationship."""
-        # This would integrate with the existing knowledge graph system
-        # For now, just log the relationship
-        logger.debug(f"Created relationship: {source_id} --{relation_type}:{score:.3f}--> {target_id}")
+    async def _create_knowledge_relationship(self, source_concept_id: str, target_chunk_id: str, 
+                                           relation_type: str, strength: float):
+        """Create a knowledge graph relationship between concepts."""
+        if not hasattr(self, 'knowledge_graph_evolution'):
+            return
+            
+        try:
+            # Find the target concept ID from the chunk ID
+            target_concept_id = await self._find_concept_by_chunk_id(target_chunk_id)
+            if not target_concept_id:
+                logger.debug(f"Could not find target concept for chunk {target_chunk_id}")
+                return
+                
+            from backend.core.knowledge_graph_evolution import RelationshipType
+            
+            relationship = await self.knowledge_graph_evolution.create_relationship(
+                source_id=source_concept_id,
+                target_id=target_concept_id,
+                relationship_type=RelationshipType.SIMILAR_TO,
+                strength=min(strength, 1.0),  # Ensure strength is <= 1.0
+                evidence=[f"Vector similarity: {strength:.3f}"]
+            )
+            
+            logger.debug(f"Created knowledge relationship: {source_concept_id} --{relation_type}:{strength:.3f}--> {target_concept_id}")
+            
+        except Exception as e:
+            logger.error(f"Failed to create knowledge relationship: {e}")
+            
+    async def _find_concept_by_chunk_id(self, chunk_id: str) -> Optional[str]:
+        """Find knowledge concept ID by chunk ID."""
+        # Search through active jobs to find the concept ID
+        for job in self.active_jobs.values():
+            if hasattr(job, 'chunk_concepts') and chunk_id in job.chunk_concepts:
+                return job.chunk_concepts[chunk_id]
+        return None
         
     def get_job_status(self, job_id: str) -> Optional[Dict[str, Any]]:
         """Get current job status and progress."""
