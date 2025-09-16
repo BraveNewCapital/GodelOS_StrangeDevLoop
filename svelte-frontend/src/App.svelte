@@ -75,6 +75,7 @@
   let showStreamMonitorModal = false;
   let showAutonomousLearningModal = false;
   let showTransparencyModal = false;
+  let showConsciousnessModal = false;
   
   onMount(async () => {
     try {
@@ -230,6 +231,14 @@
           description: 'Unified cognitive enhancement overview',
           component: EnhancedCognitiveDashboard,
           featured: true
+        },
+        consciousness: {
+          icon: '🧠',
+          title: 'Unified Consciousness',
+          description: 'Real-time consciousness state and emergence monitoring',
+          modal: 'consciousness',
+          featured: true,
+          badge: 'BREAKTHROUGH'
         },
         stream: {
           icon: '🌊',
@@ -653,6 +662,8 @@
                 showCognitiveStateModal = true;
               } else if (viewConfig[activeView].modal === 'stream') {
                 showStreamMonitorModal = true;
+              } else if (viewConfig[activeView].modal === 'consciousness') {
+                showConsciousnessModal = true;
               } else if (viewConfig[activeView].modal === 'autonomous') {
                 showAutonomousLearningModal = true;
               } else if (viewConfig[activeView].modal === 'transparency') {
@@ -866,6 +877,30 @@
       {:catch error}
         <div class="error-container">
           <p>Failed to load Transparency Dashboard: {error.message}</p>
+        </div>
+      {/await}
+    {/if}
+  </Modal>
+
+  <Modal 
+    bind:show={showConsciousnessModal} 
+    title="🧠 Unified Consciousness Dashboard"
+    size="fullscreen"
+    on:close={() => showConsciousnessModal = false}
+  >
+    {#if showConsciousnessModal}
+      {#await import('./components/UnifiedConsciousnessDashboard.svelte')}
+        <div class="loading-container">
+          <div class="loading-spinner"></div>
+          <p>Initializing consciousness monitoring systems...</p>
+          <p class="consciousness-loading-subtitle">🧠 Connecting to unified consciousness stream...</p>
+        </div>
+      {:then module}
+        <svelte:component this={module.default} />
+      {:catch error}
+        <div class="error-container">
+          <p>Failed to load Unified Consciousness Dashboard: {error.message}</p>
+          <p>⚠️ Consciousness monitoring temporarily unavailable</p>
         </div>
       {/await}
     {/if}
@@ -2316,5 +2351,42 @@
     background: rgba(255, 107, 107, 0.1);
     border-radius: 8px;
     margin: 1rem;
+  }
+
+  /* Consciousness-specific styles */
+  .consciousness-loading-subtitle {
+    font-size: 0.9rem;
+    color: #00d4ff;
+    margin-top: 0.5rem;
+    animation: consciousness-pulse 2s infinite;
+  }
+
+  @keyframes consciousness-pulse {
+    0%, 100% { opacity: 1; color: #00d4ff; }
+    50% { opacity: 0.7; color: #7b2cbf; }
+  }
+
+  /* Consciousness navigation item styling */
+  .nav-item[data-view="consciousness"] {
+    background: linear-gradient(135deg, rgba(0, 212, 255, 0.1), rgba(123, 44, 191, 0.1));
+    border: 1px solid rgba(0, 212, 255, 0.3);
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.2);
+  }
+
+  .nav-item[data-view="consciousness"]:hover {
+    background: linear-gradient(135deg, rgba(0, 212, 255, 0.2), rgba(123, 44, 191, 0.2));
+    box-shadow: 0 0 30px rgba(0, 212, 255, 0.4);
+    transform: translateY(-2px);
+  }
+
+  .nav-item[data-view="consciousness"] .badge {
+    background: linear-gradient(45deg, #ff006e, #7b2cbf);
+    color: white;
+    animation: breakthrough-glow 2s infinite;
+  }
+
+  @keyframes breakthrough-glow {
+    0%, 100% { box-shadow: 0 0 10px rgba(255, 0, 110, 0.5); }
+    50% { box-shadow: 0 0 20px rgba(255, 0, 110, 0.8); }
   }
 </style>
