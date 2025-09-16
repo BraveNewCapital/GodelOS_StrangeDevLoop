@@ -484,7 +484,7 @@ class EnhancedCognitiveStateManager {
     // Normalize event for UI consumers
     const normalized = (() => {
       const baseType = event?.type || event?.event_type;
-      const data = event?.data || event?.details || {};
+      let data = event?.data || event?.details || {};
       
       // Extract meaningful content based on event type and structure
       let content = '';

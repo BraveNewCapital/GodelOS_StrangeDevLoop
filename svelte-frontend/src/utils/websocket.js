@@ -88,25 +88,6 @@ async function loadInitialData() {
   }));
   
   console.log('✅ Initial data loaded');
-    nodes.forEach(node => {
-      if (node.properties?.source_item_id) {
-        uniqueDocuments.add(node.properties.source_item_id);
-      }
-    });
-    
-    knowledgeState.update(state => ({
-      ...state,
-      totalDocuments: uniqueDocuments.size
-    }));
-  }
-  
-  // Fetch system health
-  const healthData = await fetchFromAPI('/api/health');
-  if (healthData) {
-    updateSystemHealthFromAPI(healthData);
-  }
-  
-  console.log('✅ Initial data loaded');
 }
 
 // Utility function to safely convert a value to a valid number between 0 and 1

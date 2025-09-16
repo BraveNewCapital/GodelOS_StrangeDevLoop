@@ -257,11 +257,6 @@ export const systemHealthScore = derived(
 // Active agents count (for compatibility)
 export const activeAgents = derived(
   cognitiveState,
-  $state => $state.agenticProcesses?.length || $state.daemonThreads?.length || 0
-);
-
-export const activeAgents = derived(
-  cognitiveState,
   $state => {
     // Use direct active_agents count from backend if available
     if (typeof $state.active_agents === 'number' && !isNaN($state.active_agents)) {
@@ -270,24 +265,6 @@ export const activeAgents = derived(
     // Fallback to counting active agentic processes
     if (!Array.isArray($state.agenticProcesses)) return 0;
     return $state.agenticProcesses.filter(agent => agent && agent.status === 'active').length;
-  }
-);
-
-export const systemHealthOverall = derived(
-  cognitiveState,
-  $state => {
-    const health = $state.systemHealth;
-    const values = Object.values(health).filter(val => typeof val === 'number' && !isNaN(val) && isFinite(val));
-    return values.length > 0 ? values.reduce((sum, val) => sum + val, 0) / values.length : 0.0;
-  }
-);
-
-export const systemHealthScore = derived(
-  cognitiveState,
-  $state => {
-    const health = $state.systemHealth;
-    const values = Object.values(health).filter(val => typeof val === 'number' && !isNaN(val) && isFinite(val));
-    return values.length > 0 ? values.reduce((sum, val) => sum + val, 0) / values.length : 0.0;
   }
 );
 

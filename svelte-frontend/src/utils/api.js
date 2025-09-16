@@ -9,6 +9,61 @@ import { API_BASE_URL } from '../config.js';
 console.log('🔗 GödelOS API connecting to:', API_BASE_URL);
 
 export class GödelOSAPI {
+  // Generic HTTP methods
+  static async get(endpoint, options = {}) {
+    try {
+      const url = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint}`;
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          ...options.headers
+        },
+        signal: AbortSignal.timeout(options.timeout || 5000),
+        ...options
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error(`GET ${endpoint} failed:`, error);
+      throw error;
+    }
+  }
+
+  static async post(endpoint, data = null, options = {}) {
+    try {
+      const url = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...options.headers
+        },
+        body: data ? JSON.stringify(data) : null,
+        signal: AbortSignal.timeout(options.timeout || 10000),
+        ...options
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        return await response.json();
+      } else {
+        return await response.text();
+      }
+    } catch (error) {
+      console.error(`POST ${endpoint} failed:`, error);
+      throw error;
+    }
+  }
+
   // Knowledge Graph API - Use unified dynamic graph endpoint
   static async getKnowledgeGraph() {
     try {

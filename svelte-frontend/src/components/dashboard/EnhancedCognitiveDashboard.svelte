@@ -159,9 +159,6 @@
                 };
             }
         }, 3000);
-                };
-            }
-        }, 3000);
     });
     
     function startAutoRefresh() {
