@@ -144,6 +144,18 @@ class WebSocketManager:
             }
         await self.broadcast(message)
     
+    async def broadcast_consciousness_update(self, consciousness_data: dict):
+        """Broadcast consciousness update to all connected clients"""
+        try:
+            message = {
+                "type": "consciousness_update",
+                "timestamp": consciousness_data.get("timestamp", time.time()),
+                "data": consciousness_data
+            }
+            await self.broadcast(message)
+        except Exception as e:
+            logger.error(f"Error broadcasting consciousness update: {e}")
+    
     def has_connections(self) -> bool:
         return len(self.active_connections) > 0
 
@@ -448,6 +460,10 @@ async def initialize_core_services():
             
             await unified_consciousness_engine.initialize_components()
             logger.info("✅ Unified consciousness engine initialized successfully")
+            
+            # Set the consciousness engine reference in the enhanced websocket manager for real-time data
+            if hasattr(enhanced_websocket_manager, 'set_consciousness_engine'):
+                enhanced_websocket_manager.set_consciousness_engine(unified_consciousness_engine)
             
             # Start the consciousness loop
             await unified_consciousness_engine.start_consciousness_loop()

@@ -26,8 +26,7 @@ FRONTEND_TYPE=${GODELOS_FRONTEND_TYPE:-auto}
 # Directories
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$SCRIPT_DIR/backend"
-FRONTEND_HTML_DIR="$SCRIPT_DIR/godelos-frontend"
-FRONTEND_SVELTE_DIR="$SCRIPT_DIR/svelte-frontend"
+FRONTEND_DIR="$SCRIPT_DIR/svelte-frontend"
 LOGS_DIR="$SCRIPT_DIR/logs"
 
 # Auto-detect frontend type
@@ -60,7 +59,6 @@ show_help() {
     echo -e "${YELLOW}Options:${NC}"
     echo "  --backend-only         Start only the backend server"
     echo "  --frontend-only        Start only the frontend server"
-    echo "  --html-frontend        Force use HTML frontend (godelos-frontend)"
     echo "  --svelte-frontend      Force use Svelte frontend (svelte-frontend)"
     echo "  --dev                  Development mode (auto-reload)"
     echo "  --debug                Debug mode with verbose logging"
@@ -115,38 +113,12 @@ command_exists() {
 
 # Detect and set frontend type
 detect_frontend() {
-    if [ "$FRONTEND_TYPE" = "html" ] || [ "$FRONTEND_TYPE" = "HTML" ]; then
-        FRONTEND_DIR="$FRONTEND_HTML_DIR"
-        DETECTED_FRONTEND_TYPE="html"
-    elif [ "$FRONTEND_TYPE" = "svelte" ] || [ "$FRONTEND_TYPE" = "SVELTE" ]; then
-        FRONTEND_DIR="$FRONTEND_SVELTE_DIR"
+    # Default to Svelte frontend as per project structure
+    if [ -d "$FRONTEND_DIR" ] && [ -f "$FRONTEND_DIR/package.json" ]; then
         DETECTED_FRONTEND_TYPE="svelte"
     else
-        # Auto-detect based on what's available and preferred
-        if [ -d "$FRONTEND_SVELTE_DIR" ] && [ -f "$FRONTEND_SVELTE_DIR/package.json" ]; then
-            # Check if node_modules exists (dependencies installed)
-            if [ -d "$FRONTEND_SVELTE_DIR/node_modules" ] || command_exists npm; then
-                FRONTEND_DIR="$FRONTEND_SVELTE_DIR"
-                DETECTED_FRONTEND_TYPE="svelte"
-            fi
-        fi
-        
-        # Fallback to HTML frontend
-        if [ -z "$FRONTEND_DIR" ] && [ -d "$FRONTEND_HTML_DIR" ] && [ -f "$FRONTEND_HTML_DIR/index.html" ]; then
-            FRONTEND_DIR="$FRONTEND_HTML_DIR"
-            DETECTED_FRONTEND_TYPE="html"
-        fi
-        
-        # Final fallback
-        if [ -z "$FRONTEND_DIR" ]; then
-            if [ -d "$FRONTEND_SVELTE_DIR" ]; then
-                FRONTEND_DIR="$FRONTEND_SVELTE_DIR"
-                DETECTED_FRONTEND_TYPE="svelte"
-            elif [ -d "$FRONTEND_HTML_DIR" ]; then
-                FRONTEND_DIR="$FRONTEND_HTML_DIR"
-                DETECTED_FRONTEND_TYPE="html"
-            fi
-        fi
+        log_error "Svelte frontend not found at $FRONTEND_DIR"
+        exit 1
     fi
 }
 
@@ -231,28 +203,18 @@ check_requirements() {
     detect_frontend
     
     if [ -z "$FRONTEND_DIR" ] || [ ! -d "$FRONTEND_DIR" ]; then
-        log_error "No suitable frontend found"
-        log_info "Available options:"
-        [ -d "$FRONTEND_HTML_DIR" ] && log_info "  - HTML Frontend: $FRONTEND_HTML_DIR"
-        [ -d "$FRONTEND_SVELTE_DIR" ] && log_info "  - Svelte Frontend: $FRONTEND_SVELTE_DIR"
+        log_error "Svelte frontend not found at $FRONTEND_DIR"
         exit 1
     fi
     
-    # Validate frontend based on type
-    if [ "$DETECTED_FRONTEND_TYPE" = "html" ]; then
-        if [ ! -f "$FRONTEND_DIR/index.html" ]; then
-            log_error "HTML frontend index.html not found"
-            exit 1
-        fi
-    elif [ "$DETECTED_FRONTEND_TYPE" = "svelte" ]; then
-        if [ ! -f "$FRONTEND_DIR/package.json" ]; then
-            log_error "Svelte frontend package.json not found"
-            exit 1
-        fi
+    # Validate frontend
+    if [ ! -f "$FRONTEND_DIR/package.json" ]; then
+        log_error "Svelte frontend package.json not found"
+        exit 1
     fi
     
     log_success "All required files found"
-    log_success "Frontend type: $DETECTED_FRONTEND_TYPE ($FRONTEND_DIR)"
+    log_success "Frontend type: svelte ($FRONTEND_DIR)"
     
     # Check ports
     if port_in_use $BACKEND_PORT; then
@@ -291,7 +253,7 @@ install_dependencies() {
         log_success "godelos_venv activated"
     fi
     
-    # Also create backend/venv for backward compatibility
+    # Create backend/venv for backward compatibility if needed
     if [ ! -d "$BACKEND_DIR/venv" ] && [ -z "$VIRTUAL_ENV" ]; then
         log_step "Creating backend Python virtual environment for compatibility..."
         cd "$BACKEND_DIR"
@@ -365,22 +327,18 @@ install_dependencies() {
         "textract==1.6.4" || true
     
     # Frontend dependencies
-    if [ "$DETECTED_FRONTEND_TYPE" = "svelte" ]; then
-        log_step "Installing Svelte frontend dependencies..."
-        if ! command_exists npm; then
-            log_warning "npm not found - Svelte frontend requires Node.js and npm"
-            log_info "Please install Node.js from https://nodejs.org/"
-            log_info "Falling back to HTML frontend"
-            FRONTEND_DIR="$FRONTEND_HTML_DIR"
-            DETECTED_FRONTEND_TYPE="html"
-        else
-            cd "$FRONTEND_DIR"
-            # Clean install to avoid version conflicts
-            rm -rf node_modules package-lock.json 2>/dev/null || true
-            npm install --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
-            log_success "Svelte dependencies installed"
-            cd "$SCRIPT_DIR"
-        fi
+    log_step "Installing Svelte frontend dependencies..."
+    if ! command_exists npm; then
+        log_error "npm not found - Svelte frontend requires Node.js and npm"
+        log_info "Please install Node.js from https://nodejs.org/"
+        exit 1
+    else
+        cd "$FRONTEND_DIR"
+        # Clean install to avoid version conflicts
+        rm -rf node_modules package-lock.json 2>/dev/null || true
+        npm install --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
+        log_success "Svelte dependencies installed"
+        cd "$SCRIPT_DIR"
     fi
     
     # Verify critical Python dependencies including ML/NLP components
@@ -682,35 +640,24 @@ EOF
 
 # Start frontend
 start_frontend() {
-    # Detect frontend type if not already done
-    if [ -z "$DETECTED_FRONTEND_TYPE" ]; then
-        detect_frontend
-    fi
-    
     # Configure frontend for backend connection
     configure_frontend
     
-    log_step "Starting $DETECTED_FRONTEND_TYPE frontend server on port $FRONTEND_PORT..."
+    log_step "Starting svelte frontend server on port $FRONTEND_PORT..."
     
     cd "$FRONTEND_DIR"
     
-    if [ "$DETECTED_FRONTEND_TYPE" = "svelte" ]; then
-        # Start Svelte dev server
-        if [ "$DEBUG_MODE" = "true" ] || [ "$DEV_MODE" = "true" ]; then
-            VITE_BACKEND_PORT=$BACKEND_PORT npm run dev -- --host $FRONTEND_HOST --port $FRONTEND_PORT > "$LOGS_DIR/frontend.log" 2>&1 &
-        else
-            # Build and serve for production
-            log_step "Building Svelte frontend with backend config..."
-            VITE_BACKEND_PORT=$BACKEND_PORT npm run build
-            log_step "Starting Svelte preview server..."
-            npm run preview -- --host $FRONTEND_HOST --port $FRONTEND_PORT > "$LOGS_DIR/frontend.log" 2>&1 &
-        fi
-        FRONTEND_PID=$!
+    # Start Svelte dev server
+    if [ "$DEBUG_MODE" = "true" ] || [ "$DEV_MODE" = "true" ]; then
+        VITE_BACKEND_PORT=$BACKEND_PORT npm run dev -- --host $FRONTEND_HOST --port $FRONTEND_PORT > "$LOGS_DIR/frontend.log" 2>&1 &
     else
-        # Start simple HTTP server for HTML frontend
-        python3 -m http.server $FRONTEND_PORT --bind $FRONTEND_HOST > "$LOGS_DIR/frontend.log" 2>&1 &
-        FRONTEND_PID=$!
+        # Build and serve for production
+        log_step "Building Svelte frontend with backend config..."
+        VITE_BACKEND_PORT=$BACKEND_PORT npm run build
+        log_step "Starting Svelte preview server..."
+        npm run preview -- --host $FRONTEND_HOST --port $FRONTEND_PORT > "$LOGS_DIR/frontend.log" 2>&1 &
     fi
+    FRONTEND_PID=$!
     
     echo $FRONTEND_PID > "$LOGS_DIR/frontend.pid"
     
@@ -722,17 +669,17 @@ start_frontend() {
     
     while [ $attempts -lt $max_attempts ]; do
         if port_in_use $FRONTEND_PORT; then
-            log_success "$DETECTED_FRONTEND_TYPE frontend server started (PID: $FRONTEND_PID)"
+            log_success "svelte frontend server started (PID: $FRONTEND_PID)"
             return 0
         fi
         sleep 1
         attempts=$((attempts + 1))
         if [ $((attempts % 3)) -eq 0 ]; then
-            echo -ne "${YELLOW}  Waiting for $DETECTED_FRONTEND_TYPE frontend... ${attempts}/${max_attempts}\r${NC}"
+            echo -ne "${YELLOW}  Waiting for svelte frontend... ${attempts}/${max_attempts}\r${NC}"
         fi
     done
     
-    log_error "$DETECTED_FRONTEND_TYPE frontend failed to start within ${max_attempts} seconds"
+    log_error "svelte frontend failed to start within ${max_attempts} seconds"
     log_info "Check logs: tail -f $LOGS_DIR/frontend.log"
     return 1
 }

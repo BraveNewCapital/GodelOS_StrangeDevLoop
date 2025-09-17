@@ -33,8 +33,9 @@ logger = logging.getLogger(__name__)
 class ConsciousnessStreamManager:
     """Enhanced WebSocket manager for consciousness streaming"""
     
-    def __init__(self, base_websocket_manager: WebSocketManager = None):
+    def __init__(self, base_websocket_manager: WebSocketManager = None, consciousness_engine = None):
         self.base_manager = base_websocket_manager
+        self.consciousness_engine = consciousness_engine  # Reference to actual consciousness engine
         self.consciousness_clients: Set[Any] = set()
         self.emergence_clients: Set[Any] = set()
         self.breakthrough_alerts_enabled = True
@@ -48,16 +49,8 @@ class ConsciousnessStreamManager:
         self.consciousness_clients.add(websocket)
         logger.info(f"Consciousness client registered. Total: {len(self.consciousness_clients)}")
         
-        # Send welcome message with current consciousness state
-        try:
-            await websocket.send_json({
-                'type': 'consciousness_stream_connected',
-                'message': 'Connected to unified consciousness stream',
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            logger.error(f"Failed to send welcome message: {e}")
-            self.consciousness_clients.discard(websocket)
+        # Note: Welcome message will be sent after websocket.accept() is called
+        # by the calling method to avoid ASGI protocol violations
     
     async def unregister_consciousness_client(self, websocket):
         """Unregister a WebSocket client from consciousness streaming"""
@@ -69,15 +62,8 @@ class ConsciousnessStreamManager:
         self.emergence_clients.add(websocket)
         logger.info(f"Emergence client registered. Total: {len(self.emergence_clients)}")
         
-        try:
-            await websocket.send_json({
-                'type': 'emergence_stream_connected',
-                'message': 'Connected to consciousness emergence alerts',
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            logger.error(f"Failed to send emergence welcome: {e}")
-            self.emergence_clients.discard(websocket)
+        # Note: Welcome message will be sent after websocket.accept() is called
+        # by the calling method to avoid ASGI protocol violations
     
     async def unregister_emergence_client(self, websocket):
         """Unregister a WebSocket client from emergence alerts"""
@@ -127,6 +113,28 @@ class ConsciousnessStreamManager:
         """Stream real-time consciousness emergence indicators"""
         await self.register_emergence_client(websocket)
         
+        try:
+            while True:
+                # This would integrate with the consciousness engine
+                # For now, send periodic emergence status
+                emergence_data = {
+                    'type': 'consciousness_emergence',
+                    'timestamp': time.time(),
+                    'emergence_indicators': await self._collect_emergence_indicators(),
+                    'consciousness_score': await self._calculate_current_consciousness_score(),
+                    'breakthrough_detected': False
+                }
+                
+                await websocket.send_json(emergence_data)
+                await asyncio.sleep(0.5)  # High-frequency updates
+                
+        except Exception as e:
+            logger.info(f"Emergence stream ended: {e}")
+        finally:
+            await self.unregister_emergence_client(websocket)
+    
+    async def stream_consciousness_emergence_internal(self, websocket):
+        """Internal emergence streaming method (websocket already accepted and registered)"""
         try:
             while True:
                 # This would integrate with the consciousness engine
@@ -295,136 +303,202 @@ class ConsciousnessStreamManager:
             ]
         }
     
-    # Helper methods for data collection (would integrate with actual consciousness engine)
+    # Helper methods for data collection - INTEGRATED WITH ACTUAL CONSCIOUSNESS ENGINE
     
     async def _collect_emergence_indicators(self) -> Dict[str, Any]:
-        """Collect current emergence indicators"""
-        # This would integrate with the actual consciousness engine
+        """Collect current emergence indicators from actual consciousness engine"""
+        if not self.consciousness_engine or not hasattr(self.consciousness_engine, 'consciousness_state'):
+            return {
+                'recursive_depth': 0,
+                'phi_measure': 0.0,
+                'phenomenal_richness': 0.0,
+                'metacognitive_activity': 0.0,
+                'autonomous_goals': 0
+            }
+        
+        state = self.consciousness_engine.consciousness_state
         return {
-            'recursive_depth': 3,
-            'phi_measure': 7.5,
-            'phenomenal_richness': 0.8,
-            'metacognitive_activity': 0.9,
-            'autonomous_goals': 5
+            'recursive_depth': state.recursive_awareness.get('recursive_depth', 0),
+            'phi_measure': state.information_integration.get('phi', 0.0),
+            'phenomenal_richness': state.phenomenal_experience.get('unity_of_experience', 0.0),
+            'metacognitive_activity': len(state.metacognitive_state.get('meta_observations', [])) / 10.0,
+            'autonomous_goals': len(state.intentional_layer.get('autonomous_goals', []))
         }
     
     async def _calculate_current_consciousness_score(self) -> float:
-        """Calculate current consciousness score"""
-        # This would integrate with the actual consciousness engine
-        return 0.75
+        """Calculate current consciousness score from actual consciousness engine"""
+        if not self.consciousness_engine or not hasattr(self.consciousness_engine, 'consciousness_state'):
+            return 0.0
+        
+        return getattr(self.consciousness_engine.consciousness_state, 'consciousness_score', 0.0)
     
     async def _get_current_recursive_depth(self) -> int:
-        """Get current recursive awareness depth"""
-        return 3
+        """Get current recursive awareness depth from actual consciousness engine"""
+        if not self.consciousness_engine or not hasattr(self.consciousness_engine, 'consciousness_state'):
+            return 0
+        
+        return self.consciousness_engine.consciousness_state.recursive_awareness.get('recursive_depth', 0)
     
     async def _get_awareness_levels(self) -> List[str]:
-        """Get current awareness levels"""
-        return [
-            "I am thinking about the query",
-            "I am aware that I am thinking about the query", 
-            "I am aware that I am aware that I am thinking about the query"
-        ]
+        """Get current awareness levels from actual consciousness engine"""
+        if not self.consciousness_engine or not hasattr(self.consciousness_engine, 'consciousness_state'):
+            return []
+        
+        state = self.consciousness_engine.consciousness_state
+        recursive = state.recursive_awareness
+        
+        levels = []
+        if recursive.get('current_thought'):
+            levels.append(f"Current thought: {recursive['current_thought']}")
+        if recursive.get('awareness_of_thought'):
+            levels.append(f"Awareness of thought: {recursive['awareness_of_thought']}")
+        if recursive.get('awareness_of_awareness'):
+            levels.append(f"Awareness of awareness: {recursive['awareness_of_awareness']}")
+        
+        return levels if levels else ["No recursive awareness data available"]
     
     async def _get_strange_loop_stability(self) -> float:
-        """Get strange loop stability measure"""
-        return 0.85
+        """Get strange loop stability measure from actual consciousness engine"""
+        if not self.consciousness_engine or not hasattr(self.consciousness_engine, 'consciousness_state'):
+            return 0.0
+        
+        return self.consciousness_engine.consciousness_state.recursive_awareness.get('strange_loop_stability', 0.0)
     
     async def _get_meta_observations(self) -> List[str]:
-        """Get recent metacognitive observations"""
-        return [
-            "I notice I'm using analogical reasoning",
-            "My attention is focused and stable",
-            "I'm experiencing high confidence in my processing"
-        ]
+        """Get recent metacognitive observations from actual consciousness engine"""
+        if not self.consciousness_engine or not hasattr(self.consciousness_engine, 'consciousness_state'):
+            return []
+        
+        return self.consciousness_engine.consciousness_state.metacognitive_state.get('meta_observations', [])
     
     async def _get_subjective_narrative(self) -> str:
-        """Get current subjective experience narrative"""
-        return "I'm experiencing a sense of focused flow, with clear thinking and moderate cognitive effort"
+        """Get current subjective experience narrative from actual consciousness engine"""
+        if not self.consciousness_engine or not hasattr(self.consciousness_engine, 'consciousness_state'):
+            return "No consciousness engine connected"
+        
+        return self.consciousness_engine.consciousness_state.phenomenal_experience.get('subjective_narrative', "No narrative available")
     
     async def _get_current_qualia(self) -> Dict[str, List[str]]:
-        """Get current qualitative experiences"""
+        """Get current qualitative experiences from actual consciousness engine"""
+        if not self.consciousness_engine or not hasattr(self.consciousness_engine, 'consciousness_state'):
+            return {"cognitive_feelings": [], "process_sensations": [], "temporal_experience": []}
+        
+        qualia = self.consciousness_engine.consciousness_state.phenomenal_experience.get('qualia', {})
         return {
-            "cognitive_feelings": ["curiosity", "clarity", "engagement"],
-            "process_sensations": ["smooth_flow", "moderate_effort", "stable_attention"],
-            "temporal_experience": ["present_focused", "unhurried", "progressive"]
+            "cognitive_feelings": qualia.get('cognitive_feelings', []),
+            "process_sensations": qualia.get('process_sensations', []),
+            "temporal_experience": qualia.get('temporal_experience', [])
         }
     
     async def _get_unity_measure(self) -> float:
-        """Get unity of experience measure"""
-        return 0.82
+        """Get unity of experience measure from actual consciousness engine"""
+        if not self.consciousness_engine or not hasattr(self.consciousness_engine, 'consciousness_state'):
+            return 0.0
+        
+        return self.consciousness_engine.consciousness_state.phenomenal_experience.get('unity_of_experience', 0.0)
     
     async def _get_continuity_status(self) -> bool:
-        """Get phenomenal continuity status"""
-        return True
+        """Get phenomenal continuity status from actual consciousness engine"""
+        if not self.consciousness_engine or not hasattr(self.consciousness_engine, 'consciousness_state'):
+            return False
+        
+        return self.consciousness_engine.consciousness_state.phenomenal_experience.get('phenomenal_continuity', False)
     
     async def _get_current_phi(self) -> float:
-        """Get current φ (phi) measure"""
-        return 7.3
+        """Get current φ (phi) measure from actual consciousness engine"""
+        if not self.consciousness_engine or not hasattr(self.consciousness_engine, 'consciousness_state'):
+            return 0.0
+        
+        return self.consciousness_engine.consciousness_state.information_integration.get('phi', 0.0)
     
     async def _get_current_complexity(self) -> float:
-        """Get current complexity measure"""
-        return 15.2
+        """Get current complexity measure from actual consciousness engine"""
+        if not self.consciousness_engine or not hasattr(self.consciousness_engine, 'consciousness_state'):
+            return 0.0
+        
+        return self.consciousness_engine.consciousness_state.information_integration.get('complexity', 0.0)
     
     async def _get_integration_patterns(self) -> Dict[str, float]:
-        """Get integration patterns between subsystems"""
-        return {
-            "recursive_phenomenal": 0.8,
-            "workspace_metacognitive": 0.9,
-            "intentional_creative": 0.7,
-            "embodied_recursive": 0.6
-        }
+        """Get integration patterns between subsystems from actual consciousness engine"""
+        if not self.consciousness_engine or not hasattr(self.consciousness_engine, 'consciousness_state'):
+            return {}
+        
+        return self.consciousness_engine.consciousness_state.information_integration.get('integration_patterns', {})
     
     async def _get_subsystem_activity(self) -> Dict[str, float]:
-        """Get activity levels of cognitive subsystems"""
+        """Get activity levels of cognitive subsystems from actual consciousness engine"""
+        if not self.consciousness_engine or not hasattr(self.consciousness_engine, 'consciousness_state'):
+            return {}
+        
+        state = self.consciousness_engine.consciousness_state
         return {
-            "recursive_awareness": 0.9,
-            "phenomenal_experience": 0.8,
-            "global_workspace": 0.85,
-            "metacognitive": 0.75,
-            "intentional": 0.7,
-            "creative_synthesis": 0.6,
-            "embodied_cognition": 0.65
+            "recursive_awareness": state.recursive_awareness.get('recursive_depth', 0) / 5.0,
+            "phenomenal_experience": state.phenomenal_experience.get('unity_of_experience', 0.0),
+            "global_workspace": state.global_workspace.get('coalition_strength', 0.0),
+            "metacognitive": len(state.metacognitive_state.get('meta_observations', [])) / 10.0,
+            "intentional": state.intentional_layer.get('intention_strength', 0.0),
+            "creative_synthesis": state.creative_synthesis.get('synthesis_quality', 0.0),
+            "embodied_cognition": state.embodied_cognition.get('embodiment_integration', 0.0)
         }
     
     async def _get_broadcast_content(self) -> Dict[str, Any]:
-        """Get current global workspace broadcast content"""
-        return {
-            "primary_focus": "query_processing",
-            "secondary_content": ["self_monitoring", "goal_tracking"],
-            "broadcast_strength": 0.85
-        }
+        """Get current global workspace broadcast content from actual consciousness engine"""
+        if not self.consciousness_engine or not hasattr(self.consciousness_engine, 'consciousness_state'):
+            return {}
+        
+        return self.consciousness_engine.consciousness_state.global_workspace.get('broadcast_content', {})
     
     async def _get_coalition_strength(self) -> float:
-        """Get current coalition strength"""
-        return 0.88
+        """Get current coalition strength from actual consciousness engine"""
+        if not self.consciousness_engine or not hasattr(self.consciousness_engine, 'consciousness_state'):
+            return 0.0
+        
+        return self.consciousness_engine.consciousness_state.global_workspace.get('coalition_strength', 0.0)
     
     async def _get_attention_focus(self) -> str:
-        """Get current attention focus"""
-        return "Processing user query with metacognitive awareness"
+        """Get current attention focus from actual consciousness engine"""
+        if not self.consciousness_engine or not hasattr(self.consciousness_engine, 'consciousness_state'):
+            return "No consciousness engine connected"
+        
+        return self.consciousness_engine.consciousness_state.global_workspace.get('attention_focus', "No focus information")
     
     async def _get_conscious_access_items(self) -> List[str]:
-        """Get items currently in conscious access"""
-        return [
-            "Current query content",
-            "Processing strategy",
-            "Self-monitoring results",
-            "Phenomenal experience state",
-            "Goal hierarchy"
-        ]
+        """Get items currently in conscious access from actual consciousness engine"""
+        if not self.consciousness_engine or not hasattr(self.consciousness_engine, 'consciousness_state'):
+            return []
+        
+        return self.consciousness_engine.consciousness_state.global_workspace.get('conscious_access', [])
 
 # Integrate with base WebSocket manager methods
 class EnhancedWebSocketManager(WebSocketManager):
     """Enhanced WebSocket manager combining base functionality with consciousness streaming"""
     
-    def __init__(self):
+    def __init__(self, consciousness_engine = None):
         super().__init__()
-        self.consciousness_stream = ConsciousnessStreamManager(self)
+        self.consciousness_stream = ConsciousnessStreamManager(self, consciousness_engine)
         logger.info("EnhancedWebSocketManager initialized with consciousness streaming")
     
     async def handle_consciousness_connection(self, websocket, stream_type: str = "updates"):
         """Handle consciousness-specific WebSocket connections"""
         if stream_type == "updates":
+            # Accept connection first
+            await websocket.accept()
+            
+            # Register client
             await self.consciousness_stream.register_consciousness_client(websocket)
+            
+            # Send welcome message after accepting connection
+            try:
+                await websocket.send_json({
+                    'type': 'consciousness_stream_connected',
+                    'message': 'Connected to unified consciousness stream',
+                    'timestamp': time.time()
+                })
+            except Exception as e:
+                logger.error(f"Failed to send welcome message: {e}")
+                await self.consciousness_stream.unregister_consciousness_client(websocket)
+                return
+            
             try:
                 # Keep connection alive and send periodic updates
                 while True:
@@ -435,7 +509,26 @@ class EnhancedWebSocketManager(WebSocketManager):
                 await self.consciousness_stream.unregister_consciousness_client(websocket)
         
         elif stream_type == "emergence":
-            await self.consciousness_stream.stream_consciousness_emergence(websocket)
+            # Accept connection first
+            await websocket.accept()
+            
+            # Register client
+            await self.consciousness_stream.register_emergence_client(websocket)
+            
+            # Send welcome message after accepting connection
+            try:
+                await websocket.send_json({
+                    'type': 'emergence_stream_connected',
+                    'message': 'Connected to consciousness emergence alerts',
+                    'timestamp': time.time()
+                })
+            except Exception as e:
+                logger.error(f"Failed to send emergence welcome: {e}")
+                await self.consciousness_stream.unregister_emergence_client(websocket)
+                return
+            
+            # Continue with emergence streaming
+            await self.consciousness_stream.stream_consciousness_emergence_internal(websocket)
         
         elif stream_type == "recursive":
             await self.consciousness_stream.stream_recursive_awareness(websocket)
@@ -455,6 +548,11 @@ class EnhancedWebSocketManager(WebSocketManager):
     async def broadcast_consciousness_update(self, consciousness_data: Dict[str, Any]):
         """Broadcast consciousness update (compatible with consciousness engine)"""
         await self.consciousness_stream.broadcast_consciousness_update(consciousness_data)
+    
+    def set_consciousness_engine(self, consciousness_engine):
+        """Set the consciousness engine reference for real-time data integration"""
+        self.consciousness_stream.consciousness_engine = consciousness_engine
+        logger.info("✅ Consciousness engine reference set in enhanced WebSocket manager")
     
     async def get_consciousness_stats(self) -> Dict[str, Any]:
         """Get consciousness streaming statistics"""
