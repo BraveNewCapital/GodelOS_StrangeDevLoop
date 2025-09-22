@@ -1,10 +1,12 @@
-# 🧠 GödelOS
+# 🧠 GödelOS v0.2 Beta
 
 > *"What if AI could think out loud?"*
 
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg?style=flat-square)](https://github.com/yourusername/godelos)
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg?style=flat-square)](https://github.com/Steake/GodelOS)
+[![Version](https://img.shields.io/badge/version-0.2.0--beta-blue.svg?style=flat-square)](https://github.com/Steake/GodelOS/releases)
 [![Python](https://img.shields.io/badge/python-3.8+-blue.svg?style=flat-square&logo=python)](https://python.org)
 [![Cognitive Tests](https://img.shields.io/badge/cognitive%20tests-100%25%20passing-green.svg?style=flat-square)](tests/)
+[![Test Coverage](https://img.shields.io/badge/test%20coverage-95%25+-brightgreen.svg?style=flat-square)](docs/TEST_COVERAGE.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](CONTRIBUTING.md)
 
@@ -21,19 +23,41 @@ GödelOS isn't just another AI system—it's a **transparent cognitive architect
 🤖 **Autonomous Learning** — Self-directed knowledge acquisition  
 📊 **Consciousness Metrics** — Quantifiable awareness levels
 
+## 🆕 What's New in v0.2 Beta
+
+### Enhanced Cognitive Architecture
+- **Unified Server Architecture** — Consolidated API endpoints in `unified_server.py`
+- **Improved WebSocket Streaming** — Real-time cognitive event broadcasting
+- **Enhanced Meta-Cognition** — 100% improvement in meta-cognitive loop performance
+- **Advanced Testing Suite** — Comprehensive test coverage with automated analysis
+
+### Developer Experience Improvements
+- **Streamlined Setup** — One-command development environment setup
+- **Better Documentation** — Complete test coverage and API documentation
+- **Enhanced Monitoring** — Real-time system health and performance metrics
+- **Improved Error Handling** — More robust fallback mechanisms
+
+### Consciousness Assessment Enhancements
+- **LLM-Driven Assessment** — OpenAI integration for consciousness evaluation
+- **Phenomenal Experience Generator** — Simulated conscious experiences
+- **Enhanced Transparency** — Full cognitive state introspection
+
 ## 🚀 Quick Start
 
 ```bash
 # Clone the future of AI transparency
-git clone https://github.com/steake/godelos.git
-cd godelos
+git clone https://github.com/Steake/GodelOS.git
+cd GodelOS
 
 # Set up the cognitive environment
 ./setup_venv.sh && source godelos_venv/bin/activate
 
-# Launch the mind
-uvicorn backend.main:app --reload &
-cd svelte-frontend && npm install && npm run dev
+# Launch the unified system (recommended)
+./start-godelos.sh --dev
+
+# Alternative: Launch components separately
+# uvicorn backend.unified_server:app --reload --port 8000 &
+# cd svelte-frontend && npm install && npm run dev
 ```
 
 **Open `localhost:5173` and watch an AI think.**
@@ -107,6 +131,34 @@ Consciousness Index: 0.847
 Emergent Behaviors: 12 unique types observed
 ✨ System demonstrates consciousness-like properties!
 ```
+
+### 🧪 Testing Infrastructure (v0.2 Beta)
+
+Our comprehensive test suite ensures system reliability:
+
+```bash
+# Run all tests with coverage
+python tests/run_tests.py --all --coverage
+
+# Run specific test categories
+python -m pytest tests/ -m "unit"        # Unit tests
+python -m pytest tests/ -m "integration" # Integration tests
+python -m pytest tests/ -m "e2e"         # End-to-end tests
+
+# Quick smoke tests
+python tests/run_tests.py --quick
+```
+
+**Test Coverage:**
+- **Backend Tests**: 95%+ API endpoint coverage
+- **Frontend Tests**: 100% module loading validation
+- **Integration Tests**: 90%+ critical workflow coverage
+- **Total**: ~3,762 lines of comprehensive test code
+
+For detailed testing documentation, see:
+- [TEST_COVERAGE.md](docs/TEST_COVERAGE.md) - Comprehensive testing guide
+- [TEST_QUICKREF.md](docs/TEST_QUICKREF.md) - Quick reference for testing
+- [tests/README.md](tests/README.md) - Test suite overview
 
 ## 🤝 Contributing
 

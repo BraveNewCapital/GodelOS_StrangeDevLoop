@@ -1,6 +1,6 @@
 {
   "name": "godelos-svelte-frontend",
-  "version": "1.0.0",
+  "version": "0.2.0-beta",
   "type": "module",
   "description": "GödelOS Cognitive Interface - Svelte Implementation",
   "scripts": {
