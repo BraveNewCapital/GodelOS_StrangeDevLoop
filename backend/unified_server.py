@@ -101,18 +101,18 @@ except ImportError as e:
 class WebSocketManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
-    
+
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
-    
+
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
-    
+
     async def send_personal_message(self, message: str, websocket: WebSocket):
         await websocket.send_text(message)
-    
+
     async def broadcast(self, message: Union[str, dict]):
         if isinstance(message, dict):
             message = json.dumps(message)
@@ -121,7 +121,7 @@ class WebSocketManager:
                 await connection.send_text(message)
             except:
                 pass  # Connection closed
-    
+
     async def broadcast_cognitive_update(self, event: dict):
         """Broadcast cognitive update event to all connected clients"""
         # Allow callers to send either a raw event dict or an already-wrapped
@@ -143,7 +143,7 @@ class WebSocketManager:
                 "data": event
             }
         await self.broadcast(message)
-    
+
     async def broadcast_consciousness_update(self, consciousness_data: dict):
         """Broadcast consciousness update to all connected clients"""
         try:
@@ -155,7 +155,7 @@ class WebSocketManager:
             await self.broadcast(message)
         except Exception as e:
             logger.error(f"Error broadcasting consciousness update: {e}")
-    
+
     def has_connections(self) -> bool:
         return len(self.active_connections) > 0
 
@@ -173,10 +173,10 @@ except ImportError as e:
         def __init__(self, godelos_integration):
             self.godelos_integration = godelos_integration
             self.tools = []
-        
+
         async def test_integration(self):
             return {"test_successful": True, "tool_calls": 0}
-        
+
         async def process_query(self, query):
             return {
                 "response": f"Processing query: '{query}' - Basic cognitive processing active (mock LLM mode)",
@@ -184,7 +184,7 @@ except ImportError as e:
                 "reasoning_trace": ["Query received", "Basic processing applied", "Response generated"],
                 "sources": ["internal_reasoning"]
             }
-    
+
     ToolBasedLLMIntegration = MockToolBasedLLMIntegration
     LLM_INTEGRATION_AVAILABLE = True
 
@@ -301,10 +301,10 @@ def get_system_health_with_labels() -> Dict[str, Any]:
         "knowledgeStore": 0.92,  # Mock value, should come from knowledge store
         "vectorIndex": 0.88,  # Mock value, should come from vector index
     }
-    
+
     # Compute labels from scores
     labels = {key: score_to_label(value) for key, value in health_scores.items()}
-    
+
     return {
         **health_scores,
         "_labels": labels
@@ -365,11 +365,11 @@ cognitive_state = {
 async def initialize_core_services():
     """Initialize core services with proper error handling."""
     global godelos_integration, websocket_manager, enhanced_websocket_manager, unified_consciousness_engine, tool_based_llm, cognitive_manager, transparency_engine
-    
+
     # Initialize WebSocket manager
     websocket_manager = WebSocketManager()
     logger.info("✅ WebSocket manager initialized")
-    
+
     # Initialize enhanced WebSocket manager for consciousness streaming
     if UNIFIED_CONSCIOUSNESS_AVAILABLE:
         try:
@@ -380,11 +380,11 @@ async def initialize_core_services():
             enhanced_websocket_manager = websocket_manager  # Fallback to basic manager
     else:
         enhanced_websocket_manager = websocket_manager
-    
+
     # Initialize transparency engine with websocket manager
     transparency_engine = initialize_transparency_engine(enhanced_websocket_manager)
     logger.info("✅ Cognitive transparency engine initialized with WebSocket integration")
-    
+
     # Initialize GödelOS integration if available
     if GODELOS_AVAILABLE:
         try:
@@ -394,7 +394,7 @@ async def initialize_core_services():
         except Exception as e:
             logger.error(f"❌ Failed to initialize GödelOS integration: {e}")
             godelos_integration = None
-    
+
     # Initialize LLM tool integration if available
     if LLM_INTEGRATION_AVAILABLE:
         try:
@@ -407,7 +407,7 @@ async def initialize_core_services():
         except Exception as e:
             logger.error(f"❌ Failed to initialize LLM integration: {e}")
             tool_based_llm = None
-    
+
     # Initialize LLM cognitive driver for consciousness assessment
     llm_cognitive_driver = None
     if LLM_COGNITIVE_DRIVER_AVAILABLE:
@@ -417,13 +417,13 @@ async def initialize_core_services():
         except Exception as e:
             logger.error(f"❌ Failed to initialize LLM cognitive driver: {e}")
             llm_cognitive_driver = None
-    
+
     # Initialize cognitive manager with consciousness engine if available
     if CONSCIOUSNESS_AVAILABLE and (llm_cognitive_driver or tool_based_llm):
         try:
             # Use LLM cognitive driver for consciousness if available, otherwise fall back to tool-based LLM
             llm_driver_for_consciousness = llm_cognitive_driver if llm_cognitive_driver else tool_based_llm
-            
+
             # Correct argument order: (godelos_integration, llm_driver, knowledge_pipeline, websocket_manager)
             cognitive_manager = CognitiveManager(
                 godelos_integration=godelos_integration,
@@ -434,7 +434,7 @@ async def initialize_core_services():
             await cognitive_manager.initialize()
             driver_type = "LLM cognitive driver" if llm_cognitive_driver else "tool-based LLM"
             logger.info(f"✅ Cognitive manager with consciousness engine initialized successfully using {driver_type}")
-            
+
             # Update replay endpoints with cognitive manager
             try:
                 from backend.api.replay_endpoints import setup_replay_endpoints
@@ -442,7 +442,7 @@ async def initialize_core_services():
                 logger.info("✅ Replay endpoints updated with cognitive manager")
             except Exception as e:
                 logger.warning(f"Failed to update replay endpoints: {e}")
-                
+
         except Exception as e:
             logger.error(f"❌ Failed to initialize cognitive manager: {e}")
             cognitive_manager = None
@@ -452,23 +452,23 @@ async def initialize_core_services():
         try:
             # Use the enhanced websocket manager and LLM driver
             llm_driver_for_consciousness = llm_cognitive_driver if llm_cognitive_driver else tool_based_llm
-            
+
             unified_consciousness_engine = UnifiedConsciousnessEngine(
                 websocket_manager=enhanced_websocket_manager,
                 llm_driver=llm_driver_for_consciousness
             )
-            
+
             await unified_consciousness_engine.initialize_components()
             logger.info("✅ Unified consciousness engine initialized successfully")
-            
+
             # Set the consciousness engine reference in the enhanced websocket manager for real-time data
             if hasattr(enhanced_websocket_manager, 'set_consciousness_engine'):
                 enhanced_websocket_manager.set_consciousness_engine(unified_consciousness_engine)
-            
+
             # Start the consciousness loop
             await unified_consciousness_engine.start_consciousness_loop()
             logger.info("🧠 Unified consciousness loop started")
-            
+
         except Exception as e:
             logger.error(f"❌ Failed to initialize unified consciousness engine: {e}")
             unified_consciousness_engine = None
@@ -476,7 +476,7 @@ async def initialize_core_services():
 async def initialize_optional_services():
     """Initialize optional advanced services."""
     global godelos_integration
-    
+
     # Initialize knowledge services if available
     if KNOWLEDGE_SERVICES_AVAILABLE and knowledge_ingestion_service and knowledge_management_service:
         try:
@@ -492,21 +492,21 @@ async def initialize_optional_services():
             logger.info("✅ Knowledge services initialized successfully")
         except Exception as e:
             logger.error(f"❌ Failed to initialize knowledge services: {e}")
-    
+
     # Initialize production vector database (synchronous initialization)
     if VECTOR_DATABASE_AVAILABLE:
         try:
             # Use ThreadPoolExecutor with timeout for resilient model initialization
             import asyncio
             from concurrent.futures import ThreadPoolExecutor, TimeoutError
-            
+
             def _init_vector_db():
                 """Initialize vector database in thread."""
                 if init_vector_database:
                     init_vector_database()
                 elif get_vector_database:
                     get_vector_database()
-                
+
             # Initialize with timeout to avoid hanging on model downloads
             loop = asyncio.get_event_loop()
             with ThreadPoolExecutor(max_workers=1) as executor:
@@ -545,12 +545,12 @@ async def initialize_optional_services():
     if ENHANCED_APIS_AVAILABLE:
         try:
             from backend.cognitive_transparency_integration import cognitive_transparency_api
-            
+
             # Initialize the cognitive transparency API with GödelOS integration
             logger.info("🔍 UNIFIED_SERVER: Initializing cognitive transparency API for unified KG...")
             await cognitive_transparency_api.initialize(godelos_integration)
             logger.info("✅ Cognitive transparency API initialized successfully - unified KG is ready!")
-            
+
             # Also initialize the transparency system
             if initialize_transparency_system:
                 await initialize_transparency_system()
@@ -569,17 +569,17 @@ async def initialize_optional_services():
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     global startup_time
-    
+
     # Startup
     startup_time = time.time()
     logger.info("🚀 Starting GödelOS Unified Server...")
-    
+
     # Initialize core services first
     await initialize_core_services()
-    
+
     # Initialize optional services
     await initialize_optional_services()
-    
+
     # Set up consciousness engine in endpoints after initialization
     if UNIFIED_CONSCIOUSNESS_AVAILABLE and unified_consciousness_engine and enhanced_websocket_manager:
         try:
@@ -588,18 +588,18 @@ async def lifespan(app: FastAPI):
             logger.info("✅ Consciousness engine connected to API endpoints")
         except Exception as e:
             logger.error(f"Failed to connect consciousness engine to endpoints: {e}")
-    
+
     # REMOVED: Synthetic cognitive streaming - replaced with real event-driven updates
     # cognitive_streaming_task = asyncio.create_task(continuous_cognitive_streaming())
     logger.info("✅ Synthetic cognitive streaming disabled - using event-driven updates only")
-    
+
     logger.info("🎉 GödelOS Unified Server fully initialized!")
-    
+
     yield
-    
+
     # Shutdown
     logger.info("🛑 Shutting down GödelOS Unified Server...")
-    
+
     # No synthetic streaming task to cancel
     logger.info("✅ Shutdown complete")
 
@@ -680,14 +680,14 @@ except Exception as e:
 try:
     from backend.api.consciousness_endpoints import router as consciousness_router, set_consciousness_engine
     app.include_router(consciousness_router, tags=["Unified Consciousness"])
-    
+
     # Set consciousness engine reference after initialization
     if UNIFIED_CONSCIOUSNESS_AVAILABLE and unified_consciousness_engine and enhanced_websocket_manager:
         set_consciousness_engine(unified_consciousness_engine, enhanced_websocket_manager)
         logger.info("✅ Unified consciousness endpoints available with engine integration")
     else:
         logger.info("✅ Unified consciousness endpoints available (engine will be set later)")
-    
+
     CONSCIOUSNESS_ENDPOINTS_AVAILABLE = True
 except ImportError as e:
     logger.warning(f"Consciousness endpoints not available: {e}")
@@ -731,7 +731,7 @@ async def root():
         "features": [
             "Unified server architecture",
             "Tool-based LLM integration",
-            "Real-time cognitive streaming", 
+            "Real-time cognitive streaming",
             "Advanced knowledge processing",
             "Cognitive transparency",
             "WebSocket live updates"
@@ -833,12 +833,12 @@ async def get_metrics():
     try:
         # Use enhanced metrics collector
         prometheus_output = metrics_collector.export_prometheus()
-        
+
         return Response(
             content=prometheus_output,
             media_type="text/plain; version=0.0.4; charset=utf-8"
         )
-        
+
     except Exception as e:
         logger.error(f"Error generating metrics: {e}")
         # Fallback to basic metrics
@@ -850,10 +850,10 @@ async def get_basic_metrics():
         # Basic system metrics without psutil dependency
         import os
         from datetime import datetime
-        
+
         # Process metrics
         process_start_time = time.time() - 3600  # Approximate
-        
+
         # Cognitive manager metrics
         cognitive_metrics = {}
         if cognitive_manager:
@@ -865,7 +865,7 @@ async def get_basic_metrics():
                 }
             except Exception:
                 pass
-        
+
         # Vector DB metrics
         vector_metrics = {}
         if VECTOR_DATABASE_AVAILABLE and get_vector_database:
@@ -880,7 +880,7 @@ async def get_basic_metrics():
                     }
             except Exception:
                 pass
-        
+
         # WebSocket metrics
         websocket_metrics = {}
         if websocket_manager:
@@ -892,18 +892,18 @@ async def get_basic_metrics():
                 }
             except Exception:
                 pass
-        
+
         metrics = {
             # Application metrics
             "godelos_version": "2.0.0",
             "godelos_start_time": server_start_time,
             "godelos_uptime_seconds": time.time() - server_start_time,
-            
+
             **cognitive_metrics,
             **vector_metrics,
             **websocket_metrics
         }
-        
+
         # Format as Prometheus-style text (basic implementation)
         prometheus_output = []
         for metric_name, value in metrics.items():
@@ -911,12 +911,12 @@ async def get_basic_metrics():
                 prometheus_output.append(f"{metric_name} {value}")
             else:
                 prometheus_output.append(f'# {metric_name} "{value}"')
-        
+
         return Response(
             content="\n".join(prometheus_output) + "\n",
             media_type="text/plain"
         )
-        
+
     except Exception as e:
         logger.error(f"Error generating metrics: {e}")
         return Response(
@@ -930,6 +930,66 @@ async def api_health_check():
     """API health check endpoint with /api prefix."""
     return await health_check()
 
+@app.get("/capabilities")
+@app.get("/api/capabilities")
+async def get_capabilities():
+    """Report backend capabilities, KSI availability, and dependency status."""
+    # Lazily initialize KSI Adapter with WS broadcaster if not yet available
+    try:
+        global ksi_adapter
+    except NameError:
+        ksi_adapter = None  # ensure symbol exists
+
+    if not ksi_adapter:
+        try:
+            from backend.core.ksi_adapter import KSIAdapter, KSIAdapterConfig
+            broadcaster = None
+            if enhanced_websocket_manager and hasattr(enhanced_websocket_manager, "broadcast"):
+                async def _broadcast_knowledge_update(event: dict):
+                    # Forward normalized knowledge_update events to all WS clients
+                    await enhanced_websocket_manager.broadcast(event)
+                broadcaster = _broadcast_knowledge_update
+            ksi_adapter = KSIAdapter(config=KSIAdapterConfig(event_broadcaster=broadcaster))
+            # Initialize asynchronously
+            await ksi_adapter.initialize()
+        except Exception:
+            ksi_adapter = None  # degrade gracefully
+
+    # Base component availability
+    caps = {
+        "godelos_available": GODELOS_AVAILABLE,
+        "llm_integration_available": LLM_INTEGRATION_AVAILABLE,
+        "knowledge_services_available": KNOWLEDGE_SERVICES_AVAILABLE,
+        "vector_database_available": VECTOR_DATABASE_AVAILABLE,
+        "distributed_vector_available": DISTRIBUTED_VECTOR_AVAILABLE,
+        "enhanced_apis_available": ENHANCED_APIS_AVAILABLE,
+        "consciousness_available": CONSCIOUSNESS_AVAILABLE,
+        "unified_consciousness_available": UNIFIED_CONSCIOUSNESS_AVAILABLE,
+        "websocket_connections": len(websocket_manager.active_connections) if websocket_manager and hasattr(websocket_manager, "active_connections") else 0,
+    }
+
+    # KSI adapter status (best effort)
+    try:
+        caps["ksi"] = await ksi_adapter.capabilities() if ksi_adapter else {"ksi_available": False}
+    except Exception:
+        caps["ksi"] = {"ksi_available": False}
+
+    # External dependency checks (best effort, non-fatal)
+    def _has_module(mod: str) -> bool:
+        try:
+            __import__(mod)
+            return True
+        except Exception:
+            return False
+
+    caps["dependencies"] = {
+        "z3": _has_module("z3"),
+        "cvc5": _has_module("cvc5"),
+        "spacy": _has_module("spacy"),
+    }
+
+    return JSONResponse(content=caps)
+
 # Cognitive state endpoints
 @app.get("/cognitive/state")
 async def get_cognitive_state_endpoint():
@@ -939,18 +999,18 @@ async def get_cognitive_state_endpoint():
             return await godelos_integration.get_cognitive_state()
         except Exception as e:
             logger.error(f"Error getting cognitive state from GödelOS: {e}")
-    
+
     # Return fallback state
     import random
     cognitive_state["processing_load"] = max(0, min(1, cognitive_state["processing_load"] + random.uniform(-0.1, 0.1)))
     return cognitive_state
 
-@app.get("/api/cognitive/state") 
+@app.get("/api/cognitive/state")
 async def api_get_cognitive_state():
     """API cognitive state endpoint with /api prefix."""
     return await get_cognitive_state_endpoint()
 
-@app.get("/api/cognitive-state") 
+@app.get("/api/cognitive-state")
 async def api_get_cognitive_state_alias():
     """API cognitive state endpoint with canonical data contract."""
     try:
@@ -961,10 +1021,10 @@ async def api_get_cognitive_state_alias():
                 godelos_data = await godelos_integration.get_cognitive_state()
             except Exception as e:
                 logger.error(f"Error getting cognitive state from GödelOS: {e}")
-        
+
         # Build canonical response with both camelCase and snake_case
         manifest_consciousness = get_manifest_consciousness_canonical()
-        
+
         # If we have GödelOS data, merge it with manifest consciousness
         if godelos_data and "manifest_consciousness" in godelos_data:
             legacy_manifest = godelos_data["manifest_consciousness"]
@@ -974,13 +1034,13 @@ async def api_get_cognitive_state_alias():
                 if isinstance(focus, dict) and "primary" in focus:
                     manifest_consciousness["attention"]["focus"] = [focus["primary"]]
                     manifest_consciousness["attention"]["intensity"] = focus.get("intensity", 0.7)
-            
+
             if "metacognitive_status" in godelos_data:
                 meta = godelos_data["metacognitive_status"]
                 if isinstance(meta, dict):
                     manifest_consciousness["metaReflection"]["depth"] = meta.get("self_awareness", 0.6)
                     manifest_consciousness["metaReflection"]["coherence"] = meta.get("confidence", 0.85)
-        
+
         # Build canonical response
         canonical_response = {
             "version": "v1",
@@ -990,9 +1050,9 @@ async def api_get_cognitive_state_alias():
             # Legacy compatibility (snake_case mirror)
             "manifest_consciousness": manifest_consciousness,
         }
-        
+
         return canonical_response
-        
+
     except Exception as e:
         logger.error(f"Error building cognitive state response: {e}")
         # Return minimal fallback that satisfies the contract
@@ -1005,7 +1065,7 @@ async def api_get_cognitive_state_alias():
                 "vectorIndex": 0.0,
                 "_labels": {
                     "websocketConnection": "unknown",
-                    "pipeline": "unknown", 
+                    "pipeline": "unknown",
                     "knowledgeStore": "unknown",
                     "vectorIndex": "unknown"
                 }
@@ -1022,7 +1082,7 @@ async def get_consciousness_state():
     try:
         if not cognitive_manager:
             raise _structured_http_error(503, code="cognitive_manager_unavailable", message="Consciousness engine not available", service="consciousness")
-        
+
         consciousness_state = await cognitive_manager.assess_consciousness()
         return consciousness_state
     except HTTPException:
@@ -1037,7 +1097,7 @@ async def assess_consciousness():
     try:
         if not cognitive_manager:
             raise _structured_http_error(503, code="cognitive_manager_unavailable", message="Consciousness engine not available", service="consciousness")
-        
+
         assessment = await cognitive_manager.assess_consciousness()
         return {
             "assessment": assessment,
@@ -1056,7 +1116,7 @@ async def get_consciousness_summary():
     try:
         if not cognitive_manager:
             raise _structured_http_error(503, code="cognitive_manager_unavailable", message="Consciousness engine not available", service="consciousness")
-        
+
         summary = await cognitive_manager.get_consciousness_summary()
         return summary
     except HTTPException:
@@ -1071,7 +1131,7 @@ async def generate_autonomous_goals():
     try:
         if not cognitive_manager:
             raise _structured_http_error(503, code="cognitive_manager_unavailable", message="Consciousness engine not available", service="consciousness")
-        
+
         goals = await cognitive_manager.initiate_autonomous_goals()
         return {
             "goals": goals,
@@ -1090,10 +1150,10 @@ async def get_consciousness_trajectory():
     try:
         if not cognitive_manager:
             raise _structured_http_error(503, code="cognitive_manager_unavailable", message="Consciousness engine not available", service="consciousness")
-        
+
         # Get current state as baseline for trajectory
         current_state = await cognitive_manager.assess_consciousness()
-        
+
         trajectory = {
             "current_state": current_state,
             "behavioral_patterns": {
@@ -1109,7 +1169,7 @@ async def get_consciousness_trajectory():
             },
             "timestamp": datetime.now().isoformat()
         }
-        
+
         return trajectory
     except HTTPException:
         raise
@@ -1128,7 +1188,7 @@ async def get_transparency_metrics():
         logger.error(f"Error getting transparency metrics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/v1/transparency/activity") 
+@app.get("/api/v1/transparency/activity")
 async def get_cognitive_activity():
     """Get summary of recent cognitive activity"""
     try:
@@ -1159,7 +1219,7 @@ async def initiate_metacognitive_monitoring(context: Dict[str, Any] = None):
     try:
         if not cognitive_manager:
             raise HTTPException(status_code=503, detail="Cognitive manager not available")
-        
+
         result = await cognitive_manager.initiate_meta_cognitive_monitoring(context or {})
         return JSONResponse(content=result)
     except Exception as e:
@@ -1172,9 +1232,9 @@ async def perform_metacognitive_analysis(request: QueryRequest):
     try:
         if not cognitive_manager:
             raise HTTPException(status_code=503, detail="Cognitive manager not available")
-        
+
         analysis = await cognitive_manager.perform_meta_cognitive_analysis(
-            request.query, 
+            request.query,
             request.context or {}
         )
         return JSONResponse(content=analysis)
@@ -1188,7 +1248,7 @@ async def assess_self_awareness():
     try:
         if not cognitive_manager:
             raise HTTPException(status_code=503, detail="Cognitive manager not available")
-        
+
         assessment = await cognitive_manager.assess_self_awareness()
         return JSONResponse(content=assessment)
     except Exception as e:
@@ -1201,7 +1261,7 @@ async def get_metacognitive_summary():
     try:
         if not cognitive_manager:
             raise HTTPException(status_code=503, detail="Cognitive manager not available")
-        
+
         summary = await cognitive_manager.get_meta_cognitive_summary()
         return JSONResponse(content=summary)
     except Exception as e:
@@ -1215,7 +1275,7 @@ async def analyze_knowledge_gaps(context: Dict[str, Any] = None):
     try:
         if not cognitive_manager:
             raise HTTPException(status_code=503, detail="Cognitive manager not available")
-        
+
         result = await cognitive_manager.analyze_knowledge_gaps(context)
         return JSONResponse(content=result)
     except Exception as e:
@@ -1231,7 +1291,7 @@ async def generate_autonomous_goals(
     try:
         if not cognitive_manager:
             raise HTTPException(status_code=503, detail="Cognitive manager not available")
-        
+
         result = await cognitive_manager.generate_autonomous_learning_goals(
             focus_domains=focus_domains,
             urgency=urgency
@@ -1247,7 +1307,7 @@ async def create_learning_plan(goal_ids: List[str] = Query(default=None)):
     try:
         if not cognitive_manager:
             raise HTTPException(status_code=503, detail="Cognitive manager not available")
-        
+
         result = await cognitive_manager.create_learning_plan(goal_ids)
         return JSONResponse(content=result)
     except Exception as e:
@@ -1260,7 +1320,7 @@ async def assess_learning_skills(domains: List[str] = Query(default=None)):
     try:
         if not cognitive_manager:
             raise HTTPException(status_code=503, detail="Cognitive manager not available")
-        
+
         result = await cognitive_manager.assess_learning_skills(domains)
         return JSONResponse(content=result)
     except Exception as e:
@@ -1273,7 +1333,7 @@ async def track_learning_progress(goal_id: str, progress_data: Dict[str, Any]):
     try:
         if not cognitive_manager:
             raise HTTPException(status_code=503, detail="Cognitive manager not available")
-        
+
         result = await cognitive_manager.track_learning_progress(goal_id, progress_data)
         return JSONResponse(content=result)
     except Exception as e:
@@ -1286,7 +1346,7 @@ async def get_learning_insights():
     try:
         if not cognitive_manager:
             raise HTTPException(status_code=503, detail="Cognitive manager not available")
-        
+
         result = await cognitive_manager.get_learning_insights()
         return JSONResponse(content=result)
     except Exception as e:
@@ -1299,7 +1359,7 @@ async def get_learning_summary():
     try:
         if not cognitive_manager:
             raise HTTPException(status_code=503, detail="Cognitive manager not available")
-        
+
         result = await cognitive_manager.get_autonomous_learning_summary()
         return JSONResponse(content=result)
     except Exception as e:
@@ -1316,13 +1376,13 @@ async def evolve_knowledge_graph(evolution_data: Dict[str, Any]):
     try:
         if not cognitive_manager:
             raise HTTPException(status_code=503, detail="Cognitive manager not available")
-        
+
         trigger = evolution_data.get("trigger")
         context = evolution_data.get("context", {})
-        
+
         if not trigger:
             raise HTTPException(status_code=400, detail="Trigger is required")
-        
+
         # Use integrated method that automatically triggers corresponding experiences
         result = await cognitive_manager.evolve_knowledge_graph_with_experience_trigger(
             trigger=trigger,
@@ -1339,7 +1399,7 @@ async def add_knowledge_concept(concept_data: Dict[str, Any]):
     try:
         if not cognitive_manager:
             raise HTTPException(status_code=503, detail="Cognitive manager not available")
-        
+
         auto_connect = concept_data.get("auto_connect", True)
         result = await cognitive_manager.add_knowledge_concept(
             concept_data=concept_data,
@@ -1356,16 +1416,16 @@ async def create_knowledge_relationship(relationship_data: Dict[str, Any]):
     try:
         if not cognitive_manager:
             raise HTTPException(status_code=503, detail="Cognitive manager not available")
-        
+
         source_concept = relationship_data.get("source_id")
-        target_concept = relationship_data.get("target_id") 
+        target_concept = relationship_data.get("target_id")
         relationship_type = relationship_data.get("relationship_type")
         strength = relationship_data.get("strength", 0.5)
         evidence = relationship_data.get("evidence", [])
-        
+
         if not source_concept or not target_concept or not relationship_type:
             raise HTTPException(status_code=400, detail="source_id, target_id, and relationship_type are required")
-        
+
         result = await cognitive_manager.create_knowledge_relationship(
             source_concept=source_concept,
             target_concept=target_concept,
@@ -1384,7 +1444,7 @@ async def detect_emergent_patterns():
     try:
         if not cognitive_manager:
             raise HTTPException(status_code=503, detail="Cognitive manager not available")
-        
+
         result = await cognitive_manager.detect_emergent_patterns()
         return JSONResponse(content=result)
     except Exception as e:
@@ -1400,7 +1460,7 @@ async def get_concept_neighborhood(
     try:
         if not cognitive_manager:
             raise _structured_http_error(503, code="cognitive_manager_unavailable", message="Cognitive manager not available", service="knowledge_graph")
-        
+
         result = await cognitive_manager.get_concept_neighborhood(
             concept_id=concept_id,
             depth=depth
@@ -1418,7 +1478,7 @@ async def get_knowledge_graph_summary():
     try:
         if not cognitive_manager:
             raise _structured_http_error(503, code="cognitive_manager_unavailable", message="Cognitive manager not available", service="knowledge_graph")
-        
+
         result = await cognitive_manager.get_knowledge_graph_summary()
         return JSONResponse(content=result)
     except HTTPException:
@@ -1435,12 +1495,12 @@ async def generate_phenomenal_experience(experience_data: Dict[str, Any]):
     try:
         if not cognitive_manager:
             raise _structured_http_error(503, code="cognitive_manager_unavailable", message="Cognitive manager not available", service="phenomenal")
-        
+
         experience_type = experience_data.get("experience_type", "cognitive")
         trigger_context = experience_data.get("trigger_context", experience_data.get("context", ""))
         desired_intensity = experience_data.get("desired_intensity", experience_data.get("intensity", 0.7))
         context = experience_data.get("context", {})
-        
+
         # Use integrated method that automatically triggers corresponding KG evolution
         result = await cognitive_manager.generate_experience_with_kg_evolution(
             experience_type=experience_type,
@@ -1448,10 +1508,10 @@ async def generate_phenomenal_experience(experience_data: Dict[str, Any]):
             desired_intensity=desired_intensity,
             context=context
         )
-        
+
         if result.get("error"):
             raise _structured_http_error(500, code="phenomenal_generation_error", message=str(result["error"]), service="phenomenal")
-        
+
         return JSONResponse(content={
             "status": "success",
             "experience": result["experience"],
@@ -1470,15 +1530,15 @@ async def get_conscious_state():
     """Get the current conscious state"""
     try:
         from backend.core.phenomenal_experience import phenomenal_experience_generator
-        
+
         conscious_state = phenomenal_experience_generator.get_current_conscious_state()
-        
+
         if not conscious_state:
             return JSONResponse(content={
                 "status": "no_active_state",
                 "message": "No current conscious state available"
             })
-        
+
         return JSONResponse(content={
             "status": "success",
             "conscious_state": {
@@ -1505,7 +1565,7 @@ async def get_conscious_state():
     except Exception as e:
         logger.error(f"Error getting conscious state: {e}")
         raise _structured_http_error(500, code="phenomenal_state_error", message=str(e), service="phenomenal")
-    
+
 @app.get("/api/v1/cognitive/coordination/recent")
 async def get_recent_coordination_decisions(
     limit: int = Query(default=20, le=100),
@@ -1519,11 +1579,11 @@ async def get_recent_coordination_decisions(
     try:
         if not cognitive_manager:
             raise _structured_http_error(503, code="cognitive_manager_unavailable", message="Cognitive manager not available", service="coordination")
-        
+
         # Get all decisions and apply filters
         all_decisions = cognitive_manager.get_recent_coordination_decisions(limit=1000)  # Get more to filter
         filtered_decisions = []
-        
+
         for decision in all_decisions:
             # Apply filters
             if session_id and decision.get("session_id") != session_id:
@@ -1536,12 +1596,12 @@ async def get_recent_coordination_decisions(
                 continue
             if since_timestamp is not None and decision.get("timestamp", 0.0) < since_timestamp:
                 continue
-            
+
             filtered_decisions.append(decision)
-        
+
         # Apply limit to filtered results
         final_decisions = filtered_decisions[-limit:] if limit > 0 else filtered_decisions
-        
+
         return JSONResponse(content={
             "count": len(final_decisions),
             "total_before_limit": len(filtered_decisions),
@@ -1566,9 +1626,9 @@ async def get_experience_history(limit: Optional[int] = 10):
     """Get phenomenal experience history"""
     try:
         from backend.core.phenomenal_experience import phenomenal_experience_generator
-        
+
         experiences = phenomenal_experience_generator.get_experience_history(limit=limit)
-        
+
         return JSONResponse(content={
             "status": "success",
             "experiences": [
@@ -1597,9 +1657,9 @@ async def get_experience_summary():
     """Get summary statistics about phenomenal experiences"""
     try:
         from backend.core.phenomenal_experience import phenomenal_experience_generator
-        
+
         summary = phenomenal_experience_generator.get_experience_summary()
-        
+
         return JSONResponse(content={
             "status": "success",
             "summary": summary
@@ -1614,13 +1674,13 @@ async def trigger_specific_experience(trigger_data: Dict[str, Any]):
     try:
         if not cognitive_manager:
             raise HTTPException(status_code=503, detail="Cognitive manager not available")
-        
+
         from backend.core.phenomenal_experience import phenomenal_experience_generator, ExperienceType
-        
+
         experience_type_str = trigger_data.get("type", "cognitive")
         context = trigger_data.get("context", {})
         intensity = trigger_data.get("intensity", 0.7)
-        
+
         # Enhanced context processing
         enhanced_context = {
             **context,
@@ -1628,23 +1688,23 @@ async def trigger_specific_experience(trigger_data: Dict[str, Any]):
             "triggered_at": time.time(),
             "request_id": str(uuid.uuid4())
         }
-        
+
         # Convert string to enum
         try:
             experience_type = ExperienceType(experience_type_str.lower())
         except ValueError:
             available_types = [e.value for e in ExperienceType]
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail=f"Invalid experience type. Available types: {available_types}"
             )
-        
+
         experience = await phenomenal_experience_generator.generate_experience(
             trigger_context=enhanced_context,
             experience_type=experience_type,
             desired_intensity=intensity
         )
-        
+
         return JSONResponse(content={
             "status": "success",
             "message": f"Generated {experience_type.value} experience",
@@ -1677,7 +1737,7 @@ async def get_available_experience_types():
     """Get available phenomenal experience types"""
     try:
         from backend.core.phenomenal_experience import ExperienceType
-        
+
         types = [
             {
                 "type": exp_type.value,
@@ -1695,7 +1755,7 @@ async def get_available_experience_types():
                 }.get(exp_type.value, "Conscious experience type")
             } for exp_type in ExperienceType
         ]
-        
+
         return JSONResponse(content={
             "status": "success",
             "available_types": types,
@@ -1712,7 +1772,7 @@ async def get_available_experience_types():
 async def execute_cognitive_loop(loop_data: Dict[str, Any]):
     """Execute a full bidirectional cognitive loop with KG-PE integration"""
     correlation_id = correlation_tracker.generate_correlation_id()
-    
+
     with correlation_tracker.request_context(correlation_id):
         with operation_timer("cognitive_loop"):
             try:
@@ -1721,33 +1781,33 @@ async def execute_cognitive_loop(loop_data: Dict[str, Any]):
                     "trigger_type": loop_data.get("trigger_type", "knowledge"),
                     "loop_depth": loop_data.get("loop_depth", 3)
                 })
-                
+
                 if not cognitive_manager:
                     logger.error("Cognitive manager not available")
                     raise HTTPException(status_code=503, detail="Cognitive manager not available")
-                
+
                 initial_trigger = loop_data.get("initial_trigger", "new_information")
                 trigger_type = loop_data.get("trigger_type", "knowledge")  # "knowledge" or "experience"
                 loop_depth = min(loop_data.get("loop_depth", 3), 10)  # Max 10 steps for safety
                 context = loop_data.get("context", {})
-                
+
                 result = await cognitive_manager.process_cognitive_loop(
                     initial_trigger=initial_trigger,
                     trigger_type=trigger_type,
                     loop_depth=loop_depth,
                     context=context
                 )
-                
+
                 logger.info("Cognitive loop completed successfully", extra={
                     "operation": "cognitive_loop",
                     "result_steps": len(result.get("steps", [])) if isinstance(result, dict) else 0
                 })
-                
+
                 return JSONResponse(content={
                     "status": "success",
                     "cognitive_loop": result
                 })
-                
+
             except Exception as e:
                 logger.error(f"Error executing cognitive loop: {e}", extra={
                     "operation": "cognitive_loop",
@@ -1801,13 +1861,13 @@ async def get_knowledge_graph():
     try:
         # Import here to avoid circular dependency
         from backend.cognitive_transparency_integration import cognitive_transparency_api
-        
+
         # UNIFIED SYSTEM: Only one knowledge graph source
         if cognitive_transparency_api and cognitive_transparency_api.knowledge_graph:
             try:
                 # Get dynamic graph data from the UNIFIED transparency system
                 graph_data = await cognitive_transparency_api.knowledge_graph.export_graph()
-                
+
                 # Return unified format
                 return {
                     "nodes": graph_data.get("nodes", []),
@@ -1837,7 +1897,7 @@ async def get_knowledge_graph():
                     "error": "Cognitive transparency system not initialized"
                 }
             }
-        
+
     except Exception as e:
         logger.error(f"Error retrieving unified knowledge graph: {e}")
         raise HTTPException(status_code=500, detail=f"Knowledge graph error: {str(e)}")
@@ -1851,50 +1911,50 @@ async def reanalyze_all_documents():
         from backend.knowledge_ingestion import knowledge_ingestion_service
         import glob
         import json
-        
+
         if not cognitive_transparency_api or not cognitive_transparency_api.knowledge_graph:
             raise HTTPException(status_code=503, detail="Cognitive transparency system not ready")
-        
+
         if not knowledge_ingestion_service:
             raise HTTPException(status_code=503, detail="Knowledge ingestion service not available")
-        
+
         # Get all stored documents
         storage_path = knowledge_ingestion_service.storage_path
         if not storage_path or not storage_path.exists():
             return {"message": "No documents found to reanalyze", "processed": 0}
-        
+
         # Find all JSON files
         json_files = glob.glob(str(storage_path / "*.json"))
         document_files = [f for f in json_files if not os.path.basename(f).startswith("temp_")]
-        
+
         logger.info(f"🔄 Re-analyzing {len(document_files)} documents...")
-        
+
         processed_count = 0
         failed_count = 0
-        
+
         for file_path in document_files:
             try:
                 # Load document data
                 with open(file_path, 'r') as f:
                     doc_data = json.load(f)
-                
+
                 # Extract concepts for knowledge graph
                 concepts = []
-                
+
                 # Add title
                 if doc_data.get('title'):
                     concepts.append(doc_data['title'])
-                
+
                 # Add categories
                 if doc_data.get('categories'):
                     concepts.extend(doc_data['categories'])
-                
+
                 # Add keywords from metadata
                 if doc_data.get('metadata', {}).get('keywords'):
                     keywords = doc_data['metadata']['keywords']
                     if isinstance(keywords, list):
                         concepts.extend(keywords[:5])
-                
+
                 # Add concepts to unified knowledge graph
                 for concept in concepts:
                     if concept and isinstance(concept, str) and len(concept.strip()) > 0:
@@ -1910,7 +1970,7 @@ async def reanalyze_all_documents():
                             },
                             confidence=doc_data.get('confidence', 0.8)
                         )
-                
+
                 # Create relationships between concepts from the same document
                 if len(concepts) > 1:
                     main_concept = concepts[0]
@@ -1927,18 +1987,18 @@ async def reanalyze_all_documents():
                                 },
                                 confidence=0.7
                             )
-                
+
                 processed_count += 1
-                
+
             except Exception as e:
                 logger.warning(f"Failed to reanalyze document {file_path}: {e}")
                 failed_count += 1
-        
+
         # Get final graph stats
         graph_data = await cognitive_transparency_api.knowledge_graph.export_graph()
-        
+
         logger.info(f"✅ Re-analysis complete: {processed_count} processed, {failed_count} failed")
-        
+
         return {
             "message": "Document re-analysis completed",
             "processed_documents": processed_count,
@@ -1950,12 +2010,12 @@ async def reanalyze_all_documents():
                 "data_source": "unified_reanalysis"
             }
         }
-        
+
     except Exception as e:
         logger.error(f"Error during re-analysis: {e}")
         raise HTTPException(status_code=500, detail=f"Re-analysis failed: {str(e)}")
 
-@app.get("/api/enhanced-cognitive/stream/status") 
+@app.get("/api/enhanced-cognitive/stream/status")
 async def get_enhanced_cognitive_stream_status():
     """Get enhanced cognitive streaming status (alias for /api/enhanced-cognitive/status)."""
     return await enhanced_cognitive_status()
@@ -2000,7 +2060,7 @@ async def enhanced_cognitive_health():
 async def llm_chat_message(request: ChatMessage):
     """Process LLM chat message with tool integration."""
     correlation_id = correlation_tracker.generate_correlation_id()
-    
+
     with correlation_tracker.request_context(correlation_id):
         with operation_timer("llm_chat"):
             logger.info("Processing LLM chat message", extra={
@@ -2008,13 +2068,13 @@ async def llm_chat_message(request: ChatMessage):
                 "message_length": len(request.message),
                 "has_context": hasattr(request, 'context') and request.context is not None
             })
-            
+
             if not tool_based_llm:
                 logger.warning("LLM not available, using fallback", extra={
                     "operation": "llm_chat",
                     "fallback_reason": "tool_based_llm_unavailable"
                 })
-                
+
                 # Provide fallback response using GödelOS integration
                 try:
                     if godelos_integration:
@@ -2041,23 +2101,23 @@ async def llm_chat_message(request: ChatMessage):
                         tool_calls=[],
                         reasoning=["System startup in progress", "Temporary limited functionality"]
                     )
-            
+
             try:
                 # Use the correct method name
                 response = await tool_based_llm.process_query(request.message)
-                
+
                 logger.info("LLM chat completed successfully", extra={
                     "operation": "llm_chat",
                     "response_length": len(response.get("response", "")),
                     "tool_calls_count": len(response.get("tool_calls", []))
                 })
-                
+
                 return ChatResponse(
                     response=response.get("response", "I apologize, but I couldn't process your request."),
                     tool_calls=response.get("tool_calls", []),
                     reasoning=response.get("reasoning", [])
                 )
-                
+
             except Exception as e:
                 logger.error(f"Error in LLM chat: {e}", extra={
                     "operation": "llm_chat",
@@ -2083,12 +2143,12 @@ async def llm_chat_capabilities():
             "streaming_support": True,
             "language_support": ["en"]
         }
-        
+
         if tool_based_llm and hasattr(tool_based_llm, 'tools') and tool_based_llm.tools:
             capabilities["tools"] = [tool.__class__.__name__ for tool in tool_based_llm.tools]
-            
+
         return capabilities
-        
+
     except Exception as e:
         logger.error(f"Error getting LLM capabilities: {e}")
         raise HTTPException(status_code=500, detail=f"Capabilities error: {str(e)}")
@@ -2128,7 +2188,7 @@ async def get_available_tools():
                     "category": "cognitive_tool",
                     "status": "active"
                 })
-        
+
         return {
             "tools": tools,
             "count": len(tools),
@@ -2149,9 +2209,9 @@ async def metacognition_status():
         else:
             # Fallback state
             state = {"metacognitive_state": {}}
-        
+
         metacognitive_data = state.get("metacognitive_state", {})
-        
+
         return {
             "status": "active",
             "self_awareness_level": metacognitive_data.get("self_awareness_level", 0.8),
@@ -2177,7 +2237,7 @@ async def trigger_reflection(reflection_request: dict):
     try:
         trigger = reflection_request.get("trigger", "manual_reflection")
         context = reflection_request.get("context", {})
-        
+
         # Simple reflection response
         reflection = {
             "reflection_id": f"refl_{int(time.time())}",
@@ -2198,9 +2258,9 @@ async def trigger_reflection(reflection_request: dict):
             },
             "context": context
         }
-        
+
         return reflection
-        
+
     except Exception as e:
         logger.error(f"Error triggering reflection: {e}")
         raise HTTPException(status_code=500, detail=f"Reflection error: {str(e)}")
@@ -2261,7 +2321,7 @@ async def upload_file(file: UploadFile = File(...)):
     """Upload and process file."""
     try:
         content = await file.read()
-        
+
         # Basic file processing
         result = {
             "file_id": f"file_{int(time.time())}",
@@ -2276,9 +2336,9 @@ async def upload_file(file: UploadFile = File(...)):
                 "type": "text" if file.content_type and "text" in file.content_type else "binary"
             }
         }
-        
+
         return result
-        
+
     except Exception as e:
         logger.error(f"Error uploading file: {e}")
         raise HTTPException(status_code=500, detail=f"File upload error: {str(e)}")
@@ -2342,16 +2402,16 @@ async def import_knowledge_from_file(file: UploadFile = File(...), filename: str
     """Import knowledge from uploaded file."""
     if not (KNOWLEDGE_SERVICES_AVAILABLE and knowledge_ingestion_service):
         raise HTTPException(status_code=503, detail="Knowledge ingestion service not available")
-    
+
     try:
         from backend.knowledge_models import FileImportRequest, ImportSource
-        
+
         if not file.filename:
             raise HTTPException(status_code=400, detail="File name is required")
-        
+
         # Read file content
         content = await file.read()
-        
+
         # Determine file type. Prefer client-supplied form field if present.
         if file_type:
             determined_file_type = file_type.lower()
@@ -2366,7 +2426,7 @@ async def import_knowledge_from_file(file: UploadFile = File(...), filename: str
         # Normalize legacy/ambiguous type names to the expected literals
         if determined_file_type == 'text':
             determined_file_type = 'txt'
-        
+
         # Create proper file import request
         file_request = FileImportRequest(
             filename=file.filename,
@@ -2381,10 +2441,10 @@ async def import_knowledge_from_file(file: UploadFile = File(...), filename: str
             ),
             file_type=determined_file_type
         )
-        
+
         # Use the actual knowledge ingestion service - pass content separately
         import_id = await knowledge_ingestion_service.import_from_file(file_request, content)
-        
+
         return {
             "import_id": import_id,
             "status": "started",
@@ -2394,7 +2454,7 @@ async def import_knowledge_from_file(file: UploadFile = File(...), filename: str
             "content_type": file.content_type,
             "file_type": file_type
         }
-        
+
     except Exception as e:
             logger.error(f"Error importing knowledge from file: {e}")
             raise HTTPException(status_code=500, detail=f"File import error: {str(e)}")
@@ -2404,21 +2464,21 @@ async def import_knowledge_from_wikipedia(request: dict):
     """Import knowledge from Wikipedia article."""
     if not (KNOWLEDGE_SERVICES_AVAILABLE and knowledge_ingestion_service):
         raise HTTPException(status_code=503, detail="Knowledge ingestion service not available")
-    
+
     try:
         from backend.knowledge_models import WikipediaImportRequest, ImportSource
-        
+
         title = request.get("title") or request.get("topic") or ""
         if not title:
             raise HTTPException(status_code=400, detail="Wikipedia title is required")
-        
+
         # Create proper import source
         import_source = ImportSource(
             source_type="wikipedia",
             source_identifier=title,
             metadata={"language": request.get("language", "en")}
         )
-        
+
         # Create proper Wikipedia import request
         wiki_request = WikipediaImportRequest(
             page_title=title,
@@ -2427,17 +2487,17 @@ async def import_knowledge_from_wikipedia(request: dict):
             include_references=request.get("include_references", True),
             section_filter=request.get("section_filter", [])
         )
-        
+
         # Use the actual knowledge ingestion service
         import_id = await knowledge_ingestion_service.import_from_wikipedia(wiki_request)
-        
+
         return {
             "import_id": import_id,
             "status": "queued",
             "message": f"Wikipedia import started for '{title}'",
             "source": f"Wikipedia: {title}"
         }
-        
+
     except Exception as e:
         logger.error(f"Error importing from Wikipedia: {e}")
         raise HTTPException(status_code=500, detail=f"Wikipedia import error: {str(e)}")
@@ -2447,21 +2507,21 @@ async def import_knowledge_from_url(request: dict):
     """Import knowledge from URL."""
     if not (KNOWLEDGE_SERVICES_AVAILABLE and knowledge_ingestion_service):
         raise HTTPException(status_code=503, detail="Knowledge ingestion service not available")
-    
+
     try:
         from backend.knowledge_models import URLImportRequest, ImportSource
-        
+
         url = request.get("url", "")
         if not url:
             raise HTTPException(status_code=400, detail="URL is required")
-        
+
         # Create proper import source
         import_source = ImportSource(
             source_type="url",
             source_identifier=url,
             metadata={"url": url}
         )
-        
+
         # Create proper URL import request
         url_request = URLImportRequest(
             url=url,
@@ -2470,23 +2530,23 @@ async def import_knowledge_from_url(request: dict):
             follow_links=request.get("follow_links", False),
             content_selectors=request.get("content_selectors", [])
         )
-        
+
         # Use the actual knowledge ingestion service
         import_id = await knowledge_ingestion_service.import_from_url(url_request)
-        
+
         return {
             "import_id": import_id,
             "status": "queued",
             "message": f"URL import started for '{url}'",
             "source": f"URL: {url}"
         }
-        
+
     except Exception as e:
         logger.error(f"Error importing from URL: {e}")
         raise HTTPException(status_code=500, detail=f"URL import error: {str(e)}")
-        
+
         return extracted_knowledge
-        
+
     except Exception as e:
         logger.error(f"Error importing from URL: {e}")
         import_jobs[import_id].update({
@@ -2501,23 +2561,23 @@ async def import_knowledge_from_text(request: dict):
     """Import knowledge from text content."""
     if not (KNOWLEDGE_SERVICES_AVAILABLE and knowledge_ingestion_service):
         raise HTTPException(status_code=503, detail="Knowledge ingestion service not available")
-    
+
     try:
         from backend.knowledge_models import TextImportRequest, ImportSource
-        
+
         content = request.get("content", "")
         if not content:
             raise HTTPException(status_code=400, detail="Text content is required")
-        
+
         title = request.get("title", "Manual Text Input")
-        
+
         # Create proper import source
         import_source = ImportSource(
             source_type="text",
             source_identifier=title,
             metadata={"manual_input": True}
         )
-        
+
         # Create proper text import request
         text_request = TextImportRequest(
             content=content,
@@ -2525,10 +2585,10 @@ async def import_knowledge_from_text(request: dict):
             source=import_source,
             format_type=request.get("format_type", "plain")
         )
-        
+
         # Use the actual knowledge ingestion service
         import_id = await knowledge_ingestion_service.import_from_text(text_request)
-        
+
         return {
             "import_id": import_id,
             "status": "queued",
@@ -2536,7 +2596,7 @@ async def import_knowledge_from_text(request: dict):
             "source": f"Text: {title}",
             "content_length": len(content)
         }
-        
+
     except Exception as e:
         logger.error(f"Error importing from text: {e}")
         raise HTTPException(status_code=500, detail=f"Text import error: {str(e)}")
@@ -2547,11 +2607,11 @@ async def enhanced_cognitive_query(query_request: dict):
     try:
         query = query_request.get("query", "")
         reasoning_trace = query_request.get("reasoning_trace", False)
-        
+
         # Process through enhanced cognitive system
         if tool_based_llm:
             response = await tool_based_llm.process_query(query)
-            
+
             result = {
                 "response": response.get("response", "No response generated"),
                 "confidence": 0.85,
@@ -2564,7 +2624,7 @@ async def enhanced_cognitive_query(query_request: dict):
                 "processing_time_ms": 250,
                 "timestamp": datetime.now().isoformat()
             }
-            
+
             if reasoning_trace:
                 result["reasoning_steps"] = [
                     {"step": 1, "type": "query_analysis", "description": f"Analyzing query: {query[:50]}..."},
@@ -2572,7 +2632,7 @@ async def enhanced_cognitive_query(query_request: dict):
                     {"step": 3, "type": "enhanced_reasoning", "description": "Applied enhanced reasoning"},
                     {"step": 4, "type": "response_synthesis", "description": "Synthesized final response"}
                 ]
-            
+
             return result
         else:
             # Provide a more sophisticated fallback response
@@ -2580,7 +2640,7 @@ async def enhanced_cognitive_query(query_request: dict):
                 try:
                     # Try to use GödelOS integration for basic processing
                     response = await godelos_integration.process_query(query, context=query_request.get("context", {}))
-                    
+
                     return {
                         "response": response.get("response", f"I understand you're asking about: '{query}'. While the advanced cognitive system is initializing, I can provide basic responses using the core GödelOS architecture."),
                         "confidence": response.get("confidence", 0.6),
@@ -2597,7 +2657,7 @@ async def enhanced_cognitive_query(query_request: dict):
                     }
                 except Exception as e:
                     logger.warning(f"GödelOS integration fallback failed: {e}")
-            
+
             # Final fallback
             return {
                 "response": f"I received your query: '{query}'. The enhanced cognitive system is currently initializing. Basic cognitive functions are operational, but advanced reasoning requires LLM integration setup.",
@@ -2613,7 +2673,7 @@ async def enhanced_cognitive_query(query_request: dict):
                 "timestamp": datetime.now().isoformat(),
                 "status": "partial_functionality"
             }
-            
+
     except HTTPException:
         # Re-raise HTTP exceptions as-is
         raise
@@ -2628,7 +2688,7 @@ async def configure_enhanced_cognitive(config_request: dict):
         transparency_level = config_request.get("transparency_level", "high")
         reasoning_depth = config_request.get("reasoning_depth", "detailed")
         streaming = config_request.get("streaming", True)
-        
+
         # Store configuration (in a real system, this would persist)
         configuration = {
             "transparency_level": transparency_level,
@@ -2637,13 +2697,13 @@ async def configure_enhanced_cognitive(config_request: dict):
             "updated_at": datetime.now().isoformat(),
             "status": "applied"
         }
-        
+
         return {
             "message": "Enhanced cognitive system configured successfully",
             "configuration": configuration,
             "timestamp": datetime.now().isoformat()
         }
-        
+
     except Exception as e:
         logger.error(f"Error configuring enhanced cognitive system: {e}")
         raise HTTPException(status_code=500, detail=f"Configuration error: {str(e)}")
@@ -2653,7 +2713,7 @@ async def test_llm_tools():
     """Test LLM tool integration."""
     if not tool_based_llm:
         return {"error": "LLM integration not available"}
-    
+
     try:
         return await tool_based_llm.test_integration()
     except Exception as e:
@@ -2665,7 +2725,7 @@ async def get_available_tools():
     """Get list of available LLM tools."""
     if not tool_based_llm:
         return {"tools": [], "count": 0}
-    
+
     try:
         # Access tools directly from the tools dict
         tools = []
@@ -2691,7 +2751,7 @@ async def process_query(request: QueryRequest):
                 request.query,
                 context=request.context
             )
-            
+
             duration_ms = (time.time() - start) * 1000.0
             return QueryResponse(
                 response=result.get("response", "I couldn't process your query."),
@@ -2701,10 +2761,10 @@ async def process_query(request: QueryRequest):
                 inference_time_ms=duration_ms,
                 knowledge_used=result.get("knowledge_used") or result.get("sources")
             )
-            
+
         except Exception as e:
             logger.error(f"Error processing query: {e}")
-            
+
     # Fallback response
     duration_ms = (time.time() - start) * 1000.0
     return QueryResponse(
@@ -2771,10 +2831,10 @@ async def get_knowledge_graph_stats():
     try:
         # Import here to avoid circular dependency
         from backend.cognitive_transparency_integration import cognitive_transparency_api
-        
+
         if cognitive_transparency_api and cognitive_transparency_api.knowledge_graph:
             kg = cognitive_transparency_api.knowledge_graph
-            
+
             # Get basic graph statistics using the correct attributes
             stats = {
                 "total_nodes": len(kg.nodes),  # kg.nodes is a dict
@@ -2784,17 +2844,17 @@ async def get_knowledge_graph_stats():
                 "last_updated": datetime.now().isoformat(),
                 "data_source": "cognitive_transparency"
             }
-            
+
             # Count node types from the nodes dictionary
             for node_id, node_obj in kg.nodes.items():
                 node_type = getattr(node_obj, 'type', 'unknown')
                 stats["node_types"][node_type] = stats["node_types"].get(node_type, 0) + 1
-            
+
             # Count edge types from the edges dictionary
             for edge_id, edge_obj in kg.edges.items():
                 edge_type = getattr(edge_obj, 'type', 'unknown')
                 stats["edge_types"][edge_type] = stats["edge_types"].get(edge_type, 0) + 1
-                
+
             return stats
         else:
             # Fallback to empty stats
@@ -2807,7 +2867,7 @@ async def get_knowledge_graph_stats():
                 "data_source": "system_not_ready",
                 "error": "Knowledge graph not initialized"
             }
-            
+
     except Exception as e:
         logger.error(f"Error getting knowledge graph stats: {e}")
         raise HTTPException(status_code=500, detail=f"Knowledge graph stats error: {str(e)}")
@@ -2913,21 +2973,21 @@ async def get_recent_entities(limit: int = 10):
     try:
         # Import here to avoid circular dependency
         from backend.cognitive_transparency_integration import cognitive_transparency_api
-        
+
         entities = []
-        
+
         if cognitive_transparency_api and cognitive_transparency_api.knowledge_graph:
             kg = cognitive_transparency_api.knowledge_graph
-            
+
             # Get nodes with timestamps, sorted by most recent
             nodes_with_timestamps = []
             for node_id, node_obj in kg.nodes.items():
                 timestamp = getattr(node_obj, 'created_at', getattr(node_obj, 'timestamp', 0))
                 nodes_with_timestamps.append((timestamp, node_id, node_obj))
-            
+
             # Sort by timestamp (most recent first) and take the limit
             nodes_with_timestamps.sort(key=lambda x: x[0], reverse=True)
-            
+
             for timestamp, node_id, node_obj in nodes_with_timestamps[:limit]:
                 entities.append({
                     "id": node_id,
@@ -2937,14 +2997,14 @@ async def get_recent_entities(limit: int = 10):
                     "confidence": getattr(node_obj, 'confidence', 0.0),
                     "source": getattr(node_obj, 'source', 'unknown')
                 })
-        
+
         return {
             "entities": entities,
             "total": len(entities),
             "limit": limit,
             "last_updated": datetime.now().isoformat()
         }
-        
+
     except Exception as e:
         logger.error(f"Error getting recent entities: {e}")
         raise HTTPException(status_code=500, detail=f"Recent entities error: {str(e)}")
@@ -2961,7 +3021,7 @@ async def get_embeddings_stats():
             "last_updated": datetime.now().isoformat(),
             "data_source": "unknown"
         }
-        
+
         # Try to get stats from vector database
         try:
             if VECTOR_DATABASE_AVAILABLE and get_vector_database:
@@ -2975,7 +3035,7 @@ async def get_embeddings_stats():
                     stats["data_source"] = "vector_database_basic"
         except Exception as e:
             logger.warning(f"Could not get vector database stats: {e}")
-        
+
         # Try to get enhanced NLP processor stats
         try:
             from godelOS.knowledge_extraction.enhanced_nlp_processor import EnhancedNlpProcessor
@@ -2986,9 +3046,9 @@ async def get_embeddings_stats():
                 stats["data_source"] = "enhanced_nlp_processor"
         except Exception as e:
             logger.warning(f"Could not get enhanced NLP processor stats: {e}")
-        
+
         return stats
-        
+
     except Exception as e:
         logger.error(f"Error getting embeddings stats: {e}")
         raise HTTPException(status_code=500, detail=f"Embeddings stats error: {str(e)}")
@@ -2998,24 +3058,24 @@ async def get_embeddings_stats():
 async def websocket_cognitive_stream(websocket: WebSocket):
     """WebSocket endpoint for real-time cognitive state streaming."""
     correlation_id = correlation_tracker.generate_correlation_id()
-    
+
     with correlation_tracker.request_context(correlation_id):
         logger.info("WebSocket connection initiated", extra={
             "operation": "websocket_connect",
             "endpoint": "/ws/cognitive-stream"
         })
-        
+
         if not websocket_manager:
             logger.warning("WebSocket manager not available")
             await websocket.close(code=1011, reason="WebSocket manager not available")
             return
-            
+
         await websocket_manager.connect(websocket)
         logger.info(f"WebSocket connected. Active connections: {len(websocket_manager.active_connections)}", extra={
             "operation": "websocket_connect",
             "active_connections": len(websocket_manager.active_connections)
         })
-        
+
         try:
             # Send an initial state message for compatibility
             try:
@@ -3046,14 +3106,14 @@ async def websocket_cognitive_stream(websocket: WebSocket):
                         pass
                     # Default ack
                     await websocket_manager.send_personal_message(json.dumps({"type": "ack"}), websocket)
-                    
+
                 except WebSocketDisconnect:
                     logger.info("WebSocket disconnected by client", extra={
                         "operation": "websocket_disconnect",
                         "reason": "client_initiated"
                     })
                     break
-                    
+
         except Exception as e:
             logger.error(f"WebSocket error: {e}", extra={
                 "operation": "websocket_error",
@@ -3073,14 +3133,14 @@ async def websocket_transparency_stream(websocket: WebSocket):
     try:
         await transparency_engine.connect_client(websocket)
         logger.info(f"Transparency WebSocket connected. Active: {transparency_engine.metrics.active_connections}")
-        
+
         # Keep connection alive
         while True:
             try:
                 # Listen for any messages from client (though we primarily stream to them)
                 data = await websocket.receive_text()
                 logger.debug(f"Received transparency message: {data}")
-                
+
                 # Handle client commands
                 try:
                     message = json.loads(data)
@@ -3093,7 +3153,7 @@ async def websocket_transparency_stream(websocket: WebSocket):
                     elif message.get("type") == "get_activity":
                         activity = await transparency_engine.get_cognitive_activity_summary()
                         await websocket.send_text(json.dumps({
-                            "type": "activity_response", 
+                            "type": "activity_response",
                             "data": activity
                         }))
                 except json.JSONDecodeError:
@@ -3101,10 +3161,10 @@ async def websocket_transparency_stream(websocket: WebSocket):
                         "type": "error",
                         "message": "Invalid JSON format"
                     }))
-                    
+
             except WebSocketDisconnect:
                 break
-                
+
     except Exception as e:
         logger.error(f"Transparency WebSocket error: {e}")
     finally:
@@ -3116,31 +3176,31 @@ async def websocket_transparency_stream(websocket: WebSocket):
 async def websocket_unified_cognitive_stream(websocket: WebSocket):
     """WebSocket endpoint for unified cognitive streaming (frontend compatibility)."""
     correlation_id = correlation_tracker.generate_correlation_id()
-    
+
     with correlation_tracker.request_context(correlation_id):
         logger.info("Unified WebSocket connection initiated", extra={
             "operation": "websocket_connect",
             "endpoint": "/ws/unified-cognitive-stream"
         })
-        
+
         if not websocket_manager:
             logger.warning("WebSocket manager not available for unified stream")
             await websocket.close(code=1011, reason="WebSocket manager not available")
             return
-            
+
         await websocket_manager.connect(websocket)
         logger.info(f"Unified WebSocket connected. Active connections: {len(websocket_manager.active_connections)}", extra={
             "operation": "websocket_connect",
             "active_connections": len(websocket_manager.active_connections)
         })
-        
+
         try:
             # Send initial state message
             await websocket_manager.send_personal_message(json.dumps({
-                "type": "initial_state", 
+                "type": "initial_state",
                 "data": {"status": "connected", "endpoint": "unified-cognitive-stream"}
             }), websocket)
-            
+
             while True:
                 # Listen for client messages (subscriptions, ping, etc.)
                 try:
@@ -3149,7 +3209,7 @@ async def websocket_unified_cognitive_stream(websocket: WebSocket):
                         "operation": "websocket_message",
                         "message_size": len(data)
                     })
-                    
+
                     # Parse and handle client messages
                     try:
                         msg = json.loads(data)
@@ -3157,7 +3217,7 @@ async def websocket_unified_cognitive_stream(websocket: WebSocket):
                             events = msg.get("event_types", [])
                             # Store subscription (simplified for fallback manager)
                             await websocket_manager.send_personal_message(json.dumps({
-                                "type": "subscription_confirmed", 
+                                "type": "subscription_confirmed",
                                 "event_types": events
                             }), websocket)
                             logger.info("Unified WebSocket subscription confirmed", extra={
@@ -3183,14 +3243,14 @@ async def websocket_unified_cognitive_stream(websocket: WebSocket):
                             "type": "error",
                             "message": "Invalid JSON format"
                         }), websocket)
-                    
+
                 except WebSocketDisconnect:
                     logger.info("Unified WebSocket disconnected by client", extra={
                         "operation": "websocket_disconnect",
                         "reason": "client_initiated"
                     })
                     break
-                    
+
         except Exception as e:
             logger.error(f"Unified WebSocket error: {e}", extra={
                 "operation": "websocket_error",
@@ -3210,7 +3270,7 @@ async def configure_enhanced_cognitive_streaming(config: CognitiveStreamConfig):
     """Configure enhanced cognitive streaming."""
     # Store configuration (in production, save to database/config)
     logger.info(f"Enhanced cognitive streaming configured: {config.dict()}")
-    
+
     return {
         "status": "configured",
         "config": config.dict(),
@@ -3224,7 +3284,7 @@ async def enhanced_cognitive_status():
         active_connections_count = 0
         if websocket_manager and hasattr(websocket_manager, 'active_connections'):
             active_connections_count = len(websocket_manager.active_connections)
-        
+
         return {
             "status": "operational",
             "services": {
@@ -3258,13 +3318,13 @@ async def get_knowledge_gaps():
     return {
         "knowledge_gaps": [
             {
-                "domain": "quantum_computing", 
+                "domain": "quantum_computing",
                 "confidence": 0.3,
                 "priority": "high",
                 "suggested_learning": ["quantum_mechanics_basics", "quantum_algorithms"]
             },
             {
-                "domain": "blockchain_consensus", 
+                "domain": "blockchain_consensus",
                 "confidence": 0.6,
                 "priority": "medium",
                 "suggested_learning": ["proof_of_stake", "byzantine_fault_tolerance"]
@@ -3395,14 +3455,14 @@ async def get_system_capabilities():
 async def test_transparency_events():
     """Test endpoint to generate transparency events that the frontend expects"""
     global transparency_engine
-    
+
     if transparency_engine is None:
         raise HTTPException(status_code=503, detail="Transparency engine not initialized")
-    
+
     try:
         # Generate test events that match what the frontend Stream of Consciousness Monitor expects
         events_sent = []
-        
+
         # Query started event
         await transparency_engine.log_cognitive_event(
             event_type='query_started',
@@ -3410,15 +3470,15 @@ async def test_transparency_events():
             metadata={'test': True, 'query': 'transparency test'}
         )
         events_sent.append('query_started')
-        
+
         # Knowledge gap detection event
         await transparency_engine.log_cognitive_event(
-            event_type='gaps_detected', 
+            event_type='gaps_detected',
             content='Detected knowledge gap in transparency engine integration',
             metadata={'gap_type': 'integration', 'priority': 'high'}
         )
         events_sent.append('gaps_detected')
-        
+
         # Knowledge acquisition event
         await transparency_engine.log_cognitive_event(
             event_type='acquisition_started',
@@ -3426,7 +3486,7 @@ async def test_transparency_events():
             metadata={'acquisition_id': 'test_123'}
         )
         events_sent.append('acquisition_started')
-        
+
         # Reasoning event
         await transparency_engine.log_cognitive_event(
             event_type='reasoning',
@@ -3434,7 +3494,7 @@ async def test_transparency_events():
             metadata={'reasoning_type': 'diagnostic', 'depth': 'deep'}
         )
         events_sent.append('reasoning')
-        
+
         # Reflection event
         await transparency_engine.log_cognitive_event(
             event_type='reflection',
@@ -3442,16 +3502,16 @@ async def test_transparency_events():
             metadata={'reflection_depth': 3, 'meta_level': True}
         )
         events_sent.append('reflection')
-        
+
         logger.info(f"✅ Generated {len(events_sent)} test transparency events: {events_sent}")
-        
+
         return {
             "success": True,
             "message": f"Generated {len(events_sent)} test transparency events",
             "events_sent": events_sent,
             "timestamp": time.time()
         }
-        
+
     except Exception as e:
         logger.error(f"Error generating test transparency events: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to generate test events: {str(e)}")
@@ -3459,7 +3519,7 @@ async def test_transparency_events():
 if __name__ == "__main__":
     uvicorn.run(
         "unified_server:app",
-        host="0.0.0.0", 
+        host="0.0.0.0",
         port=8000,
         reload=True,
         log_level="info"
