@@ -1,0 +1,9 @@
+{
+  "schema_version": "introspection.v1",
+  "conditions": {
+    "mode": "iterated_single_pass",
+    "synthetic_iterated_single_pass": true,
+    "source_single_pass_run": "a0bee199-7fe4-49c6-a977-e09d38ad246e"
+  },
+  "created": "2025-09-21T05:12:59.476276Z"
+}

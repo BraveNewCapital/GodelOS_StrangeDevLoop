@@ -1,0 +1,120 @@
+[build-system]
+requires = ["setuptools>=67", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "godelos"
+version = "0.1.0"
+description = "GödelOS – Consciousness-like AI architecture with recursive cognitive process streaming."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+  { name = "GödelOS Contributors" }
+]
+keywords = [
+  "ai",
+  "consciousness",
+  "recursive-introspection",
+  "metacognition",
+  "llm",
+  "knowledge-graph",
+  "cognitive-architecture"
+]
+
+# Core dependencies kept intentionally minimal; richer stacks are in optional extras.
+dependencies = [
+  "typer==0.9.0",
+  "click==8.1.7",
+  "numpy>=1.24.3",
+  "scipy>=1.11.4",
+  "pydantic>=2.5.0",
+  "requests>=2.31.0",
+  "python-dotenv>=1.0.0",
+  "rich>=13.7.0",
+]
+
+[project.optional-dependencies]
+# Install for running statistical modeling (AIC/BIC, mixed models)
+stats = [
+  "statsmodels>=0.14.0",
+  "scikit-learn>=1.3.0",
+]
+
+# Install for LLM / embeddings functionality
+llm = [
+  "openai>=1.3.7",
+  "sentence-transformers>=2.2.2",
+  "torch>=2.1.1",
+]
+
+# Install for vector persistence and API serving
+vector = [
+  "chromadb>=0.4.18",
+  "fastapi>=0.104.1",
+  "uvicorn>=0.24.0",
+]
+
+# Everything
+full = [
+  "statsmodels>=0.14.0",
+  "scikit-learn>=1.3.0",
+  "openai>=1.3.7",
+  "sentence-transformers>=2.2.2",
+  "torch>=2.1.1",
+  "chromadb>=0.4.18",
+  "fastapi>=0.104.1",
+  "uvicorn>=0.24.0",
+]
+
+[project.scripts]
+# Entry point: exposes the Typer app in MVP/cli/main.py as the unified CLI
+godelos = "MVP.cli.main:app"
+
+[project.urls]
+Homepage = "https://github.com/Steake/GodelOS"
+Repository = "https://github.com/Steake/GodelOS"
+Issues = "https://github.com/Steake/GodelOS/issues"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+  "MVP",
+  "MVP.*",
+  "backend",
+  "backend.*"
+]
+exclude = [
+  "tests",
+  "tests.*",
+  "scripts",
+  "scripts.*"
+]
+
+[tool.godelos]
+# Custom project metadata (can be expanded for automation)
+primary_cli = "godelos"
+unified_server = "backend.unified_server:app"
+mvp_cli_module = "MVP.cli.main"
+
+[tool.godelos.features]
+# Feature flags (can be inspected programmatically later)
+optional_statsmodels = true
+optional_chromadb = true
+optional_llm = true
+graceful_degradation = true
+rich_output = true
+
+[tool.godelos.paths]
+cognitive_core = "backend/core"
+mvp_core = "MVP/core"
+cli = "MVP/cli/main.py"
+
+[tool.godelos.notes]
+# Design intent notes:
+# - The CLI (godelos) unifies simulation, analysis, export, and future streaming.
+# - Optional dependencies allow a minimal install for lightweight experimentation.
+# - The system should never hard-fail if optional extras are absent; it degrades gracefully.

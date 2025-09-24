@@ -1,0 +1,2 @@
+LLM_PROVIDER_BASE_URL=https://api.deepseek.com/v1
+MODEL=deepseek-chat

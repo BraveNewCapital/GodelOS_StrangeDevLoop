@@ -1,0 +1,10 @@
+{
+  "session_id": "demo_session",
+  "metrics": {
+    "c_n": 0.75,
+    "phi_n": 2.3,
+    "p_n": 1.8,
+    "emergence_score": 0.82
+  },
+  "exported_at": "2025-09-23T11:20:21.924929Z"
+}

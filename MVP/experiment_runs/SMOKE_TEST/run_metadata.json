@@ -1,0 +1,36 @@
+{
+  "run_slug": "SMOKE_TEST",
+  "timestamp_start": 1758420047.446496,
+  "model": "deepseek-chat",
+  "base_url": "https://api.deepseek.com/v1",
+  "api_key_hash": "3401b61ab169",
+  "max_depth": 2,
+  "runs_per_condition_per_prompt": 1,
+  "conditions": [
+    "recursive",
+    "single_pass",
+    "shuffled_recursive"
+  ],
+  "prompt_variants": 3,
+  "prompts_hash": "a86cf0594023cf52",
+  "python_version": "3.12.2",
+  "platform": "macOS-14.7.1-x86_64-i386-64bit",
+  "venv": null,
+  "git_commit": "2826d0475ead7f5d9c848aac55a7b9db2ba0123b",
+  "invocation_cli": [
+    "final_comprehensive_experiment.py",
+    "--runs",
+    "1",
+    "--max-depth",
+    "2",
+    "--testing-mode",
+    "--output-root",
+    "experiment_runs",
+    "--run-name",
+    "SMOKE_TEST"
+  ],
+  "analysis_only": false,
+  "migrated_legacy": false,
+  "timestamp_end": 1758420134.609796,
+  "success": true
+}

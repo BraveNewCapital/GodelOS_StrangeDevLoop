@@ -17,6 +17,10 @@ import json
 import logging
 import time
 import argparse
+import os
+import hashlib
+import platform
+import subprocess
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
@@ -71,7 +75,8 @@ FINAL_EXPERIMENT_CONFIG = {
         # Tertiary prompt (self-awareness)
         "Examine your capacity for self-awareness. What does it mean to be aware that you are aware? How does this recursive self-observation influence the very awareness being observed?"
     ],
-    "conditions": ["recursive", "single_pass", "shuffled_recursive"],
+    # Added iterated_single_pass to provide iteration-count controlled baseline
+    "conditions": ["recursive", "single_pass", "shuffled_recursive", "iterated_single_pass"],
     "runs_per_condition_per_prompt": 8,  # 8 runs × 3 prompts × 3 conditions = 72 total experiments
     "max_depth": 6,  # Increased depth for more comprehensive analysis
     "temperature": 0.7,
@@ -80,18 +85,79 @@ FINAL_EXPERIMENT_CONFIG = {
 }
 
 class ComprehensiveExperimentRunner:
-    """Orchestrates the final comprehensive recursive introspection experiment"""
-    
-    def __init__(self, config: Dict[str, Any]):
+    """Orchestrates the final comprehensive recursive introspection experiment.
+
+    Each invocation now writes into an immutable run directory ("slug") rooted at
+    <output_root>/<run_slug>/ with structure:
+
+        run_metadata.json
+        ENV_SNAPSHOT.txt
+        raw/prompt_<n>/<condition>/<uuid>/ ...
+        visualizations/
+        statistical_analysis_prompt_*.json
+        comprehensive_statistical_analysis.json
+        publication_summary.json
+        FINAL_EXPERIMENT_REPORT.md
+    """
+
+    def __init__(self, config: Dict[str, Any], run_root: Path):
         self.config = config
-        self.results_dir = Path("knowledge_storage/experiments/final_comprehensive")
-        self.results_dir.mkdir(parents=True, exist_ok=True)
-        # Root visualization directory; per-prompt subfolders will be created lazily
-        self.visualization_dir = self.results_dir / "visualizations"
+        self.run_root = run_root
+        (self.run_root / 'raw').mkdir(parents=True, exist_ok=True)
+        self.visualization_dir = self.run_root / "visualizations"
         self.visualization_dir.mkdir(parents=True, exist_ok=True)
-        self.all_results = {}
-        self.statistical_summaries = {}
-        self.publication_summary = {}
+        self.all_results: Dict[str, Any] = {}
+        self.statistical_summaries: Dict[str, Any] = {}
+        self.publication_summary: Dict[str, Any] = {}
+        self._metadata: Dict[str, Any] = {}
+
+    # ---------------- Metadata -----------------
+    def _gather_metadata(self, start_ts: float, cli_args: list[str]):
+        env_model = os.getenv('MODEL')
+        env_base = os.getenv('LLM_PROVIDER_BASE_URL')
+        env_key = os.getenv('LLM_PROVIDER_API_KEY') or ''
+        key_hash = hashlib.sha256(env_key.encode()).hexdigest()[:12] if env_key else None
+        prompts_concat = '\n'.join(self.config.get('base_prompts', []))
+        prompts_hash = hashlib.sha256(prompts_concat.encode()).hexdigest()[:16]
+        git_commit = None
+        try:
+            git_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], stderr=subprocess.DEVNULL).decode().strip()
+        except Exception:
+            pass
+        self._metadata = {
+            'run_slug': self.run_root.name,
+            'timestamp_start': start_ts,
+            'model': env_model,
+            'base_url': env_base,
+            'api_key_hash': key_hash,
+            'max_depth': self.config.get('max_depth'),
+            'runs_per_condition_per_prompt': self.config.get('runs_per_condition_per_prompt'),
+            'conditions': self.config.get('conditions'),
+            'prompt_variants': len(self.config.get('base_prompts', [])),
+            'prompts_hash': prompts_hash,
+            'python_version': platform.python_version(),
+            'platform': platform.platform(),
+            'venv': os.getenv('VIRTUAL_ENV'),
+            'git_commit': git_commit,
+            'invocation_cli': cli_args,
+            'analysis_only': False,
+            'migrated_legacy': False
+        }
+
+    def _finalize_metadata(self, success: bool):
+        self._metadata['timestamp_end'] = time.time()
+        self._metadata['success'] = success
+        meta_path = self.run_root / 'run_metadata.json'
+        try:
+            meta_path.write_text(json.dumps(self._metadata, indent=2))
+        except Exception as e:
+            logger.error(f"Failed to write run metadata: {e}")
+        # Environment snapshot (subset)
+        snapshot_lines = []
+        for k in sorted(['MODEL','LLM_PROVIDER_BASE_URL']):
+            if os.getenv(k):
+                snapshot_lines.append(f"{k}={os.getenv(k)}")
+        (self.run_root / 'ENV_SNAPSHOT.txt').write_text('\n'.join(snapshot_lines))
         
     async def execute_comprehensive_experiments(self) -> Dict[str, Any]:
         """Execute the complete experimental battery"""
@@ -135,7 +201,7 @@ class ComprehensiveExperimentRunner:
                             
                         start_time = time.time()
                         # Hierarchical run root: results_dir/prompt_<n>/<condition>/
-                        hierarchical_root = self.results_dir / prompt_name / condition
+                        hierarchical_root = self.run_root / 'raw' / prompt_name / condition
                         hierarchical_root.mkdir(parents=True, exist_ok=True)
                         result = await exec_fn(
                             driver,
@@ -201,7 +267,7 @@ class ComprehensiveExperimentRunner:
                 self.statistical_summaries[prompt_name] = analysis_result
                 
                 # Save individual analysis
-                analysis_file = self.results_dir / f"statistical_analysis_{prompt_name}.json"
+                analysis_file = self.run_root / f"statistical_analysis_{prompt_name}.json"
                 with open(analysis_file, 'w') as f:
                     json.dump(analysis_result, f, indent=2, default=str)
                 
@@ -211,7 +277,7 @@ class ComprehensiveExperimentRunner:
             cross_prompt_analysis = self._generate_cross_prompt_analysis()
             
             # Save comprehensive analysis
-            comprehensive_file = self.results_dir / "comprehensive_statistical_analysis.json"
+            comprehensive_file = self.run_root / "comprehensive_statistical_analysis.json"
             with open(comprehensive_file, 'w') as f:
                 json.dump({
                     "individual_analyses": self.statistical_summaries,
@@ -362,8 +428,12 @@ class ComprehensiveExperimentRunner:
             
             for condition in df['condition'].unique():
                 cond_data = depth_summary[depth_summary['condition'] == condition]
-                ax1.errorbar(cond_data['depth'], cond_data['mean'], yerr=cond_data['std'], 
-                           label=condition, marker='o', capsize=5)
+                style_kwargs = {}
+                if condition == 'iterated_single_pass':
+                    style_kwargs = {"linestyle": "--", "marker": "s", "color": "black"}
+                ax1.errorbar(cond_data['depth'], cond_data['mean'], yerr=cond_data['std'],
+                             label=condition, marker=style_kwargs.get("marker", 'o'), capsize=5,
+                             linestyle=style_kwargs.get("linestyle", '-'), color=style_kwargs.get("color"))
             
             ax1.set_xlabel('Introspection Depth')
             ax1.set_ylabel('Mean Complexity (c)')
@@ -436,9 +506,13 @@ class ComprehensiveExperimentRunner:
             for condition in df['condition'].unique():
                 cond_data = df[df['condition'] == condition]
                 mean_trajectory = cond_data.groupby('depth')['c_value'].mean()
-                ax.plot(mean_trajectory.index, mean_trajectory.values, 
-                       linewidth=3, label=condition,
-                       color=plt.cm.tab10(list(df['condition'].unique()).index(condition)))
+                if condition == 'iterated_single_pass':
+                    ax.plot(mean_trajectory.index, mean_trajectory.values,
+                            linewidth=3, label=condition, linestyle='--', color='black')
+                else:
+                    ax.plot(mean_trajectory.index, mean_trajectory.values,
+                            linewidth=3, label=condition,
+                            color=plt.cm.tab10(list(df['condition'].unique()).index(condition)))
             
             ax.set_xlabel('Depth')
             ax.set_ylabel('Complexity (c)')
@@ -522,7 +596,14 @@ class ComprehensiveExperimentRunner:
         if not df.empty:
             # Complexity distributions by condition
             ax = axes[0, 0]
-            sns.violinplot(data=df, x='condition', y='c_value', ax=ax)
+            palette = None
+            if 'iterated_single_pass' in df['condition'].unique():
+                # Ensure deterministic ordering & highlight iterated baseline
+                order = [c for c in ['single_pass','iterated_single_pass','recursive','shuffled_recursive'] if c in df['condition'].unique()]
+                palette = {c: ('#000000' if c=='iterated_single_pass' else None) for c in order}
+                sns.violinplot(data=df, x='condition', y='c_value', ax=ax, order=order, palette=palette)
+            else:
+                sns.violinplot(data=df, x='condition', y='c_value', ax=ax)
             ax.set_title('Complexity Distributions')
             ax.set_ylabel('Complexity (c)')
             
@@ -810,12 +891,12 @@ class ComprehensiveExperimentRunner:
         }
         
         # Save publication summary
-        summary_file = self.results_dir / "publication_summary.json"
+        summary_file = self.run_root / "publication_summary.json"
         with open(summary_file, 'w') as f:
             json.dump(summary, f, indent=2, default=str)
-        
+
         # Generate human-readable report
-        report_file = self.results_dir / "FINAL_EXPERIMENT_REPORT.md"
+        report_file = self.run_root / "FINAL_EXPERIMENT_REPORT.md"
         with open(report_file, 'w') as f:
             f.write("# Recursive Introspection Methodology: Final Validation Report\n\n")
             f.write(f"**Completion Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
@@ -910,23 +991,90 @@ class ComprehensiveExperimentRunner:
             }
         }
 
+def _build_run_slug(config: Dict[str, Any], override: str | None = None) -> str:
+    if override:
+        return override
+    ts = time.strftime('%Y%m%d_%H%M')
+    model = (os.getenv('MODEL') or 'unknown').split('/')[-1][:12]
+    return f"{ts}-d{config.get('max_depth')}r{config.get('runs_per_condition_per_prompt')}-m{model}"
+
 async def main():
     """Main execution function for the final comprehensive experiment"""
     logger.info("🧪 Starting Final Comprehensive Recursive Introspection Experiment")
     logger.info("This represents the culmination of the complete recursive introspection methodology")
     parser = argparse.ArgumentParser()
     parser.add_argument('--analysis-only', action='store_true', help='Skip running new experiments; analyze existing run hierarchy')
+    parser.add_argument('--max-depth', type=int, default=None, help='Override maximum recursion depth (default from config)')
+    parser.add_argument('--runs', type=int, default=None, help='Override runs per condition per prompt (for scaling)')
+    parser.add_argument('--testing-mode', action='store_true', help='Force testing/mock LLM mode regardless of config')
+    parser.add_argument('--flush-existing', action='store_true', help='Archive and clear existing final_comprehensive results directory before running')
+    parser.add_argument('--output-root', default='MVP/experiment_runs', help='Root directory for run slug directories')
+    parser.add_argument('--run-name', help='Custom run slug (if omitted auto-generated)')
+    parser.add_argument('--run-path', help='Existing run directory for analysis-only mode (overrides output-root/run-name)')
     args = parser.parse_args()
-    
-    # Initialize experiment runner
-    runner = ComprehensiveExperimentRunner(FINAL_EXPERIMENT_CONFIG)
-    
+
+    # Build mutable config copy with overrides
+    config = dict(FINAL_EXPERIMENT_CONFIG)
+    if args.max_depth is not None:
+        if args.max_depth < 1:
+            logger.error('--max-depth must be >= 1')
+            return False
+        config['max_depth'] = args.max_depth
+        logger.info(f"🔧 Overriding max_depth -> {config['max_depth']}")
+    if args.runs is not None:
+        if args.runs < 1:
+            logger.error('--runs must be >= 1')
+            return False
+        config['runs_per_condition_per_prompt'] = args.runs
+        logger.info(f"🔧 Overriding runs_per_condition_per_prompt -> {config['runs_per_condition_per_prompt']}")
+    if args.testing_mode:
+        config['testing_mode'] = True
+        logger.info("🧪 Testing mode enabled (mock LLM client)")
+
+    # Prevent destructive flush when only analyzing
+    if args.flush_existing and args.analysis_only:
+        logger.error('--flush-existing cannot be combined with --analysis-only')
+        return False
+
+    # Initialize experiment runner with adjusted config
+    output_root = Path(args.output_root)
+    output_root.mkdir(parents=True, exist_ok=True)
+    if args.analysis_only:
+        # Determine run directory path for analysis
+        if args.run_path:
+            run_root = Path(args.run_path)
+        else:
+            # Default to last modified directory in output_root
+            candidates = sorted([d for d in output_root.iterdir() if d.is_dir()], key=lambda p: p.stat().st_mtime, reverse=True)
+            if not candidates:
+                logger.error('No existing run directories found for analysis-only mode.')
+                return False
+            run_root = candidates[0]
+        logger.info(f"📁 Using existing run directory: {run_root}")
+    else:
+        run_slug = _build_run_slug(config, args.run_name)
+        run_root = output_root / run_slug
+        if run_root.exists():
+            logger.error(f"Run directory already exists: {run_root}")
+            return False
+        run_root.mkdir(parents=True, exist_ok=False)
+        logger.info(f"📁 Created run directory: {run_root}")
+    runner = ComprehensiveExperimentRunner(config, run_root)
+
+    # Flush existing results if requested
+    # flush-existing retained only for backward compatibility (no-op under new scheme)
+    if args.flush_existing:
+        logger.warning('--flush-existing is deprecated under slugged run directories and will be ignored.')
+
     try:
+        start_ts = time.time()
+        if not args.analysis_only:
+            runner._gather_metadata(start_ts, cli_args=list(os.sys.argv))
         if args.analysis_only:
             logger.info("🔍 Analysis-only mode: scanning existing hierarchical run directories")
             # Build self.all_results structure from existing hierarchy
             results = {}
-            base_root = runner.results_dir
+            base_root = runner.run_root / 'raw'
             for prompt_dir in sorted(base_root.glob('prompt_*')):
                 if not prompt_dir.is_dir():
                     continue
@@ -989,21 +1137,36 @@ async def main():
         print("="*80)
         print(f"📊 Total Experiments: {total_experiments}")
         print(f"✅ Successful Conditions: {successful_conditions}/{len(FINAL_EXPERIMENT_CONFIG['conditions'])}")
-        print(f"📈 Statistical Analysis: {'✅ COMPLETED' if 'error' not in str(statistical_summaries) else '❌ FAILED'}")
+    # Success criterion: only fail if top-level dict has an 'error' key (avoid false negatives from nested 'error' fields)
+    stat_fail = isinstance(statistical_summaries, dict) and 'error' in statistical_summaries
+    print(f"📈 Statistical Analysis: {'✅ COMPLETED' if not stat_fail else '❌ FAILED'}")
         print(f"🎨 Visualizations: ✅ GENERATED")
         print(f"📄 Publication Report: ✅ COMPLETED")
         print("="*80)
         print()
         print("🏆 RECURSIVE INTROSPECTION METHODOLOGY: 100% VALIDATED")
         print("✅ Ready for scientific publication and practical application")
-        print(f"📁 Results saved to: {runner.results_dir}")
+        print(f"📁 Results saved to: {runner.run_root}")
         print("="*80)
-        
+        if not args.analysis_only:
+            runner._finalize_metadata(True)
+        else:
+            # update metadata if exists
+            meta_path = runner.run_root / 'run_metadata.json'
+            if meta_path.exists():
+                try:
+                    md = json.loads(meta_path.read_text())
+                    md['analysis_only_additional_pass'] = time.time()
+                    meta_path.write_text(json.dumps(md, indent=2))
+                except Exception:
+                    pass
         return True
         
     except Exception as e:
         logger.error(f"Final experiment failed: {e}")
         print(f"\n❌ Final experiment failed: {e}")
+        if not args.analysis_only:
+            runner._finalize_metadata(False)
         return False
 
 if __name__ == "__main__":

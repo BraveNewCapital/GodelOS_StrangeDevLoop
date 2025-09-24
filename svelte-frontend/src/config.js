@@ -3,7 +3,10 @@
 const pick = (...vals) => vals.find(v => typeof v === 'string' && v.length > 0);
 
 // Allow overrides via Vite env, window, or sensible defaults
-const HOST = pick(import.meta?.env?.VITE_BACKEND_HOST, window?.GODELOS_BACKEND_HOST, 'localhost');
+const PAGE_HOST = (() => { try { return window?.location?.hostname || null; } catch { return null; } })();
+const normalizeHost = (h) => (h === '0.0.0.0' || h === '::' ? '127.0.0.1' : h);
+const HOST_RAW = pick(import.meta?.env?.VITE_BACKEND_HOST, window?.GODELOS_BACKEND_HOST, PAGE_HOST, '127.0.0.1');
+const HOST = normalizeHost(HOST_RAW);
 const PORT = pick(import.meta?.env?.VITE_BACKEND_PORT, window?.GODELOS_BACKEND_PORT, '8000');
 const DIRECT_API = pick(import.meta?.env?.VITE_API_BASE_URL, window?.GODELOS_API_BASE_URL, null);
 

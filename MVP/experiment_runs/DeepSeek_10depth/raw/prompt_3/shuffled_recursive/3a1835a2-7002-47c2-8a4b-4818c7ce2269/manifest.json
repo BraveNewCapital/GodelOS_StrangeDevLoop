@@ -1,0 +1,24 @@
+{
+  "run_id": "3a1835a2-7002-47c2-8a4b-4818c7ce2269",
+  "created_at": "2025-09-21T04:24:36.341748+00:00",
+  "git_commit": "2826d0475ead7f5d9c848aac55a7b9db2ba0123b",
+  "code_artifacts_hash": null,
+  "model_id": "deepseek-chat",
+  "hyperparameters": {
+    "temperature": 0.7,
+    "top_p": 1.0
+  },
+  "environment": {
+    "python_version": "3"
+  },
+  "conditions": {
+    "mode": "shuffled_recursive",
+    "condition": "shuffled_recursive",
+    "prompt_variant": "prompt_3",
+    "run_number": 6
+  },
+  "schema_version": "introspection.v1",
+  "prompt_base_sha": null,
+  "notes": "Final experiment run 6 for condition shuffled_recursive, prompt_3",
+  "provenance_version": 1
+}

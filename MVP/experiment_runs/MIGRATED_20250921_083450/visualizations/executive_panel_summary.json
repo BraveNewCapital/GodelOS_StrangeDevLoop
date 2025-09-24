@@ -1,0 +1,14 @@
+{
+  "max_depth_mean_by_condition": {
+    "recursive": 16.0,
+    "shuffled_recursive": 16.0,
+    "single_pass": 1.0
+  },
+  "complexity_delta_mean_by_condition": {
+    "recursive": 0.31833333333333336,
+    "shuffled_recursive": 0.325,
+    "single_pass": 0.0
+  },
+  "overall_mean_max_depth": 11.0,
+  "overall_mean_c_delta": 0.21444444444444447
+}

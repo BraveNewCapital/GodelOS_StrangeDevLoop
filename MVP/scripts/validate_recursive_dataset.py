@@ -15,13 +15,23 @@ from __future__ import annotations
 import argparse, json, re
 from pathlib import Path
 
+# Depth policy configuration (can also be overridden via CLI flags):
+# - min_depth: minimal depth value that must appear for recursive conditions
+# - critical_depth_threshold: if max depth observed < this value, escalate to critical
+#   (Use this when very shallow runs indicate likely aborted recursion.)
+# CLI flags allow customizing these without editing the file.
+
 def load_manifest(path: Path):
     try:
         return json.loads(path.read_text())
     except Exception:
         return None
 
-def validate_run_dir(run_dir: Path, condition: str, max_depth: int, warnings: list):
+def validate_run_dir(run_dir: Path, condition: str, max_depth: int, warnings: list, *,
+                     min_depth_required: int | None = None,
+                     enforce_depth: bool = False,
+                     shallow_runs: list | None = None,
+                     critical_depth_threshold: int | None = None):
     manifest_path = run_dir / 'manifest.json'
     if not manifest_path.exists():
         warnings.append(f"Missing manifest: {run_dir}")
@@ -54,8 +64,39 @@ def validate_run_dir(run_dir: Path, condition: str, max_depth: int, warnings: li
     if condition != 'single_pass':
         if len(depths_seen) < 2:
             warnings.append(f"Insufficient depth coverage in {records_path}: {sorted(depths_seen)}")
+        # Policy enforcement: ensure at least min_depth_required is present
+        if enforce_depth and min_depth_required is not None:
+            # Evaluate max observed depth
+            max_observed = max(depths_seen) if depths_seen else 0
+            if max_observed < min_depth_required:
+                # Record a structured shallow depth warning (will be reclassified later)
+                msg = (f"Shallow run (max_depth_observed={max_observed} < required_min_depth={min_depth_required}) "
+                       f"in {records_path}")
+                warnings.append(msg)
+                if shallow_runs is not None:
+                    shallow_runs.append({
+                        "run_dir": str(run_dir),
+                        "records_file": str(records_path),
+                        "depths": sorted(depths_seen),
+                        "max_observed": max_observed,
+                        "required_min_depth": min_depth_required
+                    })
+            # Additional critical escalation if critical_depth_threshold set
+            if critical_depth_threshold is not None and (max_observed < critical_depth_threshold):
+                msg = (f"Critical shallow run (max_depth_observed={max_observed} < critical_depth_threshold={critical_depth_threshold}) "
+                       f"in {records_path}")
+                warnings.append(msg)
+                if shallow_runs is not None:
+                    shallow_runs.append({
+                        "run_dir": str(run_dir),
+                        "records_file": str(records_path),
+                        "depths": sorted(depths_seen),
+                        "max_observed": max_observed,
+                        "critical_depth_threshold": critical_depth_threshold,
+                        "required_min_depth": min_depth_required
+                    })
         if max_depth in range(2, max_depth+1) and max_depth not in depths_seen:
-            # soft warning
+            # soft info if near-complete but missing absolute max
             warnings.append(f"Max depth {max_depth} not reached in {records_path}")
     else:
         if depths_seen != {1}:
@@ -71,6 +112,10 @@ def classify_warning(msg: str) -> str:
         return 'critical'
     if 'Condition mismatch' in msg:
         return 'critical'
+    if 'Critical shallow run' in msg:
+        return 'critical'
+    if 'Shallow run' in msg:
+        return 'warning'
     if 'Insufficient depth coverage' in msg:
         return 'warning'
     if 'Max depth' in msg:
@@ -90,6 +135,11 @@ def main():
     ap.add_argument('--min-runs', type=int, default=3)
     ap.add_argument('--max-depth', type=int, default=6)
     ap.add_argument('--summary', default='comprehensive_statistical_analysis.json')
+    # Depth policy arguments
+    ap.add_argument('--enforce-depth', action='store_true', help='Turn on depth policy enforcement')
+    ap.add_argument('--min-depth', type=int, default=None, help='Minimum acceptable observed max depth for recursive runs')
+    ap.add_argument('--critical-depth-threshold', type=int, default=None, help='Depth below which a run is escalated to critical')
+    ap.add_argument('--shallow-report', help='Optional JSON file to write detailed shallow run records')
     ap.add_argument('--json-report', help='Optional path to write structured JSON report')
     args = ap.parse_args()
 
@@ -103,6 +153,7 @@ def main():
 
     condition_run_counts = {c: 0 for c in args.expected_conditions}
 
+    shallow_runs: list = []
     for pdir in prompt_dirs:
         for condition in args.expected_conditions:
             cdir = pdir / condition
@@ -112,7 +163,16 @@ def main():
             # Each subdir should contain multiple run UUID dirs
             for run_dir in cdir.iterdir():
                 if run_dir.is_dir():
-                    validate_run_dir(run_dir, condition, args.max_depth, warnings)
+                    validate_run_dir(
+                        run_dir,
+                        condition,
+                        args.max_depth,
+                        warnings,
+                        min_depth_required=args.min_depth,
+                        enforce_depth=args.enforce_depth,
+                        shallow_runs=shallow_runs,
+                        critical_depth_threshold=args.critical_depth_threshold,
+                    )
                     condition_run_counts[condition] += 1
 
     # Summary file checks
@@ -155,9 +215,21 @@ def main():
         for entry in structured:
             print(f" - [{entry['severity'].upper()}] {entry['message']}")
         if args.json_report:
-            report_obj = {"results": structured, "counts": {"critical": crit, "warning": warn, "info": info}}
+            report_obj = {
+                "results": structured,
+                "counts": {"critical": crit, "warning": warn, "info": info},
+                "depth_policy": {
+                    "enforced": args.enforce_depth,
+                    "min_depth": args.min_depth,
+                    "critical_depth_threshold": args.critical_depth_threshold,
+                    "shallow_runs": shallow_runs,
+                },
+            }
             Path(args.json_report).write_text(json.dumps(report_obj, indent=2))
             print(f"Structured report written to {args.json_report}")
+        if args.shallow_report and shallow_runs:
+            Path(args.shallow_report).write_text(json.dumps(shallow_runs, indent=2))
+            print(f"Shallow run details written to {args.shallow_report}")
     else:
         print('Dataset validation passed with no warnings.')
 

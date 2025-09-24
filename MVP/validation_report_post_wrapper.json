@@ -1,0 +1,133 @@
+{
+  "results": [
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_2/recursive/1856afa6-f141-46ca-8f95-b10096c99e1a/1856afa6-f141-46ca-8f95-b10096c99e1a.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_2/recursive/c2897b91-0e40-48d4-ba14-07b130da1481/c2897b91-0e40-48d4-ba14-07b130da1481.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_2/recursive/ed6acf78-f259-4578-ac44-06e52685cad3/ed6acf78-f259-4578-ac44-06e52685cad3.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_2/recursive/0bafc96d-d567-4c81-90ea-eb9539f313da/0bafc96d-d567-4c81-90ea-eb9539f313da.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_2/recursive/a28fd2ed-709c-49ad-87ca-2457cf1c6faf/a28fd2ed-709c-49ad-87ca-2457cf1c6faf.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_2/recursive/95e9d756-23e1-42cb-a246-c7e216a76289/95e9d756-23e1-42cb-a246-c7e216a76289.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_2/shuffled_recursive/15895f68-6c32-4ce5-a490-4c26a14d45df/15895f68-6c32-4ce5-a490-4c26a14d45df.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_2/shuffled_recursive/a07b352d-68f9-4b48-9af3-82c0b9342dc5/a07b352d-68f9-4b48-9af3-82c0b9342dc5.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_2/shuffled_recursive/0ef10ea3-c9c2-475a-9d66-4ff6465d3b83/0ef10ea3-c9c2-475a-9d66-4ff6465d3b83.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_2/shuffled_recursive/8dc5acc9-2882-4eda-8a3a-9af4311a00f7/8dc5acc9-2882-4eda-8a3a-9af4311a00f7.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_2/shuffled_recursive/b4df7a71-c691-4c44-91a0-edaefceecfe7/b4df7a71-c691-4c44-91a0-edaefceecfe7.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_2/shuffled_recursive/5a81ae2c-6dd6-4f41-8cab-00b0e8e10978/5a81ae2c-6dd6-4f41-8cab-00b0e8e10978.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_3/recursive/b3eb0917-a0b1-4059-8b84-9b0d138bc096/b3eb0917-a0b1-4059-8b84-9b0d138bc096.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_3/recursive/b5c8bcf2-35b2-4ed9-9e67-cef34a847978/b5c8bcf2-35b2-4ed9-9e67-cef34a847978.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_3/recursive/e655b1bc-e67c-4c49-bff5-fa7dac437b14/e655b1bc-e67c-4c49-bff5-fa7dac437b14.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_3/shuffled_recursive/03780ce9-24de-42e8-806b-ded74fc8a6cd/03780ce9-24de-42e8-806b-ded74fc8a6cd.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_3/shuffled_recursive/952e9417-dcdb-4b61-a69f-9c24d1809b47/952e9417-dcdb-4b61-a69f-9c24d1809b47.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_3/shuffled_recursive/6c7a1a88-b243-49b8-88ba-23160b969a07/6c7a1a88-b243-49b8-88ba-23160b969a07.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/9f842f13-f8be-414b-8020-bd4acbdc8c6d/9f842f13-f8be-414b-8020-bd4acbdc8c6d.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/872fb960-9d46-400d-9887-785413a4f52d/872fb960-9d46-400d-9887-785413a4f52d.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/dc137cdb-0290-45ab-b94e-1083a05a649f/dc137cdb-0290-45ab-b94e-1083a05a649f.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/06667bec-635f-4790-a79e-35bc093617aa/06667bec-635f-4790-a79e-35bc093617aa.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/81c5b1bc-6e50-45f6-b74d-18b725fff929/81c5b1bc-6e50-45f6-b74d-18b725fff929.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/8b92dd41-0a02-4afe-a6db-86e48db2a81a/8b92dd41-0a02-4afe-a6db-86e48db2a81a.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/09f9faa9-e09f-4d84-851c-d83f132ab5bb/09f9faa9-e09f-4d84-851c-d83f132ab5bb.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_1/shuffled_recursive/28bf7ebe-035c-44cd-8ccd-0051ecca8fc4/28bf7ebe-035c-44cd-8ccd-0051ecca8fc4.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_1/shuffled_recursive/124222bf-4308-4217-9a64-f626a9cb35a0/124222bf-4308-4217-9a64-f626a9cb35a0.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_1/shuffled_recursive/0d72ec1c-b597-46d5-b7db-1e49d6e89022/0d72ec1c-b597-46d5-b7db-1e49d6e89022.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_1/shuffled_recursive/148b9880-57b8-4943-94a2-0e679e8ab373/148b9880-57b8-4943-94a2-0e679e8ab373.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_1/shuffled_recursive/3aac5de7-1310-4274-b0fc-b271db81ffbe/3aac5de7-1310-4274-b0fc-b271db81ffbe.jsonl",
+      "severity": "info"
+    },
+    {
+      "message": "Max depth 6 not reached in knowledge_storage/experiments/final_comprehensive/prompt_1/shuffled_recursive/bccea9e7-97a9-4b8f-b1a9-7f6a95c002bd/bccea9e7-97a9-4b8f-b1a9-7f6a95c002bd.jsonl",
+      "severity": "info"
+    }
+  ],
+  "counts": {
+    "critical": 0,
+    "warning": 0,
+    "info": 31
+  }
+}

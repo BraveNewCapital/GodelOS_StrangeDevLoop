@@ -1017,7 +1017,7 @@ class EnhancedCognitiveStateManager {
    */
   async triggerKnowledgeAcquisition(concepts, priority = 0.8) {
     try {
-      const response = await fetch('/api/enhanced-cognitive/autonomous/trigger-acquisition', {
+      const response = await fetch(`${API_BASE_URL}/api/enhanced-cognitive/autonomous/trigger-acquisition`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

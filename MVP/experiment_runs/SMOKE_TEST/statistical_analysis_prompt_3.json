@@ -1,0 +1,369 @@
+{
+  "schema_version": "introspection.v1",
+  "analysis_timestamp": "2025-09-21T02:01:06.218347+00:00",
+  "conditions_analyzed": [
+    "recursive",
+    "single_pass",
+    "shuffled_recursive"
+  ],
+  "baseline_condition": "single_pass",
+  "run_counts": {
+    "recursive": 1,
+    "single_pass": 1,
+    "shuffled_recursive": 1
+  },
+  "descriptive_stats": {
+    "recursive": {
+      "1": {
+        "c": {
+          "n": 1,
+          "mean": 0.03,
+          "median": 0.03,
+          "std": null,
+          "ci_95_lower": null,
+          "ci_95_upper": null,
+          "min": 0.03,
+          "max": 0.03,
+          "insufficient_samples": true
+        },
+        "token_count": {
+          "n": 1,
+          "mean": 15,
+          "median": 15,
+          "std": null,
+          "ci_95_lower": null,
+          "ci_95_upper": null,
+          "min": 15,
+          "max": 15,
+          "insufficient_samples": true
+        },
+        "runtime_ms": {
+          "n": 1,
+          "mean": 0,
+          "median": 0,
+          "std": null,
+          "ci_95_lower": null,
+          "ci_95_upper": null,
+          "min": 0,
+          "max": 0,
+          "insufficient_samples": true
+        }
+      },
+      "2": {
+        "c": {
+          "n": 1,
+          "mean": 0.06,
+          "median": 0.06,
+          "std": null,
+          "ci_95_lower": null,
+          "ci_95_upper": null,
+          "min": 0.06,
+          "max": 0.06,
+          "insufficient_samples": true
+        },
+        "delta_c": {
+          "n": 1,
+          "mean": 0.03,
+          "median": 0.03,
+          "std": null,
+          "ci_95_lower": null,
+          "ci_95_upper": null,
+          "min": 0.03,
+          "max": 0.03,
+          "insufficient_samples": true
+        },
+        "rolling_c_slope": {
+          "n": 1,
+          "mean": 0.03,
+          "median": 0.03,
+          "std": null,
+          "ci_95_lower": null,
+          "ci_95_upper": null,
+          "min": 0.03,
+          "max": 0.03,
+          "insufficient_samples": true
+        },
+        "token_count": {
+          "n": 1,
+          "mean": 15,
+          "median": 15,
+          "std": null,
+          "ci_95_lower": null,
+          "ci_95_upper": null,
+          "min": 15,
+          "max": 15,
+          "insufficient_samples": true
+        },
+        "runtime_ms": {
+          "n": 1,
+          "mean": 0,
+          "median": 0,
+          "std": null,
+          "ci_95_lower": null,
+          "ci_95_upper": null,
+          "min": 0,
+          "max": 0,
+          "insufficient_samples": true
+        }
+      }
+    },
+    "single_pass": {
+      "1": {
+        "c": {
+          "n": 1,
+          "mean": 0.03,
+          "median": 0.03,
+          "std": null,
+          "ci_95_lower": null,
+          "ci_95_upper": null,
+          "min": 0.03,
+          "max": 0.03,
+          "insufficient_samples": true
+        },
+        "token_count": {
+          "n": 1,
+          "mean": 15,
+          "median": 15,
+          "std": null,
+          "ci_95_lower": null,
+          "ci_95_upper": null,
+          "min": 15,
+          "max": 15,
+          "insufficient_samples": true
+        },
+        "runtime_ms": {
+          "n": 1,
+          "mean": 0,
+          "median": 0,
+          "std": null,
+          "ci_95_lower": null,
+          "ci_95_upper": null,
+          "min": 0,
+          "max": 0,
+          "insufficient_samples": true
+        }
+      }
+    },
+    "shuffled_recursive": {
+      "1": {
+        "c": {
+          "n": 1,
+          "mean": 0.18,
+          "median": 0.18,
+          "std": null,
+          "ci_95_lower": null,
+          "ci_95_upper": null,
+          "min": 0.18,
+          "max": 0.18,
+          "insufficient_samples": true
+        },
+        "token_count": {
+          "n": 1,
+          "mean": 20,
+          "median": 20,
+          "std": null,
+          "ci_95_lower": null,
+          "ci_95_upper": null,
+          "min": 20,
+          "max": 20,
+          "insufficient_samples": true
+        },
+        "runtime_ms": {
+          "n": 1,
+          "mean": 0,
+          "median": 0,
+          "std": null,
+          "ci_95_lower": null,
+          "ci_95_upper": null,
+          "min": 0,
+          "max": 0,
+          "insufficient_samples": true
+        }
+      },
+      "2": {
+        "c": {
+          "n": 1,
+          "mean": 0.21,
+          "median": 0.21,
+          "std": null,
+          "ci_95_lower": null,
+          "ci_95_upper": null,
+          "min": 0.21,
+          "max": 0.21,
+          "insufficient_samples": true
+        },
+        "delta_c": {
+          "n": 1,
+          "mean": 0.03,
+          "median": 0.03,
+          "std": null,
+          "ci_95_lower": null,
+          "ci_95_upper": null,
+          "min": 0.03,
+          "max": 0.03,
+          "insufficient_samples": true
+        },
+        "rolling_c_slope": {
+          "n": 1,
+          "mean": 0.03,
+          "median": 0.03,
+          "std": null,
+          "ci_95_lower": null,
+          "ci_95_upper": null,
+          "min": 0.03,
+          "max": 0.03,
+          "insufficient_samples": true
+        },
+        "token_count": {
+          "n": 1,
+          "mean": 20,
+          "median": 20,
+          "std": null,
+          "ci_95_lower": null,
+          "ci_95_upper": null,
+          "min": 20,
+          "max": 20,
+          "insufficient_samples": true
+        },
+        "runtime_ms": {
+          "n": 1,
+          "mean": 0,
+          "median": 0,
+          "std": null,
+          "ci_95_lower": null,
+          "ci_95_upper": null,
+          "min": 0,
+          "max": 0,
+          "insufficient_samples": true
+        }
+      }
+    }
+  },
+  "raw_values": {
+    "recursive": {
+      "1": {
+        "c": [
+          0.03
+        ],
+        "token_count": [
+          15
+        ],
+        "runtime_ms": [
+          0
+        ]
+      },
+      "2": {
+        "c": [
+          0.06
+        ],
+        "delta_c": [
+          0.03
+        ],
+        "rolling_c_slope": [
+          0.03
+        ],
+        "token_count": [
+          15
+        ],
+        "runtime_ms": [
+          0
+        ]
+      }
+    },
+    "single_pass": {
+      "1": {
+        "c": [
+          0.03
+        ],
+        "token_count": [
+          15
+        ],
+        "runtime_ms": [
+          0
+        ]
+      }
+    },
+    "shuffled_recursive": {
+      "1": {
+        "c": [
+          0.18
+        ],
+        "token_count": [
+          20
+        ],
+        "runtime_ms": [
+          0
+        ]
+      },
+      "2": {
+        "c": [
+          0.21
+        ],
+        "delta_c": [
+          0.03
+        ],
+        "rolling_c_slope": [
+          0.03
+        ],
+        "token_count": [
+          20
+        ],
+        "runtime_ms": [
+          0
+        ]
+      }
+    }
+  },
+  "significance_tests": {
+    "recursive": [],
+    "shuffled_recursive": []
+  },
+  "effect_sizes": {},
+  "multiple_comparison_correction": {},
+  "auc_analysis": {
+    "recursive": {
+      "auc_c": 0.045,
+      "final_depth_c_mean": 0.06,
+      "max_depth": 2,
+      "single_depth": false
+    },
+    "single_pass": {
+      "auc_c": 0.0,
+      "final_depth_c_mean": 0.03,
+      "max_depth": 1,
+      "single_depth": true
+    },
+    "shuffled_recursive": {
+      "auc_c": 0.195,
+      "final_depth_c_mean": 0.21,
+      "max_depth": 2,
+      "single_depth": false
+    }
+  },
+  "data_quality": {
+    "recursive": {
+      "total_depths": 2,
+      "depths_with_data": 2,
+      "depth_completeness_ratio": 1.0,
+      "min_n_per_depth": 1,
+      "max_n_per_depth": 1,
+      "meets_statistical_threshold": false
+    },
+    "single_pass": {
+      "total_depths": 1,
+      "depths_with_data": 1,
+      "depth_completeness_ratio": 1.0,
+      "min_n_per_depth": 1,
+      "max_n_per_depth": 1,
+      "meets_statistical_threshold": false
+    },
+    "shuffled_recursive": {
+      "total_depths": 2,
+      "depths_with_data": 2,
+      "depth_completeness_ratio": 1.0,
+      "min_n_per_depth": 1,
+      "max_n_per_depth": 1,
+      "meets_statistical_threshold": false
+    }
+  }
+}

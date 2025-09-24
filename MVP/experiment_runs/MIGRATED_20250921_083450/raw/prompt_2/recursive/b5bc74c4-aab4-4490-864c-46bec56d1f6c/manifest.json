@@ -1,0 +1,24 @@
+{
+  "run_id": "b5bc74c4-aab4-4490-864c-46bec56d1f6c",
+  "created_at": "2025-09-20T03:58:11.304934+00:00",
+  "git_commit": "2826d0475ead7f5d9c848aac55a7b9db2ba0123b",
+  "code_artifacts_hash": null,
+  "model_id": "x-ai/grok-4-fast:free",
+  "hyperparameters": {
+    "temperature": 0.7,
+    "top_p": 1.0
+  },
+  "environment": {
+    "python_version": "3"
+  },
+  "conditions": {
+    "mode": "recursive",
+    "condition": "recursive",
+    "prompt_variant": "prompt_2",
+    "run_number": 4
+  },
+  "schema_version": "introspection.v1",
+  "prompt_base_sha": null,
+  "notes": "Final experiment run 4 for condition recursive, prompt_2",
+  "provenance_version": 1
+}

@@ -1,0 +1,2462 @@
+{
+  "runs": {
+    "single_pass": [
+      {
+        "run_id": "c32ab21c-662b-4a7e-8bf3-b3f0903e9ddd",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/single_pass/c32ab21c-662b-4a7e-8bf3-b3f0903e9ddd",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "d07e0b57-aa86-414d-ab51-681ff9674860",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/single_pass/d07e0b57-aa86-414d-ab51-681ff9674860",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "96094bd5-4f7f-4f17-b49c-539414cbe6e3",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/single_pass/96094bd5-4f7f-4f17-b49c-539414cbe6e3",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "9700e3f1-feb6-495d-90b2-dfc1bca25793",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/single_pass/9700e3f1-feb6-495d-90b2-dfc1bca25793",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "fd0a99e9-0e62-4e4b-9183-eb63ecb5ace9",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/single_pass/fd0a99e9-0e62-4e4b-9183-eb63ecb5ace9",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "03d1c702-812b-41a3-8d31-12676b659110",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/single_pass/03d1c702-812b-41a3-8d31-12676b659110",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "86020dba-be18-4ea8-997b-cc402e11c333",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/single_pass/86020dba-be18-4ea8-997b-cc402e11c333",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "a7a0b3d6-6f71-4088-9ff1-e51828d94dae",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/single_pass/a7a0b3d6-6f71-4088-9ff1-e51828d94dae",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "02904c50-ddec-4295-a0b7-ab4435d6303b",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/single_pass/02904c50-ddec-4295-a0b7-ab4435d6303b",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "9543c319-b4fb-4907-8ae7-7251f1b0df4b",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/single_pass/9543c319-b4fb-4907-8ae7-7251f1b0df4b",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "9746b722-2009-4681-b1ac-16476e77650e",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/single_pass/9746b722-2009-4681-b1ac-16476e77650e",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "60c6b2c7-724d-4d6b-a804-198d497f62d0",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/single_pass/60c6b2c7-724d-4d6b-a804-198d497f62d0",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "292da155-7d36-4c23-85d1-0b7cd75f096a",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/single_pass/292da155-7d36-4c23-85d1-0b7cd75f096a",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "85362e22-afbf-42d2-98ba-56ac18a8c6d5",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/single_pass/85362e22-afbf-42d2-98ba-56ac18a8c6d5",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "228ce538-cb25-4d93-b23d-65fb4d297d47",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/single_pass/228ce538-cb25-4d93-b23d-65fb4d297d47",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "7f36271f-d5cc-4798-ae1d-aebe298de6f6",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/single_pass/7f36271f-d5cc-4798-ae1d-aebe298de6f6",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "8e8b9f46-3fdd-49d6-ae56-10a3a5ee17a0",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/single_pass/8e8b9f46-3fdd-49d6-ae56-10a3a5ee17a0",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "3c190b7a-95aa-4636-af97-978313aa0068",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/single_pass/3c190b7a-95aa-4636-af97-978313aa0068",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "ce3e34ed-1962-4f78-9416-c770192cd036",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/single_pass/ce3e34ed-1962-4f78-9416-c770192cd036",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "685d1cf5-c407-42f3-a1de-3b3b2d5abfc9",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/single_pass/685d1cf5-c407-42f3-a1de-3b3b2d5abfc9",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "96ef3aea-989b-43d8-9742-6392ed1f0ccd",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/single_pass/96ef3aea-989b-43d8-9742-6392ed1f0ccd",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "07d6c659-8f19-4320-a646-dd3ff7665987",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/single_pass/07d6c659-8f19-4320-a646-dd3ff7665987",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "80db4b5e-0f11-40f7-a520-dfb5458a4a12",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/single_pass/80db4b5e-0f11-40f7-a520-dfb5458a4a12",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "43c8d96d-8010-40fd-8f40-f9529770e254",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/single_pass/43c8d96d-8010-40fd-8f40-f9529770e254",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "89414db1-583d-4407-9224-462c4ae161c8",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/single_pass/89414db1-583d-4407-9224-462c4ae161c8",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "78aa7b29-43c3-459a-be03-587cd3701ae4",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/single_pass/78aa7b29-43c3-459a-be03-587cd3701ae4",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "7989670c-a4f4-426d-8ff1-7f6ea2577385",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/single_pass/7989670c-a4f4-426d-8ff1-7f6ea2577385",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "8f990f25-434c-4eb3-a437-69ce3f9c39f3",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/single_pass/8f990f25-434c-4eb3-a437-69ce3f9c39f3",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "048d521d-5813-428c-95b3-5c38a2abfd08",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/single_pass/048d521d-5813-428c-95b3-5c38a2abfd08",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "98aca351-c99a-43ad-9087-6b19aad69e03",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/single_pass/98aca351-c99a-43ad-9087-6b19aad69e03",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "e7ccec7d-2b78-41d7-9927-66cfa61f3a44",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/single_pass/e7ccec7d-2b78-41d7-9927-66cfa61f3a44",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "703e8380-3045-43e0-9fde-6e68ad7aac4d",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/single_pass/703e8380-3045-43e0-9fde-6e68ad7aac4d",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "15f8ecb9-3c14-476c-9cc2-c85059b8f4af",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/single_pass/15f8ecb9-3c14-476c-9cc2-c85059b8f4af",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "2ac99754-134d-4681-a768-9109a89edca8",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/single_pass/2ac99754-134d-4681-a768-9109a89edca8",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "bfef8e80-69d3-46bd-aa94-56023da90fd5",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/single_pass/bfef8e80-69d3-46bd-aa94-56023da90fd5",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "07b7c4c9-c138-4f9c-aa43-658ad08fa8e3",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/single_pass/07b7c4c9-c138-4f9c-aa43-658ad08fa8e3",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "04cbf5dd-e320-4d93-86d0-5e826af802f6",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/single_pass/04cbf5dd-e320-4d93-86d0-5e826af802f6",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "149af8de-66d8-46ca-8e62-fbe624ebc340",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/single_pass/149af8de-66d8-46ca-8e62-fbe624ebc340",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "eacc789f-6333-4643-bba4-7734f96dd4a5",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/single_pass/eacc789f-6333-4643-bba4-7734f96dd4a5",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "49f522a2-64bd-4b2b-82c6-fdde68528044",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/single_pass/49f522a2-64bd-4b2b-82c6-fdde68528044",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "d568812d-894e-4d85-94df-8bb2390f8cf0",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/single_pass/d568812d-894e-4d85-94df-8bb2390f8cf0",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "0f810851-7cc4-470f-8d2d-2277449ec114",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/single_pass/0f810851-7cc4-470f-8d2d-2277449ec114",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "cdea0991-f2c7-44f4-ac34-a526c21e5702",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/single_pass/cdea0991-f2c7-44f4-ac34-a526c21e5702",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "c67797aa-099f-4a25-94df-e407eb4ecaf0",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/single_pass/c67797aa-099f-4a25-94df-e407eb4ecaf0",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "386881fb-89bb-435d-801c-c66c8cc88a8c",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/single_pass/386881fb-89bb-435d-801c-c66c8cc88a8c",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "433b105a-aeb4-4c99-9e27-a72007b59a27",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/single_pass/433b105a-aeb4-4c99-9e27-a72007b59a27",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "9bfdd6eb-244e-4840-bbbf-d48efbfb7de1",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/single_pass/9bfdd6eb-244e-4840-bbbf-d48efbfb7de1",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "8cccb224-e6e1-4909-a2f6-623773ed92ff",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/single_pass/8cccb224-e6e1-4909-a2f6-623773ed92ff",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "4635e56e-4cec-4c4c-8235-ec2084271b71",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/single_pass/4635e56e-4cec-4c4c-8235-ec2084271b71",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "7d17e7f0-de53-4ec1-91a8-315a997d6446",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/single_pass/7d17e7f0-de53-4ec1-91a8-315a997d6446",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "6182c430-8e78-449c-a8d2-5ae98aafd29f",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/single_pass/6182c430-8e78-449c-a8d2-5ae98aafd29f",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "9d20a897-7c81-44e9-8e8d-c72ac4d2d5bc",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/single_pass/9d20a897-7c81-44e9-8e8d-c72ac4d2d5bc",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "d60b3fff-4a36-490f-8a5c-0802a1458316",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/single_pass/d60b3fff-4a36-490f-8a5c-0802a1458316",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "a5b90e28-e402-44c6-8c21-bb6088926bdd",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/single_pass/a5b90e28-e402-44c6-8c21-bb6088926bdd",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "7cae45b2-b98f-40b0-85d5-10880bc32bcf",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/single_pass/7cae45b2-b98f-40b0-85d5-10880bc32bcf",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "51d74cbc-0522-4568-ad92-019f31d27d9d",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/single_pass/51d74cbc-0522-4568-ad92-019f31d27d9d",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "cbbdb2a1-8687-441f-818a-ae0801523fed",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/single_pass/cbbdb2a1-8687-441f-818a-ae0801523fed",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "0d5fdda4-5ac9-4370-9d0b-1aae65112aa7",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/single_pass/0d5fdda4-5ac9-4370-9d0b-1aae65112aa7",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "4baa8e66-616f-44db-b8c7-5da7431f2455",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/single_pass/4baa8e66-616f-44db-b8c7-5da7431f2455",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "c4cc57bb-d129-450a-b334-d97bb568c9e5",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/single_pass/c4cc57bb-d129-450a-b334-d97bb568c9e5",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "8b7c6f86-7d70-4d0b-9dcf-be31c4f515c2",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/single_pass/8b7c6f86-7d70-4d0b-9dcf-be31c4f515c2",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "25dbfb6f-3c0d-426e-9fad-e50fca4f6a45",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/single_pass/25dbfb6f-3c0d-426e-9fad-e50fca4f6a45",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "840d078b-087b-49c2-b126-b68a55728a0e",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/single_pass/840d078b-087b-49c2-b126-b68a55728a0e",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      },
+      {
+        "run_id": "e7048f48-621f-4123-96b4-d02246cb5f99",
+        "condition": "single_pass",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/single_pass/e7048f48-621f-4123-96b4-d02246cb5f99",
+        "issues": [],
+        "depths": [
+          1
+        ],
+        "valid_lines": 1
+      }
+    ],
+    "recursive": [
+      {
+        "run_id": "1856afa6-f141-46ca-8f95-b10096c99e1a",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/recursive/1856afa6-f141-46ca-8f95-b10096c99e1a",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "2e74e400-295b-4658-bede-eead6320866b",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/recursive/2e74e400-295b-4658-bede-eead6320866b",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "ab901944-8821-4694-bf20-c98a3a6688da",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/recursive/ab901944-8821-4694-bf20-c98a3a6688da",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "98b13fdf-f1c5-4d81-8513-a91d0379e420",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/recursive/98b13fdf-f1c5-4d81-8513-a91d0379e420",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "5afc5dda-bb32-4c2c-981d-1963d97a3b92",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/recursive/5afc5dda-bb32-4c2c-981d-1963d97a3b92",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "a1f1015c-d82f-434d-93ce-e44b4aa5bd67",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/recursive/a1f1015c-d82f-434d-93ce-e44b4aa5bd67",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "14198ea3-1b17-4ae1-854e-2b75afc1a6f2",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/recursive/14198ea3-1b17-4ae1-854e-2b75afc1a6f2",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "97ecb97b-1d78-45d9-9518-6423bc9710c1",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/recursive/97ecb97b-1d78-45d9-9518-6423bc9710c1",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "d52ecd23-85d1-402f-9828-15e955568d64",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/recursive/d52ecd23-85d1-402f-9828-15e955568d64",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "637af31b-62a8-49c8-80bc-3ecf01b6f13a",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/recursive/637af31b-62a8-49c8-80bc-3ecf01b6f13a",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "5757b353-50bc-47d6-888c-513df5943b03",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/recursive/5757b353-50bc-47d6-888c-513df5943b03",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "953cf9a9-9b86-432f-a432-490d3dffa721",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/recursive/953cf9a9-9b86-432f-a432-490d3dffa721",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "c2897b91-0e40-48d4-ba14-07b130da1481",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/recursive/c2897b91-0e40-48d4-ba14-07b130da1481",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "a2b90ae3-cd22-48b8-bf3c-c18f8bf4abd7",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/recursive/a2b90ae3-cd22-48b8-bf3c-c18f8bf4abd7",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "ed6acf78-f259-4578-ac44-06e52685cad3",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/recursive/ed6acf78-f259-4578-ac44-06e52685cad3",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "0bafc96d-d567-4c81-90ea-eb9539f313da",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/recursive/0bafc96d-d567-4c81-90ea-eb9539f313da",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "68856353-a9df-4da8-920c-c062e4c2161a",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/recursive/68856353-a9df-4da8-920c-c062e4c2161a",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "a28fd2ed-709c-49ad-87ca-2457cf1c6faf",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/recursive/a28fd2ed-709c-49ad-87ca-2457cf1c6faf",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "95e9d756-23e1-42cb-a246-c7e216a76289",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/recursive/95e9d756-23e1-42cb-a246-c7e216a76289",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "6f28544a-c9fd-47fd-acda-700da7b990ee",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/recursive/6f28544a-c9fd-47fd-acda-700da7b990ee",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "1dcfe18b-0831-4841-99b8-6408f611acda",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/recursive/1dcfe18b-0831-4841-99b8-6408f611acda",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "9d67fdd2-244b-41ed-bb50-1ae1a45a1c36",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/recursive/9d67fdd2-244b-41ed-bb50-1ae1a45a1c36",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "b3eb0917-a0b1-4059-8b84-9b0d138bc096",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/recursive/b3eb0917-a0b1-4059-8b84-9b0d138bc096",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "b5c8bcf2-35b2-4ed9-9e67-cef34a847978",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/recursive/b5c8bcf2-35b2-4ed9-9e67-cef34a847978",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "82ee64c9-54c7-4da2-b153-7b4961258978",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/recursive/82ee64c9-54c7-4da2-b153-7b4961258978",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "6b3e309f-a0a4-41d5-b3fe-53da5208c43c",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/recursive/6b3e309f-a0a4-41d5-b3fe-53da5208c43c",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "038556cb-4aaf-4bbe-9561-dc9e3f0658b2",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/recursive/038556cb-4aaf-4bbe-9561-dc9e3f0658b2",
+        "issues": [],
+        "depths": [
+          5,
+          6
+        ],
+        "valid_lines": 2
+      },
+      {
+        "run_id": "a989f9f7-7b19-47c4-be9f-b419ebb79098",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/recursive/a989f9f7-7b19-47c4-be9f-b419ebb79098",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "8ff740cb-b876-4fa7-b5f7-aa88a0c70d52",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/recursive/8ff740cb-b876-4fa7-b5f7-aa88a0c70d52",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "ed8440d5-617f-44de-ad4a-045fa395443b",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/recursive/ed8440d5-617f-44de-ad4a-045fa395443b",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "d3c26afa-87e7-4962-bf48-423b08526757",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/recursive/d3c26afa-87e7-4962-bf48-423b08526757",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "98b57b82-9b2e-4a2b-b2ab-7ad1113cecfc",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/recursive/98b57b82-9b2e-4a2b-b2ab-7ad1113cecfc",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "d6229393-f788-45e4-aed2-0867dbc2e464",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/recursive/d6229393-f788-45e4-aed2-0867dbc2e464",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "ba274c23-c797-4d39-a978-98c354e4d82a",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/recursive/ba274c23-c797-4d39-a978-98c354e4d82a",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "7a18440c-42e9-40a4-9102-d08c591a6d05",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/recursive/7a18440c-42e9-40a4-9102-d08c591a6d05",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "52d2a0b0-5c8c-4252-a07c-35fb600b7ad3",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/recursive/52d2a0b0-5c8c-4252-a07c-35fb600b7ad3",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "596d67f8-1924-4d4b-863a-cf11f917911d",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/recursive/596d67f8-1924-4d4b-863a-cf11f917911d",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "396550e3-efc8-4132-ba96-5b3de651012c",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/recursive/396550e3-efc8-4132-ba96-5b3de651012c",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "3332c964-55cb-4c4d-b2b0-04ab35f86cd9",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/recursive/3332c964-55cb-4c4d-b2b0-04ab35f86cd9",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "e655b1bc-e67c-4c49-bff5-fa7dac437b14",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/recursive/e655b1bc-e67c-4c49-bff5-fa7dac437b14",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "9f842f13-f8be-414b-8020-bd4acbdc8c6d",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/9f842f13-f8be-414b-8020-bd4acbdc8c6d",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "67b15b75-ce9c-473d-8223-aad713d9a264",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/67b15b75-ce9c-473d-8223-aad713d9a264",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "ae9a0eb4-07a0-4680-8bbe-6ce7fef3909a",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/ae9a0eb4-07a0-4680-8bbe-6ce7fef3909a",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "599feb00-1fd0-42c4-8043-7b7d1a6c11a6",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/599feb00-1fd0-42c4-8043-7b7d1a6c11a6",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "75d91d19-6f87-4e7e-95dc-a8d215f701c1",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/75d91d19-6f87-4e7e-95dc-a8d215f701c1",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "872fb960-9d46-400d-9887-785413a4f52d",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/872fb960-9d46-400d-9887-785413a4f52d",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "bbedbe74-202f-49dd-ac6a-fcb4eef4f24c",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/bbedbe74-202f-49dd-ac6a-fcb4eef4f24c",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "dc137cdb-0290-45ab-b94e-1083a05a649f",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/dc137cdb-0290-45ab-b94e-1083a05a649f",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "06667bec-635f-4790-a79e-35bc093617aa",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/06667bec-635f-4790-a79e-35bc093617aa",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "77ef88a7-2bf6-460e-9328-a9288d3ebe55",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/77ef88a7-2bf6-460e-9328-a9288d3ebe55",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "21b7abea-c7b6-4103-99ca-9a59666c2921",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/21b7abea-c7b6-4103-99ca-9a59666c2921",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "552e90d8-da09-4b1c-9a07-93a7bdecf4b5",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/552e90d8-da09-4b1c-9a07-93a7bdecf4b5",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "fc6f4cf0-d8da-4e96-bd6c-159e12ed1577",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/fc6f4cf0-d8da-4e96-bd6c-159e12ed1577",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "f42a5c7b-b64a-4376-983e-c3fe42f3e66e",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/f42a5c7b-b64a-4376-983e-c3fe42f3e66e",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "19b3d1f8-a909-4d8a-915f-ae42a3e3ac75",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/19b3d1f8-a909-4d8a-915f-ae42a3e3ac75",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "a9b285f5-4fdc-4b05-aa1c-35bd0ab63a00",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/a9b285f5-4fdc-4b05-aa1c-35bd0ab63a00",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "bdad73bf-267c-4f9e-9ba9-a475eb4d85b2",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/bdad73bf-267c-4f9e-9ba9-a475eb4d85b2",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "17038230-af2f-409f-994f-7ab669227e36",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/17038230-af2f-409f-994f-7ab669227e36",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "81c5b1bc-6e50-45f6-b74d-18b725fff929",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/81c5b1bc-6e50-45f6-b74d-18b725fff929",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "8b92dd41-0a02-4afe-a6db-86e48db2a81a",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/8b92dd41-0a02-4afe-a6db-86e48db2a81a",
+        "issues": [],
+        "depths": [
+          1,
+          2
+        ],
+        "valid_lines": 2
+      },
+      {
+        "run_id": "e1ff1c4f-46ed-430d-a5cc-aa5e8abd6fed",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/e1ff1c4f-46ed-430d-a5cc-aa5e8abd6fed",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "09f9faa9-e09f-4d84-851c-d83f132ab5bb",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/09f9faa9-e09f-4d84-851c-d83f132ab5bb",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "b82ca6a2-53b5-4439-b61a-dfd1ca6af6fc",
+        "condition": "recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/recursive/b82ca6a2-53b5-4439-b61a-dfd1ca6af6fc",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      }
+    ],
+    "shuffled_recursive": [
+      {
+        "run_id": "15895f68-6c32-4ce5-a490-4c26a14d45df",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/shuffled_recursive/15895f68-6c32-4ce5-a490-4c26a14d45df",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "b089a192-ae1c-4aed-b21f-99b79db602d9",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/shuffled_recursive/b089a192-ae1c-4aed-b21f-99b79db602d9",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "a07b352d-68f9-4b48-9af3-82c0b9342dc5",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/shuffled_recursive/a07b352d-68f9-4b48-9af3-82c0b9342dc5",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "0a1b6af0-b273-469b-a52c-b4cf0f61e984",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/shuffled_recursive/0a1b6af0-b273-469b-a52c-b4cf0f61e984",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "227f5814-b0a2-4dfc-8a48-548fd9845b6b",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/shuffled_recursive/227f5814-b0a2-4dfc-8a48-548fd9845b6b",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "23d1e39e-121c-4151-aa57-48ba8874cc6f",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/shuffled_recursive/23d1e39e-121c-4151-aa57-48ba8874cc6f",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "f95fdaf4-80a0-4682-89c7-2fb95b356e62",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/shuffled_recursive/f95fdaf4-80a0-4682-89c7-2fb95b356e62",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "f26567f0-b7cb-4f6f-8bdb-05f141c06dd7",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/shuffled_recursive/f26567f0-b7cb-4f6f-8bdb-05f141c06dd7",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "fb71d3dc-18fa-4aa4-86c5-1b639c388b9a",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/shuffled_recursive/fb71d3dc-18fa-4aa4-86c5-1b639c388b9a",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "7fe322d2-90de-4bb6-bf74-a190c5faeaeb",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/shuffled_recursive/7fe322d2-90de-4bb6-bf74-a190c5faeaeb",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "4c80c700-4628-4e8c-b1fe-fa6477698307",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/shuffled_recursive/4c80c700-4628-4e8c-b1fe-fa6477698307",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "58b51d7f-ef46-4b56-8c8f-c91639dedbb9",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/shuffled_recursive/58b51d7f-ef46-4b56-8c8f-c91639dedbb9",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "0ef10ea3-c9c2-475a-9d66-4ff6465d3b83",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/shuffled_recursive/0ef10ea3-c9c2-475a-9d66-4ff6465d3b83",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "d4fbdf6b-f0cf-4a4d-a4b9-919e8a91cdc8",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/shuffled_recursive/d4fbdf6b-f0cf-4a4d-a4b9-919e8a91cdc8",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "8dc5acc9-2882-4eda-8a3a-9af4311a00f7",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/shuffled_recursive/8dc5acc9-2882-4eda-8a3a-9af4311a00f7",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "f02438bc-ab8c-426d-82a0-2d4ab91433c2",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/shuffled_recursive/f02438bc-ab8c-426d-82a0-2d4ab91433c2",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "080cebda-5024-45eb-a604-a8f55df1c518",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/shuffled_recursive/080cebda-5024-45eb-a604-a8f55df1c518",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "b4df7a71-c691-4c44-91a0-edaefceecfe7",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/shuffled_recursive/b4df7a71-c691-4c44-91a0-edaefceecfe7",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "f051fb73-cd6a-430d-a032-c87036c0d08f",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/shuffled_recursive/f051fb73-cd6a-430d-a032-c87036c0d08f",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "d7c79ddd-a04c-4221-b97b-824bb1f4fd13",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/shuffled_recursive/d7c79ddd-a04c-4221-b97b-824bb1f4fd13",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "5a81ae2c-6dd6-4f41-8cab-00b0e8e10978",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/shuffled_recursive/5a81ae2c-6dd6-4f41-8cab-00b0e8e10978",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "c5485965-fbaf-4148-8673-8da4b34eaed2",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_2/shuffled_recursive/c5485965-fbaf-4148-8673-8da4b34eaed2",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "03780ce9-24de-42e8-806b-ded74fc8a6cd",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/shuffled_recursive/03780ce9-24de-42e8-806b-ded74fc8a6cd",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "40a9ad3b-1b3d-44aa-b499-ef5b75476cbd",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/shuffled_recursive/40a9ad3b-1b3d-44aa-b499-ef5b75476cbd",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "928f8e8e-fbbd-4897-bd21-5c6b44941b2d",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/shuffled_recursive/928f8e8e-fbbd-4897-bd21-5c6b44941b2d",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "54536a9c-1c96-4c29-9d7a-4c2cd87066e0",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/shuffled_recursive/54536a9c-1c96-4c29-9d7a-4c2cd87066e0",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "7b29e60d-fdf4-4637-9234-2d655b6f7764",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/shuffled_recursive/7b29e60d-fdf4-4637-9234-2d655b6f7764",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "22eb4ad5-4af2-49a7-8ddd-ee6bb4fb4653",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/shuffled_recursive/22eb4ad5-4af2-49a7-8ddd-ee6bb4fb4653",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "36d151bc-c949-4519-9584-e22213dcd671",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/shuffled_recursive/36d151bc-c949-4519-9584-e22213dcd671",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "dd47efc0-5c24-4868-9b60-83848a60feb3",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/shuffled_recursive/dd47efc0-5c24-4868-9b60-83848a60feb3",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "7b7a4d5a-e5d4-488c-a9dc-141bf0f44e34",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/shuffled_recursive/7b7a4d5a-e5d4-488c-a9dc-141bf0f44e34",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "b66206f4-bbfc-42bb-b2ac-f9db12d67bc4",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/shuffled_recursive/b66206f4-bbfc-42bb-b2ac-f9db12d67bc4",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "952e9417-dcdb-4b61-a69f-9c24d1809b47",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/shuffled_recursive/952e9417-dcdb-4b61-a69f-9c24d1809b47",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "850866f1-881d-4668-9241-7aa1108a5d34",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/shuffled_recursive/850866f1-881d-4668-9241-7aa1108a5d34",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "47e02821-e32c-4ca9-9956-042cfc08b301",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/shuffled_recursive/47e02821-e32c-4ca9-9956-042cfc08b301",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "6c7a1a88-b243-49b8-88ba-23160b969a07",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/shuffled_recursive/6c7a1a88-b243-49b8-88ba-23160b969a07",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "e7fbb379-f6b0-4962-88ef-57123ff20a17",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/shuffled_recursive/e7fbb379-f6b0-4962-88ef-57123ff20a17",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "f3c53c20-fd50-40cb-b4ae-b8ec4ccef438",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/shuffled_recursive/f3c53c20-fd50-40cb-b4ae-b8ec4ccef438",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "177dc77d-90b6-4954-ae7b-81e35d80c4c3",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/shuffled_recursive/177dc77d-90b6-4954-ae7b-81e35d80c4c3",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "8d0067f5-a5df-42ee-bb9a-65dc69921e1c",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/shuffled_recursive/8d0067f5-a5df-42ee-bb9a-65dc69921e1c",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "68f3e711-c17f-4890-b11c-b791384363e1",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_3/shuffled_recursive/68f3e711-c17f-4890-b11c-b791384363e1",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "28bf7ebe-035c-44cd-8ccd-0051ecca8fc4",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/shuffled_recursive/28bf7ebe-035c-44cd-8ccd-0051ecca8fc4",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "124222bf-4308-4217-9a64-f626a9cb35a0",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/shuffled_recursive/124222bf-4308-4217-9a64-f626a9cb35a0",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "7109bba1-c2c2-4761-afda-38ed4d455c13",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/shuffled_recursive/7109bba1-c2c2-4761-afda-38ed4d455c13",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "2795897d-2a11-46e7-9ec9-935b49dbacd4",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/shuffled_recursive/2795897d-2a11-46e7-9ec9-935b49dbacd4",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "0d72ec1c-b597-46d5-b7db-1e49d6e89022",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/shuffled_recursive/0d72ec1c-b597-46d5-b7db-1e49d6e89022",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "74dd1302-d7ad-407e-825d-7806d5309853",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/shuffled_recursive/74dd1302-d7ad-407e-825d-7806d5309853",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "aa9518d5-6544-4048-bd8d-1bdfae2d7a26",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/shuffled_recursive/aa9518d5-6544-4048-bd8d-1bdfae2d7a26",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "148b9880-57b8-4943-94a2-0e679e8ab373",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/shuffled_recursive/148b9880-57b8-4943-94a2-0e679e8ab373",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "96d807cd-39e1-4b3c-9b61-a214e3d92406",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/shuffled_recursive/96d807cd-39e1-4b3c-9b61-a214e3d92406",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "11c912a7-68af-4a3d-8271-b1e04d7e22fb",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/shuffled_recursive/11c912a7-68af-4a3d-8271-b1e04d7e22fb",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "813aa0c5-7e43-43d9-a368-8950f26fcfd4",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/shuffled_recursive/813aa0c5-7e43-43d9-a368-8950f26fcfd4",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "6be030ce-160d-4a5c-8ec0-e02d7aa54443",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/shuffled_recursive/6be030ce-160d-4a5c-8ec0-e02d7aa54443",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "60b17977-b8ce-4631-ba90-663491b2b5da",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/shuffled_recursive/60b17977-b8ce-4631-ba90-663491b2b5da",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "3aac5de7-1310-4274-b0fc-b271db81ffbe",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/shuffled_recursive/3aac5de7-1310-4274-b0fc-b271db81ffbe",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "ce15388c-c0c2-4372-a35d-f28c1fff3a6b",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/shuffled_recursive/ce15388c-c0c2-4372-a35d-f28c1fff3a6b",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "4286a0a0-dbd4-42ba-b2e3-188687684785",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/shuffled_recursive/4286a0a0-dbd4-42ba-b2e3-188687684785",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "70d4eb9d-42be-4162-9220-3b8389ccd833",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/shuffled_recursive/70d4eb9d-42be-4162-9220-3b8389ccd833",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "bccea9e7-97a9-4b8f-b1a9-7f6a95c002bd",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/shuffled_recursive/bccea9e7-97a9-4b8f-b1a9-7f6a95c002bd",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3
+        ],
+        "valid_lines": 3
+      },
+      {
+        "run_id": "b6b436ef-b549-4219-b416-3f6725c89cbe",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/shuffled_recursive/b6b436ef-b549-4219-b416-3f6725c89cbe",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "c42825a4-9690-4dbe-a6b0-37843c94c46c",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/shuffled_recursive/c42825a4-9690-4dbe-a6b0-37843c94c46c",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "2de75096-07ee-47dd-b2bc-944ced045e64",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/shuffled_recursive/2de75096-07ee-47dd-b2bc-944ced045e64",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      },
+      {
+        "run_id": "fb2efcf8-2abb-4951-901f-aef7eec120d8",
+        "condition": "shuffled_recursive",
+        "path": "knowledge_storage/experiments/final_comprehensive/prompt_1/shuffled_recursive/fb2efcf8-2abb-4951-901f-aef7eec120d8",
+        "issues": [],
+        "depths": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "valid_lines": 6
+      }
+    ]
+  },
+  "summary": {
+    "conditions": {
+      "single_pass": {
+        "runs": 64,
+        "issues": {}
+      },
+      "recursive": {
+        "runs": 63,
+        "issues": {}
+      },
+      "shuffled_recursive": {
+        "runs": 63,
+        "issues": {}
+      }
+    },
+    "totals": {
+      "runs": 190,
+      "issues": {}
+    }
+  }
+}

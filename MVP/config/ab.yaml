@@ -1,0 +1,9 @@
+variants:
+  experimental:
+    enable_recursion: true
+    enable_vae: true
+    recursion_depth: 10
+  control:
+    enable_recursion: false
+    enable_vae: false
+    recursion_depth: 1

@@ -25,6 +25,9 @@
   import ReasoningSessionViewer from './components/transparency/ReasoningSessionViewer.svelte';
   import ProvenanceTracker from './components/transparency/ProvenanceTracker.svelte';
   
+  // Introspection Components
+  import MetricsTable from './components/introspection/MetricsTable.svelte';
+  
   // Knowledge Management - LAZY LOADED to improve startup performance
   // import KnowledgeGraph from './components/knowledge/KnowledgeGraph.svelte'; // LAZY LOADED - 3,632 lines
   import ConceptEvolution from './components/knowledge/ConceptEvolution.svelte';
@@ -265,6 +268,14 @@
           title: 'Transparency',
           description: 'Cognitive transparency and reasoning insights',
           modal: 'transparency' // Use modal trigger instead of direct component
+        },
+        introspection: {
+          icon: '🧠',
+          title: 'Recursive Introspection',
+          description: 'Recursive introspection experiment metrics',
+          component: 'MetricsTable',
+          featured: true,
+          badge: 'PILOT'
         },
         reasoning: {
           icon: '🎯',
@@ -676,6 +687,23 @@
             }}>
               {viewConfig[activeView].icon} Open {viewConfig[activeView].title}
             </button>
+          </div>
+        </div>
+        
+      {:else if viewConfig[activeView]?.component === 'MetricsTable'}
+        <!-- Introspection Metrics Table View -->
+        <div class="expanded-view" data-testid="introspection-view">
+          <div class="view-header">
+            <h2>{viewConfig[activeView].title}</h2>
+            <p class="view-description">{viewConfig[activeView].description}</p>
+            <div class="badge-container">
+              {#if viewConfig[activeView]?.badge}
+                <span class="badge badge-{viewConfig[activeView].badge.toLowerCase()}">{viewConfig[activeView].badge}</span>
+              {/if}
+            </div>
+          </div>
+          <div class="component-container">
+            <MetricsTable autoRefresh={true} />
           </div>
         </div>
         

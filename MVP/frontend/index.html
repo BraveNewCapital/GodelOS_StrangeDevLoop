@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Consciousness Dashboard</title>
+    <script>
+        async function loadMetrics() {
+            const response = await fetch('http://localhost:8001/api/metrics/demo');
+            const data = await response.json();
+            const metrics = data.metrics;
+            const transitions = data.transitions;
+            const timeline = document.getElementById('timeline');
+            metrics.forEach((m, i) => {
+                const div = document.createElement('div');
+                div.innerHTML = `<div class="metric" title="C_n: Consciousness score from sigmoid of integrated info and surprise (Section 2.1). Φ_n: Integrated information from mutual info in recursion (Section 2.3).">
+                    Level ${i}: C_n = ${m.c_n.toFixed(2)}, Φ_n = ${m.phi_n.toFixed(2)}
+                </div>`;
+                timeline.appendChild(div);
+            });
+            const transDiv = document.getElementById('transitions');
+            if (transitions.length > 0) {
+                transDiv.innerHTML = `<div title="Phase transition detected via KS test p < 0.01 (Section 2.5).">
+                    Transitions at levels: ${transitions.join(', ')}
+                </div>`;
+            }
+        }
+        loadMetrics();
+    </script>
+</head>
+<body>
+    <h1>Consciousness Metrics Dashboard</h1>
+    <div id="timeline"></div>
+    <div id="transitions"></div>
+</body>
+</html>
