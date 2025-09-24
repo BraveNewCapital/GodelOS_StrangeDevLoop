@@ -614,6 +614,144 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# -----------------------------
+# NL↔Logic lazy init helpers and endpoints
+# -----------------------------
+
+async def _ensure_ksi_and_inference():
+    """Lazily initialize KSIAdapter and the InferenceEngine with WS broadcaster wiring."""
+    global ksi_adapter, inference_engine
+    try:
+        ksi_adapter
+    except NameError:
+        ksi_adapter = None
+    try:
+        inference_engine
+    except NameError:
+        inference_engine = None
+
+    if not ksi_adapter:
+        try:
+            from backend.core.ksi_adapter import KSIAdapter, KSIAdapterConfig
+            broadcaster = None
+            if enhanced_websocket_manager and hasattr(enhanced_websocket_manager, "broadcast"):
+                async def _broadcast_knowledge_update(event: dict):
+                    # Forward normalized knowledge_update events to all WS clients
+                    await enhanced_websocket_manager.broadcast(event)
+                broadcaster = _broadcast_knowledge_update
+            ksi_adapter = KSIAdapter(config=KSIAdapterConfig(event_broadcaster=broadcaster))
+            await ksi_adapter.initialize()
+        except Exception:
+            ksi_adapter = None  # degrade gracefully
+
+    if not inference_engine:
+        try:
+            from backend.core.nl_semantic_parser import get_inference_engine
+            inference_engine = get_inference_engine(ksi_adapter=ksi_adapter, websocket_manager=websocket_manager)
+        except Exception:
+            inference_engine = None
+
+    return ksi_adapter, inference_engine
+
+
+@app.post("/nlu/formalize", tags=["NL↔Logic"])
+@app.post("/api/nlu/formalize", tags=["NL↔Logic"])
+async def nlu_formalize(payload: Dict[str, Any]):
+    """
+    Formalize natural language or formal string into an AST.
+    Body: { "text": "forall x. P(x) => Q(x)" }
+    """
+    text = (payload or {}).get("text") or (payload or {}).get("query")
+    if not text:
+        raise _structured_http_error(400, code="invalid_request", message="Missing 'text' in request body")
+
+    try:
+        from backend.core.nl_semantic_parser import get_nl_semantic_parser
+        parser = get_nl_semantic_parser()
+        res = await parser.formalize(text)
+        return JSONResponse(content={
+            "success": res.success,
+            "confidence": res.confidence,
+            "errors": res.errors,
+            "notes": res.notes,
+            "ast": str(res.ast) if res.ast is not None else None
+        })
+    except Exception as e:
+        raise _structured_http_error(500, code="nlu_error", message=str(e))
+
+
+@app.post("/inference/prove", tags=["NL↔Logic"])
+@app.post("/api/inference/prove", tags=["NL↔Logic"])
+async def inference_prove(payload: Dict[str, Any]):
+    """
+    Prove a goal and stream proof_trace via WS.
+    Body: { "goal": "forall x. P(x) => Q(x)", "context_ids": ["TRUTHS"] }
+    """
+    goal = (payload or {}).get("goal") or (payload or {}).get("text") or (payload or {}).get("formula")
+    context_ids = (payload or {}).get("context_ids") or ["TRUTHS"]
+    if not goal:
+        raise _structured_http_error(400, code="invalid_request", message="Missing 'goal' (formal text) in request body")
+
+    from backend.core.nl_semantic_parser import get_nl_semantic_parser
+    parser = get_nl_semantic_parser()
+    formal = await parser.formalize(goal)
+    if not formal.success or formal.ast is None:
+        raise _structured_http_error(400, code="formalization_failed", message="Could not parse goal", errors=formal.errors)
+
+    _, inf = await _ensure_ksi_and_inference()
+    if not inf:
+        raise _structured_http_error(503, code="inference_unavailable", message="Inference engine unavailable")
+
+    result = await inf.prove(formal.ast, context_ids=context_ids)
+    return JSONResponse(content={
+        "success": result.success,
+        "goal": result.goal_serialized,
+        "context_ids": result.context_ids,
+        "duration_sec": result.duration_sec,
+        "proof": result.proof_object
+    })
+
+
+@app.post("/nlg/realize", tags=["NL↔Logic"])
+@app.post("/api/nlg/realize", tags=["NL↔Logic"])
+async def nlg_realize(payload: Dict[str, Any]):
+    """
+    Realize an AST, bindings, or generic object to natural language.
+    Body: { "ast": "<stringified AST or text>", "style": "statement" }
+    """
+    obj = (payload or {}).get("object") or (payload or {}).get("ast") or (payload or {}).get("bindings") or (payload or {}).get("data")
+    style = (payload or {}).get("style") or "statement"
+
+    from backend.core.nl_semantic_parser import get_nlg_realizer
+    nlg = get_nlg_realizer()
+    res = await nlg.realize(obj, style=style)
+    return JSONResponse(content={
+        "text": res.text,
+        "confidence": res.confidence,
+        "notes": res.notes
+    })
+
+
+@app.get("/kr/query", tags=["NL↔Logic"])
+@app.get("/api/kr/query", tags=["NL↔Logic"])
+async def kr_query(pattern: str = Query(..., description="Formal logic pattern"), context_ids: Optional[List[str]] = Query(None)):
+    """
+    Query KSI with a formal pattern; returns variable bindings.
+    Example: GET /kr/query?pattern=exists%20x.%20P(x)&context_ids=TRUTHS&context_ids=HYPOTHETICAL
+    """
+    from backend.core.nl_semantic_parser import get_nl_semantic_parser
+    parser = get_nl_semantic_parser()
+    formal = await parser.formalize(pattern)
+    if not formal.success or formal.ast is None:
+        raise _structured_http_error(400, code="formalization_failed", message="Could not parse pattern", errors=formal.errors)
+
+    _, inf = await _ensure_ksi_and_inference()
+    if not inf:
+        raise _structured_http_error(503, code="inference_unavailable", message="Inference engine unavailable")
+
+    bindings = await inf.query(formal.ast, context_ids=context_ids or ["TRUTHS"])
+    return JSONResponse(content={"bindings": bindings, "count": len(bindings)})
+
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
@@ -726,7 +864,13 @@ async def root():
             "cognitive": ["/cognitive/state", "/api/cognitive/state"],
             "llm": ["/api/llm-chat/message", "/api/llm-tools/test", "/api/llm-tools/available"],
             "streaming": ["/ws/cognitive-stream"],
-            "enhanced": ["/api/enhanced-cognitive/*", "/api/transparency/*"] if ENHANCED_APIS_AVAILABLE else []
+            "enhanced": ["/api/enhanced-cognitive/*", "/api/transparency/*"] if ENHANCED_APIS_AVAILABLE else [],
+            "nl_logic": [
+                "/nlu/formalize", "/api/nlu/formalize",
+                "/inference/prove", "/api/inference/prove",
+                "/nlg/realize", "/api/nlg/realize",
+                "/kr/query", "/api/kr/query"
+            ]
         },
         "features": [
             "Unified server architecture",
@@ -736,6 +880,178 @@ async def root():
             "Cognitive transparency",
             "WebSocket live updates"
         ]
+    }
+
+
+# -----------------------------
+# NL↔Logic and KR endpoints
+# -----------------------------
+
+@app.post("/nlu/formalize")
+async def nlu_formalize(payload: Dict[str, Any]):
+    """
+    Formalize natural language (or logic-like string) into a GödelOS KR AST representation.
+    Returns a serialized AST string for transport along with any parser errors.
+    """
+    text = (payload or {}).get("text") or (payload or {}).get("expression")
+    if not text:
+        raise _structured_http_error(400, code="invalid_request", message="Missing 'text' in request body")
+
+    try:
+        from backend.core.nl_semantic_parser import get_nl_semantic_parser
+    except Exception:
+        raise _structured_http_error(503, code="nlu_unavailable", message="NLU parser not available")
+
+    parser = get_nl_semantic_parser()
+    result = await parser.formalize(text)
+
+    return {
+        "success": result.success,
+        "confidence": result.confidence,
+        "ast": str(result.ast) if result.ast is not None else None,
+        "errors": result.errors,
+        "notes": result.notes
+    }
+
+
+@app.post("/inference/prove")
+async def inference_prove(payload: Dict[str, Any]):
+    """
+    Attempt to prove a goal against the KR using the KSI adapter.
+    Streams 'proof_trace' cognitive events via the WebSocket manager.
+    """
+    goal_text = (payload or {}).get("goal") or (payload or {}).get("formula")
+    context_ids = (payload or {}).get("contexts") or ["TRUTHS"]
+    if not goal_text:
+        raise _structured_http_error(400, code="invalid_request", message="Missing 'goal' in request body")
+
+    # Ensure parser available
+    try:
+        from backend.core.nl_semantic_parser import get_nl_semantic_parser, get_inference_engine
+    except Exception:
+        raise _structured_http_error(503, code="inference_unavailable", message="Inference components not available")
+
+    parser = get_nl_semantic_parser()
+    formal = await parser.formalize(goal_text)
+    if not formal.success or formal.ast is None:
+        raise _structured_http_error(400, code="parse_error", message="Failed to parse goal into AST", details={"errors": formal.errors})
+
+    # Lazily initialize KSI Adapter with WS broadcaster if not yet available
+    try:
+        global ksi_adapter
+    except NameError:
+        ksi_adapter = None  # ensure symbol exists
+
+    if not ksi_adapter:
+        try:
+            from backend.core.ksi_adapter import KSIAdapter, KSIAdapterConfig
+            broadcaster = None
+            if enhanced_websocket_manager and hasattr(enhanced_websocket_manager, "broadcast"):
+                async def _broadcast_knowledge_update(event: dict):
+                    # Forward normalized knowledge_update events to all WS clients
+                    await enhanced_websocket_manager.broadcast(event)
+                broadcaster = _broadcast_knowledge_update
+            ksi_adapter = KSIAdapter(config=KSIAdapterConfig(event_broadcaster=broadcaster))
+            await ksi_adapter.initialize()
+        except Exception:
+            ksi_adapter = None
+
+    if not ksi_adapter or not await ksi_adapter.capabilities():
+        raise _structured_http_error(503, code="ksi_unavailable", message="Knowledge Store Interface unavailable")
+
+    # Build inference engine and run proof (proof_trace will be broadcast)
+    inference = get_inference_engine(ksi_adapter=ksi_adapter, websocket_manager=websocket_manager)
+    proof = await inference.prove(formal.ast, context_ids=context_ids)
+
+    return {
+        "success": proof.success,
+        "goal": proof.goal_serialized,
+        "contexts": proof.context_ids,
+        "duration_sec": proof.duration_sec,
+        "proof": proof.proof_object
+    }
+
+
+@app.post("/nlg/realize")
+async def nlg_realize(payload: Dict[str, Any]):
+    """
+    Realize an AST or result object into natural language text.
+    Accepts:
+      - { "ast": "<serialized-ast>" } (treated as text proxy)
+      - { "object": { ... } } or { "items": [ ... ] }
+    """
+    try:
+        from backend.core.nl_semantic_parser import get_nlg_realizer
+    except Exception:
+        raise _structured_http_error(503, code="nlg_unavailable", message="NLG realizer not available")
+
+    realizer = get_nlg_realizer()
+
+    obj = None
+    if "object" in (payload or {}):
+        obj = payload.get("object")
+    elif "items" in (payload or {}):
+        obj = payload.get("items")
+    elif "ast" in (payload or {}):
+        # If only a serialized AST string is provided, treat it as text for realization
+        obj = payload.get("ast")
+    else:
+        raise _structured_http_error(400, code="invalid_request", message="Provide one of 'object', 'items', or 'ast'")
+
+    res = await realizer.realize(obj)
+    return {
+        "text": res.text,
+        "confidence": res.confidence,
+        "notes": res.notes
+    }
+
+
+@app.get("/kr/query")
+async def kr_query(pattern: str = Query(..., description="Logical pattern to match"),
+                   contexts: Optional[List[str]] = Query(None, description="Contexts to search (repeatable)")):
+    """
+    Execute a KR pattern query across one or more contexts and return normalized variable bindings.
+    """
+    try:
+        from backend.core.nl_semantic_parser import get_nl_semantic_parser, get_inference_engine
+    except Exception:
+        raise _structured_http_error(503, code="query_unavailable", message="KR query components not available")
+
+    parser = get_nl_semantic_parser()
+    formal = await parser.formalize(pattern)
+    if not formal.success or formal.ast is None:
+        raise _structured_http_error(400, code="parse_error", message="Failed to parse pattern into AST", details={"errors": formal.errors})
+
+    # Lazily initialize KSI Adapter if needed (reuse logic from capabilities endpoint)
+    try:
+        global ksi_adapter
+    except NameError:
+        ksi_adapter = None
+
+    if not ksi_adapter:
+        try:
+            from backend.core.ksi_adapter import KSIAdapter, KSIAdapterConfig
+            broadcaster = None
+            if enhanced_websocket_manager and hasattr(enhanced_websocket_manager, "broadcast"):
+                async def _broadcast_knowledge_update(event: dict):
+                    await enhanced_websocket_manager.broadcast(event)
+                broadcaster = _broadcast_knowledge_update
+            ksi_adapter = KSIAdapter(config=KSIAdapterConfig(event_broadcaster=broadcaster))
+            await ksi_adapter.initialize()
+        except Exception:
+            ksi_adapter = None
+
+    if not ksi_adapter or not ksi_adapter.available():
+        raise _structured_http_error(503, code="ksi_unavailable", message="Knowledge Store Interface unavailable")
+
+    inference = get_inference_engine(ksi_adapter=ksi_adapter, websocket_manager=websocket_manager)
+    bindings = await inference.query(formal.ast, context_ids=contexts or ["TRUTHS"])
+
+    return {
+        "success": True,
+        "count": len(bindings),
+        "contexts": contexts or ["TRUTHS"],
+        "bindings": bindings
     }
 
 @app.get("/health")
