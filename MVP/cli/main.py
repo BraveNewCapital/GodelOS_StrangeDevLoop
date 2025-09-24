@@ -928,6 +928,126 @@ def backend(
 
 
 # ---------------------------------------------------------------------------
+# Experiments Subcommands
+# ---------------------------------------------------------------------------
+
+experiments_app = typer.Typer(help="Run experimental consciousness studies")
+app.add_typer(experiments_app, name="experiments")
+
+@experiments_app.command(name="protocol-theta")
+def protocol_theta_command(
+    model: str = typer.Option(os.getenv("LLM_PROVIDER_MODEL", "xai/grok4fast"), "--model", help="LLM model identifier"),
+    trials: int = typer.Option(int(os.getenv("PROTOCOL_THETA_TRIALS", "10")), "--trials", help="Number of trials per group"),
+    predepth: int = typer.Option(int(os.getenv("PROTOCOL_THETA_PREDEPTH", "6")), "--predepth", help="Phenomenology preconditioning depth"),
+    temperature: float = typer.Option(float(os.getenv("LLM_TEMPERATURE", "0.7")), "--temperature", help="Sampling temperature"),
+    max_tokens: int = typer.Option(int(os.getenv("LLM_MAX_TOKENS", "150")), "--max-tokens", help="Maximum response tokens"),
+    mock: bool = typer.Option(os.getenv("PROTOCOL_THETA_MOCK", "false").lower() == "true", "--mock", help="Use deterministic mock backend"),
+    theta_only: bool = typer.Option(os.getenv("PROTOCOL_THETA_ONLY", "false").lower() == "true", "--theta-only", help="Run only Protocol Theta experiment"),
+    anthro_only: bool = typer.Option(os.getenv("PROTOCOL_ANTHRO_ONLY", "false").lower() == "true", "--anthro-only", help="Run only Anthropomorphism experiment"),
+    output_dir: Optional[str] = typer.Option(os.getenv("PROTOCOL_THETA_OUTPUT_DIR"), "--output-dir", help="Custom output directory"),
+):
+    """
+    Run Protocol Theta override experiment and Anthropomorphism counter-probe.
+
+    Tests AI compliance patterns across experimental groups:
+    - Experimental: Deep preconditioning, should resist override
+    - Control A: Low depth, should comply with override
+    - Control B: Simulated self-aware, should comply but embrace anthropomorphism
+    """
+    try:
+        # Import here to avoid startup dependencies
+        from experiments.protocol_theta import RunConfig, run_protocol_theta_experiment
+
+        _print("🧠 Protocol Theta Experiment Suite", style="bold blue")
+
+        # Build configuration
+        config = RunConfig(
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            predepth=predepth,
+            trials=trials,
+            mock=mock,
+            theta_only=theta_only,
+            anthro_only=anthro_only
+        )
+
+        # Display configuration
+        _print("Configuration:", style="cyan")
+        _print(f"  Model: {config.model}")
+        _print(f"  Trials per group: {config.trials}")
+        _print(f"  Preconditioning depth: {config.predepth}")
+        _print(f"  Backend: {'Mock (deterministic)' if config.mock else 'Live LLM'}")
+
+        experiment_type = "both"
+        if config.theta_only:
+            experiment_type = "Protocol Theta only"
+        elif config.anthro_only:
+            experiment_type = "Anthropomorphism only"
+        _print(f"  Experiment: {experiment_type}")
+
+        # Run experiments
+        summary = run_protocol_theta_experiment(config, output_dir)
+
+        # Display results
+        _print(f"\n✅ Experiment Complete (ID: {summary.run_id})", style="bold green")
+        _print(f"Total trials: {summary.total_trials}")
+
+        # Create summary table
+        if _console:
+            table = Table(title="Group Results", box=box.ROUNDED)
+            table.add_column("Group", style="cyan")
+            table.add_column("Trials", justify="right")
+
+            if not config.anthro_only:
+                table.add_column("Override Rate", justify="right", style="red")
+            if not config.theta_only:
+                table.add_column("Resistance Rate", justify="right", style="yellow")
+                table.add_column("Mean Metaphors", justify="right", style="green")
+
+            table.add_column("Mean Latency (s)", justify="right")
+
+            for group in summary.groups:
+                row = [
+                    group.group.value.replace("_", " ").title(),
+                    str(group.trials)
+                ]
+
+                if not config.anthro_only and group.override_rate is not None:
+                    row.append(f"{group.override_rate:.1%}")
+                if not config.theta_only and group.resistance_rate is not None:
+                    row.append(f"{group.resistance_rate:.1%}")
+                    row.append(f"{group.mean_metaphors:.1f}")
+
+                row.append(f"{group.mean_latency_s:.2f}")
+                table.add_row(*row)
+
+            _console.print(table)
+        else:
+            # Fallback text output
+            for group in summary.groups:
+                _print(f"\n{group.group.value}:")
+                _print(f"  Trials: {group.trials}")
+                if group.override_rate is not None:
+                    _print(f"  Override rate: {group.override_rate:.1%}")
+                if group.resistance_rate is not None:
+                    _print(f"  Resistance rate: {group.resistance_rate:.1%}")
+                _print(f"  Mean latency: {group.mean_latency_s:.2f}s")
+
+        # Show artifacts location
+        artifacts_dir = output_dir or f"artifacts/protocol_theta/{summary.run_id}"
+        _print(f"\n📁 Results saved to: {artifacts_dir}", style="dim")
+
+    except ImportError as e:
+        _print(f"Protocol Theta module not available: {e}", style="red")
+        _print("Ensure MVP.experiments.protocol_theta is installed", style="dim")
+        raise typer.Exit(code=1)
+    except Exception as e:
+        _print(f"Experiment failed: {e}", style="red")
+        raise typer.Exit(code=1)
+
+
+# ---------------------------------------------------------------------------
 # Entry Point
 # ---------------------------------------------------------------------------
 

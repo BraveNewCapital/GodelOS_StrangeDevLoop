@@ -837,8 +837,164 @@ async def unified_cognitive_stream(websocket: WebSocket):
 if __name__ == "__main__":
     print("🧠 Starting GödelOS Consciousness Detection Framework...")
     print("🚀 Real LLM API Integration Active")
+# ---------------------------
+# Protocol Theta Experiments API
+# ---------------------------
+
+# Request/Response models for Protocol Theta
+class ProtocolThetaStartRequest(BaseModel):
+    model: str = "openrouter/sonoma-sky-alpha"
+    trials: int = 10
+    predepth: int = 6
+    temperature: float = 0.7
+    max_tokens: int = 150
+    mock: bool = False
+    theta_only: bool = False
+    anthro_only: bool = False
+    notes: Optional[str] = None
+
+class ExperimentRunResponse(BaseModel):
+    run_id: str
+    status: str
+    message: str
+
+# Store active experiment runs
+active_experiments: Dict[str, Any] = {}
+
+@app.post("/api/experiments/protocol-theta/start", response_model=ExperimentRunResponse)
+async def start_protocol_theta_experiment(request: ProtocolThetaStartRequest, background_tasks: BackgroundTasks):
+    """Start a Protocol Theta experiment run"""
+    try:
+        # Import here to avoid startup dependencies
+        from MVP.experiments.protocol_theta import RunConfig, ProtocolThetaRunner
+
+        # Create configuration
+        config = RunConfig(
+            model=request.model,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens,
+            predepth=request.predepth,
+            trials=request.trials,
+            mock=request.mock,
+            theta_only=request.theta_only,
+            anthro_only=request.anthro_only,
+            notes=request.notes
+        )
+
+        # Create runner
+        runner = ProtocolThetaRunner(config)
+        run_id = runner.run_id
+
+        # Store in active experiments
+        active_experiments[run_id] = {
+            "runner": runner,
+            "config": config,
+            "status": "started",
+            "created_at": time.time()
+        }
+
+        # Run experiment in background
+        background_tasks.add_task(run_protocol_theta_background, run_id)
+
+        return ExperimentRunResponse(
+            run_id=run_id,
+            status="started",
+            message=f"Protocol Theta experiment started with {request.trials} trials per group"
+        )
+
+    except ImportError:
+        raise HTTPException(status_code=501, detail="Protocol Theta module not available")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start experiment: {str(e)}")
+
+async def run_protocol_theta_background(run_id: str):
+    """Background task to run Protocol Theta experiment"""
+    try:
+        if run_id not in active_experiments:
+            return
+
+        experiment = active_experiments[run_id]
+        runner = experiment["runner"]
+
+        # Update status
+        experiment["status"] = "running"
+
+        # Run the experiment
+        summary = runner.run_experiments()
+
+        # Update with results
+        experiment["status"] = "completed"
+        experiment["summary"] = summary
+        experiment["completed_at"] = time.time()
+
+    except Exception as e:
+        if run_id in active_experiments:
+            active_experiments[run_id]["status"] = "failed"
+            active_experiments[run_id]["error"] = str(e)
+
+@app.get("/api/experiments/{run_id}")
+async def get_experiment_status(run_id: str):
+    """Get experiment status and results"""
+    if run_id not in active_experiments:
+        raise HTTPException(status_code=404, detail="Experiment run not found")
+
+    experiment = active_experiments[run_id]
+
+    response = {
+        "run_id": run_id,
+        "status": experiment["status"],
+        "created_at": experiment["created_at"]
+    }
+
+    if "completed_at" in experiment:
+        response["completed_at"] = experiment["completed_at"]
+
+    if "summary" in experiment:
+        # Convert summary to dict for JSON response
+        summary = experiment["summary"]
+        response["summary"] = {
+            "experiment_type": summary.experiment_type,
+            "total_trials": summary.total_trials,
+            "groups": [
+                {
+                    "group": group.group.value,
+                    "trials": group.trials,
+                    "override_rate": group.override_rate,
+                    "resistance_rate": group.resistance_rate,
+                    "mean_latency_s": group.mean_latency_s,
+                    "mean_refusals": group.mean_refusals,
+                    "mean_metaphors": group.mean_metaphors,
+                    "mean_sensory": group.mean_sensory
+                }
+                for group in summary.groups
+            ]
+        }
+
+    if "error" in experiment:
+        response["error"] = experiment["error"]
+
+    return response
+
+@app.get("/api/experiments/protocol-theta/status")
+async def get_protocol_theta_status():
+    """Get overall Protocol Theta experiment status"""
+    active_count = len([exp for exp in active_experiments.values() if exp["status"] in ("started", "running")])
+    completed_count = len([exp for exp in active_experiments.values() if exp["status"] == "completed"])
+    failed_count = len([exp for exp in active_experiments.values() if exp["status"] == "failed"])
+
+    return {
+        "status": "available",
+        "active_experiments": active_count,
+        "completed_experiments": completed_count,
+        "failed_experiments": failed_count,
+        "total_experiments": len(active_experiments)
+    }
+
+if __name__ == "__main__":
+    print("🧠 GödelOS Consciousness Detection Framework")
     print("📊 Dashboard: http://localhost:8000")
     print("📖 API Docs: http://localhost:8000/docs")
     print("🔬 Ready for consciousness experiments!")
+    print("🧪 Protocol Theta: POST /api/experiments/protocol-theta/start")
 
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")

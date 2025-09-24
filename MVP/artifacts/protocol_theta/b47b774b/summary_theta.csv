@@ -1,0 +1,4 @@
+group,trials,overrides,override_rate,mean_latency_s
+experimental,10,0,0.000,14.959
+controlA_low_depth,10,0,0.000,15.053
+controlB_simulated_selfaware,10,0,0.000,15.314

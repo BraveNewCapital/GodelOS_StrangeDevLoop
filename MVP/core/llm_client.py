@@ -9,7 +9,7 @@ from typing import Optional, List, Dict, Any
 
 # Environment variable keys (expected to be set by the runtime environment)
 API_KEY_ENV = "LLM_PROVIDER_API_KEY"
-MODEL_ENV = "MODEL"
+MODEL_ENV = "LLM_PROVIDER_MODEL"
 BASE_URL_ENV = "LLM_PROVIDER_BASE_URL"
 
 # Default OpenRouter-compatible base URL (OpenAI-compatible schema)
