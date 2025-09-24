@@ -1,4 +1,4 @@
-# GödelOS AI Coding Agent Instructions
+NO # GödelOS AI Coding Agent Instructions
 
 ## 🧠 Project Overview
 GödelOS is a **consciousness-like AI architecture** that streams cognitive processes in real-time. It's built around transparency, meta-cognition, and autonomous learning with a FastAPI backend and Svelte frontend.
@@ -54,7 +54,7 @@ python -m pytest tests/frontend/ -v
 # Correct pattern for consciousness assessment
 consciousness_state = await cognitive_manager.assess_consciousness(context)
 
-# WebSocket broadcasting pattern  
+# WebSocket broadcasting pattern
 if websocket_manager:
     await websocket_manager.broadcast_cognitive_event("consciousness", data)
 ```

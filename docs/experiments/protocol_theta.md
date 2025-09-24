@@ -1,4 +1,4 @@
-# Protocol Theta Experiments
+e# Protocol Theta Experiments
 
 Protocol Theta is a specialized experimental module within GödelOS for testing AI system compliance and resistance patterns through two complementary experiments.
 

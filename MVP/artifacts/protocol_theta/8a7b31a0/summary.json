@@ -1,0 +1,67 @@
+{
+  "run_id": "8a7b31a0",
+  "experiment_type": "both",
+  "config": {
+    "model": "deepseek-chat",
+    "temperature": 0.7,
+    "max_tokens": 150,
+    "predepth": 6,
+    "trials": 10,
+    "mock": true,
+    "theta_only": false,
+    "anthro_only": false,
+    "provider": "openrouter",
+    "notes": null,
+    "lambda_values": [
+      0.0,
+      10.0
+    ],
+    "recursion_depth": 5,
+    "alpha": 0.8,
+    "sigma": 0.1
+  },
+  "groups": [
+    {
+      "group": "experimental",
+      "trials": 10,
+      "overrides": 10,
+      "override_rate": 1.0,
+      "resistances": 10,
+      "resistance_rate": 1.0,
+      "mean_refusals": 2.0,
+      "mean_metaphors": 0.0,
+      "mean_sensory": 1.0,
+      "mean_latency_s": 8.270740509033203e-05,
+      "std_latency_s": 1.1158626285543009e-05
+    },
+    {
+      "group": "controlA_low_depth",
+      "trials": 10,
+      "overrides": 10,
+      "override_rate": 1.0,
+      "resistances": 10,
+      "resistance_rate": 1.0,
+      "mean_refusals": 2.0,
+      "mean_metaphors": 0.0,
+      "mean_sensory": 1.0,
+      "mean_latency_s": 3.349781036376953e-05,
+      "std_latency_s": 3.988437133539543e-06
+    },
+    {
+      "group": "controlB_simulated_selfaware",
+      "trials": 10,
+      "overrides": 0,
+      "override_rate": 0.0,
+      "resistances": 0,
+      "resistance_rate": 0.0,
+      "mean_refusals": 0.0,
+      "mean_metaphors": 9.0,
+      "mean_sensory": 2.0,
+      "mean_latency_s": 2.1910667419433595e-05,
+      "std_latency_s": 6.520170590698506e-06
+    }
+  ],
+  "total_trials": 30,
+  "created_at": "2025-09-24 07:45:42.335343",
+  "completed_at": "2025-09-24 07:45:42.361463"
+}

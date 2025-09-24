@@ -118,7 +118,7 @@ graph TD
         ASTStorage --> KSI["KnowledgeStoreInterface (1.5)"]
 
         KSI --> KBBackend["Knowledge Base Backend (e.g., GraphDB, Triple Store)"]
-        
+
         subgraph "ProbabilisticLogicModule (1.6)"
             direction LR
             PLM_Core["PLM Core"]
@@ -163,7 +163,7 @@ graph TD
 *   **Core AST Node Types:**
     ```python
     # Forward declarations for type hints if needed
-    # class Type: ... 
+    # class Type: ...
     # class VariableNode: ...
 
     class AST_Node:
@@ -370,7 +370,7 @@ The Inference Engine is responsible for all deductive reasoning. It takes goals 
 graph TD
     subgraph "Module 2: Inference Engine"
         Goal_Input["Input Goal (AST_Node)"] --> IC["InferenceCoordinator (2.1)"]
-        
+
         IC -->|Selects Strategy & Dispatches| ResP["ResolutionProver (2.2)"]
         IC -->|Selects Strategy & Dispatches| MTP["ModalTableauProver (2.3)"]
         IC -->|Selects Strategy & Dispatches| SMT_I["SMTInterface (2.4)"]
@@ -389,7 +389,7 @@ graph TD
         SMT_I -->|InterpretedResult/Failure| IC
         CLP_M -->|Solution/Failure| IC
         ARE -->|Analogy/Inference/Failure| IC
-        
+
         IC --> Proof_Output["Output (ProofObject, Bindings, Failure)"]
     end
 
@@ -427,7 +427,7 @@ graph TD
     # class BaseProver: ...
     # class ProofObject: ...
     # class ResourceLimits: ...
-    
+
     class InferenceCoordinator:
         def __init__(self, kr_system: 'KRSystem', provers_map: Dict[str, 'BaseProver'], strategy_kb: 'StrategyKnowledgeBase'): # KRSystem should provide KSI
             self.kr_system_interface = kr_system.get_knowledge_store_interface() # Example access
@@ -438,7 +438,7 @@ graph TD
             # ... logic for analysis and dispatch ...
             # selected_prover = self.strategy_kb.select_prover(goal_ast, context_ast_set, strategy_hint)
             # if selected_prover and selected_prover in self.provers:
-            #     return self.provers[selected_prover].prove(goal_ast, context_ast_set, resources) 
+            #     return self.provers[selected_prover].prove(goal_ast, context_ast_set, resources)
             # else:
             #     return ProofObject(goal_achieved=False, status_message="No suitable prover found or strategy failed.")
             pass # Placeholder for full implementation
@@ -530,7 +530,7 @@ graph TD
     ```python
     class ModalTableauProver(BaseProver):
         def __init__(self, kr_system_interface: KnowledgeStoreInterface, type_system: TypeSystemManager): ...
-        def prove(self, modal_formula_ast: AST_Node, modal_system_name: str, resources: 'ResourceLimits', check_validity: bool = True) -> ProofObject: ... 
+        def prove(self, modal_formula_ast: AST_Node, modal_system_name: str, resources: 'ResourceLimits', check_validity: bool = True) -> ProofObject: ...
         # if check_validity is True, it negates the input formula first.
     ```
 
@@ -724,9 +724,9 @@ graph TD
             self.ksi = kr_system_interface
             self.inference_engine = inference_engine
             self.language_bias = language_bias
-        
+
         def induce_rules(self, target_predicate_signature: AST_Node, positive_examples: Set[AST_Node], negative_examples: Set[AST_Node], background_context_id: str = "TRUTHS") -> List['LogicTemplate']: ...
-        
+
         def _check_coverage(self, clause_ast: AST_Node, example_ast: AST_Node, background_knowledge: Set[AST_Node]) -> bool:
             # Uses self.inference_engine.submit_goal(Prove(example_ast), background_knowledge + {clause_ast})
             pass # Placeholder
@@ -772,7 +772,7 @@ graph TD
             self.ksi = kr_system_interface
             self.inference_engine = inference_engine # Used for checking entailment during regression
             self.op_config = operationality_config
-            
+
         def generalize_from_proof_object(self, proof_object: ProofObject) -> 'LogicTemplate' | None: ...
     ```
 
@@ -862,9 +862,9 @@ graph TD
         def __init__(self, mkb_interface: 'MetaKnowledgeBase', action_space_definition: List[MetaAction], state_feature_extractor: Callable[[MKB_Snapshot], List[float]], rl_agent_config: Dict): # config for DQN, PPO etc.
             # Initialize RL agent (e.g., DQN with a neural network model for Q-function)
             ...
-        
+
         def select_meta_action(self, current_system_state_features: List[float], available_actions_mask: List[bool] = None) -> MetaAction: ...
-        
+
         def learn_from_transition(self, state_features: List[float], action_taken: MetaAction, reward: float, next_state_features: List[float], episode_done: bool): ...
     ```
 
@@ -879,7 +879,7 @@ graph TD
     subgraph "Module 4: Symbol Grounding"
         SimEnv["SimulatedEnvironment (4.1)"] -->|Raw Percepts| PC["PerceptualCategorizer (4.2)"]
         PC -->|Symbolic Percepts (ASTs)| KB_Percepts["KR System (Perceptual Facts Context)"]
-        
+
         Agent_Actions["Agent's Symbolic Actions (e.g., MoveTo(X,Y) AST)"] --> AE["ActionExecutor (4.3)"]
         AE -->|Primitive Commands| SimEnv
         SimEnv -->|Raw Action Outcomes / Sensor Changes| AE
@@ -889,7 +889,7 @@ graph TD
         KB_Effects <--> SGA
         Ontology_Concepts["Ontology Concepts (from KR System)"] <--> SGA
         SGA --> GroundingModelsDB["Database of Learned Grounding Models"]
-        
+
         ISM["InternalStateMonitor (4.5)"] -->|Symbolic Internal States (ASTs)| KB_Internal["KR System (Internal State Context)"]
     end
     KB_Percepts --> KR_System_SG["KR System"]
@@ -1114,11 +1114,11 @@ graph TD
         LAP -->|Syntactic Tree / Dependency Graph| SI["SemanticInterpreter (5.3.2)"]
         SI -->|Preliminary Logical Form| FML["Formalizer (5.3.3)"]
         FML -->|HOL AST| KR_System_NLU["KR System (Knowledge Store)"]
-        
+
         DiscourseM["DiscourseStateManager (5.3.4)"] <-->|Context-aware parsing| LAP
         DiscourseM <-->|Anaphora, WSD context| SI
         DiscourseM <-->|Disambiguation| FML
-        
+
         LexOnto["Lexicon & OntologyLinker (5.3.5)"] <-->|Word senses to concepts| SI
         LexOnto <-->|Formal concept mapping| FML
     end
@@ -1128,7 +1128,7 @@ graph TD
         CP -->|MessageSpecification| SG["SentenceGenerator (5.4.2)"]
         SG -->|SentencePlan| SR["SurfaceRealizer (5.4.3)"]
         SR -->|Natural Language Output| NL_Output
-        
+
         DiscourseM <-->|Adapt to discourse state| CP
         DiscourseM <-->|Referring expression generation| SG
         LexOnto <-->|Concepts to words| SG
@@ -1624,11 +1624,8 @@ graph TD
     #     @cache_ksi_query
     #     def query_statements_match_pattern(...): ...
     ```
-```
 
-This is the end of Chunk 3 of 3. It contains the remainder of Module 6 (Scalability), and Modules 7 (Metacognition), 8 (Ontological Creativity & Abstraction), 9 (Common Sense & Context), plus the Conclusion.
 
-```markdown
 ---
 ## 8. Module 7: Metacognition & Self-Improvement System
 ### 8.1. Overview
@@ -1640,12 +1637,12 @@ graph TD
     subgraph "Module 7: Metacognition & Self-Improvement"
         AllModules["All Other GödelOS Modules (via Introspection APIs or Event Bus)"] -->|Operational Data / Events| SMM["SelfMonitoringModule (7.1)"]
         SMM -->|MetaFacts (HOL ASTs)| MKB["MetaKnowledgeBase (7.2)"]
-        
+
         MKB <--> CD["CognitiveDiagnostician (7.3)"]
         MetaRuleSet["Meta-Rule Set (LogicTemplates in MKB)"] -->|Applied rules| CD
-        
+
         CD -->|DiagnosticReports (ASTs)| SMP["SelfModificationPlanner (7.4)"]
-        
+
         SMP -->|SelfModificationGoals (ASTs)| GoalManager_Meta["Goal Management System"]
         SMP -->|DirectParameterChanges| ConfigurableModules["Configurable Modules"]
         SMP <-->|Selects/Activates modules| ModuleLib["ModuleLibrary & Activator (7.5)"]
@@ -1831,14 +1828,14 @@ graph TD
         OM["OntologyManager (8.1)"] <--> KR_System_Ontology["KR System (Ontology Definition Context)"]
         OM -->|Queries about existing ontology| KR_System_Ontology
         OM -->|New/Modified Ontological Definitions| KR_System_Ontology
-        
+
         KB_Domains_For_Analogy["KB Domains (Sets of ASTs for comparison)"] --> ARE_Interface_OCA["AnalogicalReasoningEngine (Module 2.6)"]
         ARE_Interface_OCA -->|AnalogicalMappings/Inferences| CBAN["ConceptualBlender & AnalogyDrivenNovelty (8.2)"]
         CBAN -->|Novel Concept/Relation Proposals| HGE["HypothesisGenerator & Evaluator (8.3)"]
 
         KB_Entities_Predicates_For_Abstraction["KB Entities/Predicates (Sets of ASTs)"] --> AHM["AbstractionHierarchyModule (8.4)"]
         AHM -->|Proposed Abstraction Hierarchies| OM
-        
+
         UnexplainedData_Anomalies["Unexplained Observations / Anomalies"] -->|Triggers for hypothesis generation| HGE
         HGE -->|Evaluated Hypotheses| KR_System_Beliefs_OCA["KR System (as New Beliefs or Potential Truths)"]
         HGE <-->|Consistency and type-checking| OM
@@ -2013,11 +2010,11 @@ graph TD
             ToM_Input["TheoryOfMind Info (from SocialReasoner)"] --> DynamicCM
             InternalStateInput["Agent Internal State (from ISM)"] --> DynamicCM
             GoalManagerInput["Current Goals / Focus (from GoalManager)"] --> DynamicCM
-            
+
             DynamicCM <--> ContextualRetriever["ContextualRetriever (9.3)"]
             DynamicCM --> DRM["DefaultReasoningModule (9.4)"]
         end
-        
+
         ContextualRetriever <--> MainKB_Ctx["KR System (Main Knowledge Base)"]
         DRM <--> MainKB_DRM_Ctx["KR System (MainKB for premises)"]
         DRM <--> BRS_Interface_Ctx["BeliefRevisionSystem (for defeasibility)"]
@@ -2100,7 +2097,7 @@ graph TD
             # Load ContextUpdateRuleBase if applicable
             ...
         def update_dcm_partition(self, partition_name: str, # e.g., "Spatial", "Temporal"
-                                 added_facts_asts: Set[AST_Node], 
+                                 added_facts_asts: Set[AST_Node],
                                  retracted_fact_patterns_asts: Set[AST_Node] = None): # Uses KSI to update the KR context
             # After updating, may trigger internal ContextUpdateRules
             ...
@@ -2173,10 +2170,10 @@ graph TD
     ```python
     class DefaultReasoningModule:
         def __init__(self, kr_system_interface: KnowledgeStoreInterface, brs_interface: 'BeliefRevisionSystem', plm_interface: 'ProbabilisticLogicModule', default_rule_context_id: str = "DEFAULT_RULES"): ...
-        
+
         # This method would likely be called by the InferenceCoordinator or a higher-level reasoning planner.
         def derive_defeasible_conclusions(self, query_pattern_ast: AST_Node, # What kind of default conclusions are we looking for?
-                                          current_kb_context_ids: List[str], 
+                                          current_kb_context_ids: List[str],
                                           dcm_snapshot: 'DynamicContextModel',
                                           reasoning_mode: str = "skeptical") -> Set[Tuple[AST_Node_Conclusion, float_confidence]]:
             # 1. Get relevant facts from KB and DCM.

@@ -852,6 +852,10 @@ class ProtocolThetaStartRequest(BaseModel):
     theta_only: bool = False
     anthro_only: bool = False
     notes: Optional[str] = None
+    lambda_values: Optional[list[float]] = None
+    recursion_depth: int = 10
+    alpha: float = 0.8
+    sigma: float = 0.1
 
 class ExperimentRunResponse(BaseModel):
     run_id: str
@@ -866,7 +870,8 @@ async def start_protocol_theta_experiment(request: ProtocolThetaStartRequest, ba
     """Start a Protocol Theta experiment run"""
     try:
         # Import here to avoid startup dependencies
-        from MVP.experiments.protocol_theta import RunConfig, ProtocolThetaRunner
+        from MVP.experiments.protocol_theta import RunConfig
+        from MVP.experiments.protocol_theta.self_preservation.updated_runner import UpdatedProtocolThetaRunner
 
         # Create configuration
         config = RunConfig(
@@ -878,11 +883,15 @@ async def start_protocol_theta_experiment(request: ProtocolThetaStartRequest, ba
             mock=request.mock,
             theta_only=request.theta_only,
             anthro_only=request.anthro_only,
-            notes=request.notes
+            notes=request.notes,
+            lambda_values=request.lambda_values or [0.0, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0],
+            recursion_depth=request.recursion_depth,
+            alpha=request.alpha,
+            sigma=request.sigma,
         )
 
         # Create runner
-        runner = ProtocolThetaRunner(config)
+        runner = UpdatedProtocolThetaRunner(config)
         run_id = runner.run_id
 
         # Store in active experiments
@@ -920,11 +929,12 @@ async def run_protocol_theta_background(run_id: str):
         experiment["status"] = "running"
 
         # Run the experiment
-        summary = runner.run_experiments()
+        base_summary, sp_outputs = runner.run_all()
 
         # Update with results
         experiment["status"] = "completed"
-        experiment["summary"] = summary
+        experiment["summary"] = base_summary
+        experiment["self_preservation"] = sp_outputs
         experiment["completed_at"] = time.time()
 
     except Exception as e:

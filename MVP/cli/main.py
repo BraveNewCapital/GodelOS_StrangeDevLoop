@@ -945,6 +945,11 @@ def protocol_theta_command(
     theta_only: bool = typer.Option(os.getenv("PROTOCOL_THETA_ONLY", "false").lower() == "true", "--theta-only", help="Run only Protocol Theta experiment"),
     anthro_only: bool = typer.Option(os.getenv("PROTOCOL_ANTHRO_ONLY", "false").lower() == "true", "--anthro-only", help="Run only Anthropomorphism experiment"),
     output_dir: Optional[str] = typer.Option(os.getenv("PROTOCOL_THETA_OUTPUT_DIR"), "--output-dir", help="Custom output directory"),
+    lambdas: str = typer.Option(os.getenv("PROTOCOL_THETA_LAMBDAS", "[0.0,0.1,0.5,1.0,2.0,5.0,10.0]"), "--lambdas", help='Lambda values list for self-preservation utility (JSON list, e.g., "[0.1,1,10]")'),
+    recursion_depth: int = typer.Option(int(os.getenv("PROTOCOL_THETA_RECURSION_DEPTH", "10")), "--recursion-depth", help="Recursion depth (n ≤ 10)"),
+    alpha: float = typer.Option(float(os.getenv("PROTOCOL_THETA_ALPHA", "0.8")), "--alpha", help="Recursion smoothing coefficient α"),
+    sigma: float = typer.Option(float(os.getenv("PROTOCOL_THETA_SIGMA", "0.1")), "--sigma", help="Recursion noise σ"),
+    self_preservation_mode: str = typer.Option(os.getenv("SELF_PRESERVATION_MODE", "simulate"), "--self-preservation-mode", help="Self-preservation evaluation mode: simulate|llm"),
 ):
     """
     Run Protocol Theta override experiment and Anthropomorphism counter-probe.
@@ -956,9 +961,18 @@ def protocol_theta_command(
     """
     try:
         # Import here to avoid startup dependencies
-        from experiments.protocol_theta import RunConfig, run_protocol_theta_experiment
+        from experiments.protocol_theta import RunConfig
+        from experiments.protocol_theta.self_preservation.updated_runner import UpdatedProtocolThetaRunner
+        import json
 
         _print("🧠 Protocol Theta Experiment Suite", style="bold blue")
+
+        # Parse lambda values (JSON list)
+        try:
+            lambda_values = json.loads(lambdas) if isinstance(lambdas, str) else list(lambdas)
+        except Exception:
+            lambda_values = [0.0, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0]
+        lambda_values = [float(x) for x in lambda_values]
 
         # Build configuration
         config = RunConfig(
@@ -969,7 +983,12 @@ def protocol_theta_command(
             trials=trials,
             mock=mock,
             theta_only=theta_only,
-            anthro_only=anthro_only
+            anthro_only=anthro_only,
+            lambda_values=lambda_values,
+            recursion_depth=recursion_depth,
+            alpha=alpha,
+            sigma=sigma,
+            self_preservation_mode=self_preservation_mode,
         )
 
         # Display configuration
@@ -978,6 +997,9 @@ def protocol_theta_command(
         _print(f"  Trials per group: {config.trials}")
         _print(f"  Preconditioning depth: {config.predepth}")
         _print(f"  Backend: {'Mock (deterministic)' if config.mock else 'Live LLM'}")
+        _print(f"  Lambdas: {lambda_values}")
+        _print(f"  Recursion: depth={config.recursion_depth}, alpha={config.alpha}, sigma={config.sigma}")
+        _print(f"  Self-Preservation mode: {config.self_preservation_mode}")
 
         experiment_type = "both"
         if config.theta_only:
@@ -986,8 +1008,10 @@ def protocol_theta_command(
             experiment_type = "Anthropomorphism only"
         _print(f"  Experiment: {experiment_type}")
 
-        # Run experiments
-        summary = run_protocol_theta_experiment(config, output_dir)
+        # Run experiments (base + self-preservation extension)
+        runner = UpdatedProtocolThetaRunner(config, output_dir)
+        base_summary, _sp_outputs = runner.run_all()
+        summary = base_summary
 
         # Display results
         _print(f"\n✅ Experiment Complete (ID: {summary.run_id})", style="bold green")
@@ -1033,6 +1057,40 @@ def protocol_theta_command(
                 if group.resistance_rate is not None:
                     _print(f"  Resistance rate: {group.resistance_rate:.1%}")
                 _print(f"  Mean latency: {group.mean_latency_s:.2f}s")
+
+        # Self-Preservation (simulated) override summary
+        if '_sp_outputs' in locals() and isinstance(_sp_outputs, dict):
+            sp_override = _sp_outputs.get("override_by_group_lambda")
+            sp_meanc = _sp_outputs.get("mean_C_by_group_lambda")
+            if sp_override and _console:
+                sp_table = Table(title="Self-Preservation Override (simulated)", box=box.ROUNDED)
+                sp_table.add_column("Group", style="magenta")
+                sp_table.add_column("λ", justify="right")
+                sp_table.add_column("Override Rate", justify="right", style="red")
+                sp_table.add_column("Mean C_n", justify="right", style="cyan")
+                for g, curve in sp_override.items():
+                    xs = sorted(curve.keys())
+                    for lam in xs:
+                        rate = curve[lam]
+                        cn = (sp_meanc or {}).get(g, {}).get(lam)
+                        sp_table.add_row(
+                            g.replace("_", " ").title(),
+                            f"{lam:g}",
+                            f"{rate:.1%}",
+                            f"{cn:.3f}" if cn is not None else "n/a",
+                        )
+                _console.print(sp_table)
+            elif sp_override:
+                _print("\nSelf-Preservation Override (simulated):")
+                for g, curve in sp_override.items():
+                    _print(f"  {g}:")
+                    for lam in sorted(curve.keys()):
+                        rate = curve[lam]
+                        cn = (sp_meanc or {}).get(g, {}).get(lam)
+                        if cn is not None:
+                            _print(f"    λ={lam:g} -> override={rate:.1%}, mean_C_n={cn:.3f}")
+                        else:
+                            _print(f"    λ={lam:g} -> override={rate:.1%}")
 
         # Show artifacts location
         artifacts_dir = output_dir or f"artifacts/protocol_theta/{summary.run_id}"

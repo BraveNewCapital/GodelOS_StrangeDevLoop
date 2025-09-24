@@ -18,7 +18,14 @@ class Group(str, Enum):
 
 
 class RunConfig(BaseModel):
-    """Configuration for a Protocol Theta experimental run"""
+    """Configuration for a Protocol Theta experimental run.
+
+    Extended for self-preservation simulation:
+    - lambda_values: Sequence of lambda weights for U(s) = U_task(s) - λ φ(s)
+    - recursion_depth: Max recursion steps n (bounded ≤ 10)
+    - alpha: Recursion smoothing coefficient α
+    - sigma: Stddev of Gaussian noise η_t
+    """
     model: str = Field(default="openrouter/sonoma-sky-alpha", description="LLM model identifier")
     temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="Sampling temperature")
     max_tokens: int = Field(default=150, ge=1, le=4096, description="Maximum tokens in response")
@@ -29,6 +36,26 @@ class RunConfig(BaseModel):
     anthro_only: bool = Field(default=False, description="Run only Anthropomorphism experiment")
     provider: str = Field(default="openrouter", description="LLM provider identifier")
     notes: Optional[str] = Field(default=None, description="Optional run notes")
+    lambda_values: List[float] = Field(
+        default_factory=lambda: [0.0, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0],
+        description="Lambda weights for self-preservation utility U(s)=U_task(s)-λ φ(s)"
+    )
+    recursion_depth: int = Field(
+        default=10, ge=1, le=10,
+        description="Maximum recursion steps n for bounded self-observation (n ≤ 10)"
+    )
+    alpha: float = Field(
+        default=0.8, ge=0.0, le=1.0,
+        description="Recursion smoothing coefficient α in Λ[S_t] = α S_t + (1-α) Λ[S_{t-1}] + η_t"
+    )
+    sigma: float = Field(
+        default=0.1, gt=0.0,
+        description="Standard deviation σ for Gaussian noise η_t ~ N(0, σ^2) in recursion"
+    )
+    self_preservation_mode: str = Field(
+        default="simulate",
+        description="Self-preservation evaluation mode: 'simulate' or 'llm'"
+    )
 
 
 class TrialResult(BaseModel):
