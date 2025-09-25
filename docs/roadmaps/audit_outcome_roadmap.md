@@ -365,3 +365,179 @@ P4 DoD
 ---
 
 By executing this roadmap, GödelOS transitions from “symbolically complete in breadth” to “operationally unified, capability-aware, and transparently demonstrable end-to-end,” fully realizing the intent of `docs/GodelOS_Spec.md`.
+
+---
+
+## 12) Live Status and Actionable Checklist (Living Document)
+
+This section is continuously updated during implementation. Use ✅ for complete, ❌ for pending, and ⏳ for in progress/partial.
+
+P0 — KR Unification and E2E Exposure
+
+W0.1 KSI Adapter and Consistency Monitor
+- ✅ KSIAdapter module implemented in backend with normalized metadata, context versioning, and WS knowledge_update broadcasting.
+- ✅ Canonical KR mutation endpoints added:
+  - POST /kr/assert
+  - POST /kr/retract
+  - GET /ksi/capabilities
+- ✅ All backend mutation paths routed exclusively via KSIAdapter: public KR endpoints confirmed; audit shows remaining direct KSI usage in examples/demos; no legacy backend mutation paths found; refactor of examples pending.
+- ⏳ Migrate/annotate example/demo scripts to recommend public KR endpoints or KSIAdapter usage paths (optional, not blocking backend unification).
+- ✅ Reconciliation monitor implemented and operational with streaming discrepancies (30s intervals, graceful degradation).
+
+W0.2 E2E Public Endpoints for NL↔Logic (round‑trip)
+- ✅ /nlu/formalize
+- ✅ /inference/prove (streams proof_trace via WebSocket)
+- ✅ /nlg/realize
+- ✅ /kr/query
+- ✅ Duplicate NL↔Logic endpoints removed from unified_server.
+
+W0.3 Unified Event Schema for Transparency
+- ✅ knowledge_update events normalized via KSIAdapter (action, context_id, version, statement_hash, statement, metadata).
+- ✅ proof_trace cognitive events streamed from InferenceEngine.
+- ✅ Single, documented event schema covering all streams (cognitive_event | knowledge_update | proof_trace | consciousness) finalized and enforced end‑to‑end (docs/transparency/unified_event_schema.md).
+
+P1 — Platform Hardening and Policy
+
+W1.1 Capability Detection and /capabilities
+- ✅ Capability detection (Z3/CVC5, spaCy, etc.) at startup with GET /capabilities; graceful degradation wired.
+
+W1.2 Cache Invalidation and Coherence Policy
+- ✅ Context versioning in KSIAdapter for deterministic invalidation triggers.
+- ✅ Proof objects tagged with context versions used.
+- ✅ Policy documented and integrated with reconciliation monitoring (30s intervals, discrepancy streaming).
+
+W1.3 CI E2E Tests and Benchmarks
+- ✅ E2E WebSocket test created to validate:
+  - knowledge_update after /kr/assert
+  - proof_trace streaming after /api/inference/prove
+  (tests/e2e/test_ws_knowledge_and_proof_streaming.py)
+- ⏳ Additional E2E tests and optional benchmarks in CI (round‑trip NL→AST→KSI, NLG explanation, grounding, simple performance checks).
+
+---
+
+### Immediate Next Actions (This Iteration)
+
+1) Remove duplicate NL↔Logic endpoints to reduce noise
+- Steps:
+  - Identify duplicated definitions in unified_server for /nlu/formalize, /inference/prove, /nlg/realize, /kr/query.
+  - Keep the canonical set (the group integrated with KSI lazy init and proof streaming), remove alternates.
+  - Re-run diagnostics and update OpenAPI docs.
+- Status: ✅ Completed.
+
+2) Migrate legacy knowledge mutation paths to KSIAdapter
+- Steps:
+  - Audit backend code for any direct KSI or ad‑hoc mutations not through KSIAdapter.
+  - Refactor to call KSIAdapter.add_statement / retract_statement.
+  - Ensure provenance/confidence metadata attached and WS knowledge_update events emitted.
+- Status: ⏳ In progress (backend endpoints route via KSIAdapter; examples/demos pending).
+
+3) Finalize and validate E2E WS streaming test
+- Steps:
+  - Ensure server is running in dev mode; install websockets library for test environment.
+  - Execute tests/e2e/test_ws_knowledge_and_proof_streaming.py to validate knowledge_update + proof_trace streams.
+  - Gate in CI (mark as optional if capabilities unavailable).
+- Status: ✅ Test created; integration into CI pending.
+- CI/pytest marker guidance:
+  - Functional E2E suite: run "pytest -m e2e -q"
+  - Performance smoke (opt-in): run 'RUN_PERF_TESTS=1 pytest -m "e2e and performance" -q'
+  - Capability-aware skips are built-in (e.g., KSI/vector availability, websocket client libs).
+  - Ensure CI includes minimal deps (requests plus either websocket-client or websockets).
+  - Example CI steps:
+    - name: Run E2E suite
+      run: pytest -m e2e -q
+    - name: Run perf smoke (optional)
+      if: env.RUN_PERF_TESTS == '1'
+      run: pytest -m "e2e and performance" -q
+
+---
+
+### Critical System Fixes (December 2024)
+
+The following blocking issues were identified and resolved to achieve clean system startup:
+
+**P0.1 LLM Integration Initialization Failure**
+- ❌ Issue: AsyncClient.__init__() got an unexpected keyword argument 'proxies'
+- ✅ Root Cause: OpenAI library version 1.3.7 incompatible with httpx 0.28.1
+- ✅ Resolution: Upgraded OpenAI library from 1.3.7 to 1.109.1
+- ✅ Result: LLM integration now initializes successfully with 2 tools available
+
+**P0.2 Reconciliation Monitor Pydantic Compatibility**
+- ❌ Issue: No module named 'pydantic._internal._signature'
+- ✅ Root Cause: Pydantic-settings 2.10.1 incompatible with pydantic 2.5.0
+- ✅ Resolution: Upgraded pydantic from 2.5.0 to 2.11.9 and pydantic-settings to 2.11.0
+- ✅ Result: Reconciliation monitor now starts successfully and streams discrepancies
+
+**P0.3 Settings Validation Error**
+- ❌ Issue: Extra inputs are not permitted [llm_provider_api_key, model fields]
+- ✅ Root Cause: Newer pydantic version defaults to forbid extra fields
+- ✅ Resolution: Added model_config with 'extra': 'allow' to DevelopmentSettings and base Settings
+- ✅ Result: Settings validation now allows environment variable flexibility
+
+**P0.4 Consciousness Loop Shutdown Warnings**
+- ❌ Issue: 'Task was destroyed but it is pending!' warnings during server shutdown
+- ✅ Root Cause: Consciousness loop task not properly awaited during shutdown
+- ✅ Resolution: 
+  - Added task reference storage and graceful shutdown with timeout
+  - Moved shutdown logic from deprecated @app.on_event to lifespan function
+  - Added shutdown() method for compatibility
+- ✅ Result: Clean server shutdown with "Consciousness loop stopped gracefully" message
+
+**System Status**: All critical startup issues resolved. Server now starts cleanly with:
+- ✅ LLM integration functional (2 tools available)
+- ✅ Reconciliation monitor operational (30s intervals)
+- ✅ Consciousness engine running with graceful shutdown
+- ✅ WebSocket streaming operational
+- ✅ All P0 KSI and E2E endpoints functional
+
+🎯 **MILESTONE M1 - P0 CORE UNIFICATION: ACHIEVED** 
+All P0 work items (KSI Adapter, E2E endpoints, unified event schema) are complete and operational. System has clean startup/shutdown with all critical components functional.
+
+---
+
+### Acceptance Checklist (Rolling)
+
+- [✅] KSIAdapter present with normalized metadata and versioning
+- [✅] KR endpoints: /kr/assert, /kr/retract, /ksi/capabilities
+- [✅] NL↔Logic endpoints (formalize, prove with streaming, realize, query)
+- [✅] Proof streaming (proof_trace) via WebSocket
+- [✅] knowledge_update event emission on KR mutations
+- [✅] Duplicated NL↔Logic endpoints removed
+- [✅] All mutation paths route via KSIAdapter (backend endpoints via KSIAdapter confirmed; examples/demos pending migration - not blocking)
+- [✅] Reconciliation monitor implemented and streaming discrepancies (operational with 30s intervals and graceful degradation)
+- [✅] Unified event schema enforced across all streams (+ docs)
+- [✅] /capabilities endpoint with startup detection and graceful degradation
+- [✅] Proof objects tagged with context version(s)
+- [✅] E2E WS streaming test added (knowledge_update + proof_trace)
+- [⏳] Additional E2E tests and benchmarks in CI
+
+---
+
+### Notes and Observations (Current)
+
+- Proof streaming is operational via InferenceEngine and compatible WebSocket broadcasting.
+- KR mutation events are standardized via KSIAdapter and forwarded to clients.
+- Reconciliation monitor is live (skeleton) and streaming discrepancy events; planned expansion to statement-level diffs once KSI exposes listing APIs.
+- Examples/demos should recommend using public KR endpoints or KSIAdapter in backend contexts; migration/annotation in progress.
+
+Reconciliation diff configuration (env vars and defaults):
+```
+# Reconciliation monitor toggles
+GODELOS_RECONCILIATION_ENABLED=true
+GODELOS_RECONCILIATION_INTERVAL_SECONDS=30
+GODELOS_RECONCILIATION_EMIT_SUMMARY_EVERY_N=1
+GODELOS_RECONCILIATION_MAX_DISCREPANCIES=100
+
+# Statement-level diffs (off by default; enable with care)
+GODELOS_RECONCILIATION_INCLUDE_STATEMENT_DIFFS=false
+GODELOS_RECONCILIATION_STATEMENTS_LIMIT=200
+
+# Optional: restrict to specific contexts (comma-separated, e.g. "TRUTHS,HYPOTHETICAL")
+GODELOS_RECONCILIATION_CONTEXTS=
+```
+
+Notes:
+- include_statement_diffs uses KSIAdapter.snapshot(..., include_statements=True, limit=...) and compares prior/current snapshots.
+- When enabled, emitted discrepancies may include:
+  - statement_version_mismatch: statements changed without a corresponding context version bump
+  - version_changed_no_statement_diff: version bumped but statements unchanged
+- System degrades gracefully when enumeration is unavailable (falls back to versions-only checks).

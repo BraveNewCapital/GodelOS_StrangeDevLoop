@@ -114,8 +114,110 @@ class WebSocketManager:
         await websocket.send_text(message)
 
     async def broadcast(self, message: Union[str, dict]):
-        if isinstance(message, dict):
-            message = json.dumps(message)
+        # Enforce unified event schema at broadcast boundary
+        try:
+            if isinstance(message, dict):
+                evt = message
+
+                # Allowed top-level event types (v1)
+                allowed_types = {
+                    "cognitive_event",
+                    "knowledge_update",
+                    "consciousness_update",
+                    "system_status",
+                    "health_update",
+                    "metrics_update",
+                    "connection_status",
+                    "ping",
+                    "pong",
+                }
+
+                # Ensure required envelope fields
+                if "type" not in evt:
+                    # Assume cognitive_event for legacy payloads without type
+                    evt["type"] = "cognitive_event"
+                if "timestamp" not in evt:
+                    evt["timestamp"] = time.time()
+                evt.setdefault("version", "v1")
+                evt.setdefault("source", "godelos_system")
+
+                # Ensure data is an object
+                if "data" not in evt or not isinstance(evt["data"], dict):
+                    evt["data"] = {"value": evt.get("data")}
+
+                # Type-specific validations
+                if evt["type"] == "knowledge_update":
+                    data = evt.get("data", {})
+                    required = ["action", "context_id", "version", "statement", "statement_hash"]
+                    missing = [k for k in required if k not in data]
+                    if missing:
+                        # Emit schema warning wrapped as cognitive_event
+                        evt = {
+                            "type": "cognitive_event",
+                            "timestamp": time.time(),
+                            "version": "v1",
+                            "source": "websocket_manager",
+                            "data": {
+                                "event_type": "schema_warning",
+                                "component": "websocket_manager",
+                                "details": {
+                                    "message": "knowledge_update missing required fields",
+                                    "missing": missing
+                                },
+                                "priority": 4
+                            }
+                        }
+                elif evt["type"] == "cognitive_event":
+                    # Ensure sub-type present for cognitive events
+                    if "event_type" not in evt["data"]:
+                        evt["data"]["event_type"] = "unspecified"
+
+                # Unknown event types: downgrade to schema_warning
+                if evt["type"] not in allowed_types:
+                    evt = {
+                        "type": "cognitive_event",
+                        "timestamp": time.time(),
+                        "version": "v1",
+                        "source": "websocket_manager",
+                        "data": {
+                            "event_type": "schema_warning",
+                            "component": "websocket_manager",
+                            "details": {"message": f"Unknown event type: {message.get('type')}", "original": message},
+                            "priority": 4
+                        }
+                    }
+
+                message = json.dumps(evt)
+
+            elif isinstance(message, str):
+                # Best-effort: if JSON-like, validate minimally and re-encode
+                try:
+                    evt = json.loads(message)
+                    if isinstance(evt, dict) and "type" in evt and "data" in evt:
+                        evt.setdefault("timestamp", time.time())
+                        evt.setdefault("version", "v1")
+                        evt.setdefault("source", "godelos_system")
+                        message = json.dumps(evt)
+                except Exception:
+                    # Keep raw string if it isn't JSON
+                    pass
+
+        except Exception as e:
+            # Non-fatal: broadcast a schema warning instead of dropping the event
+            warning = {
+                "type": "cognitive_event",
+                "timestamp": time.time(),
+                "version": "v1",
+                "source": "websocket_manager",
+                "data": {
+                    "event_type": "schema_warning",
+                    "component": "websocket_manager",
+                    "details": {"message": f"broadcast normalization failed: {e}"},
+                    "priority": 4
+                }
+            }
+            message = json.dumps(warning)
+
         for connection in self.active_connections:
             try:
                 await connection.send_text(message)
@@ -578,6 +680,52 @@ async def lifespan(app: FastAPI):
     await initialize_core_services()
 
     # Initialize optional services
+    # Start reconciliation monitor early (degrades gracefully if deps unavailable)
+    try:
+        from backend.core.reconciliation_monitor import get_reconciliation_monitor, ReconciliationConfig
+        # Wire ReconciliationConfig from settings with sane defaults.
+        # include_statement_diffs is off by default to minimize load; can be enabled via env.
+        from backend.config import settings
+
+        ksi, _ = await _ensure_ksi_and_inference()
+        vdb = get_vector_database() if (VECTOR_DATABASE_AVAILABLE and get_vector_database is not None) else None
+
+        # Parse optional comma-separated contexts list
+        ctxs = None
+        try:
+            raw_ctxs = settings.reconciliation_contexts_to_check
+            if raw_ctxs:
+                ctxs = [c.strip() for c in str(raw_ctxs).split(",") if c.strip()]
+        except Exception:
+            ctxs = None
+
+        recon_config = ReconciliationConfig(
+            interval_seconds=int(getattr(settings, "reconciliation_interval_seconds", 30)),
+            emit_streamed=True,
+            emit_summary_every_n_cycles=int(getattr(settings, "reconciliation_emit_summary_every_n_cycles", 1)),
+            max_discrepancies_per_cycle=int(getattr(settings, "reconciliation_max_discrepancies_per_cycle", 100)),
+            contexts_to_check=ctxs,
+            include_statement_diffs=bool(getattr(settings, "reconciliation_include_statement_diffs", False)),
+            statements_limit=getattr(settings, "reconciliation_statements_limit", 200),
+        )
+
+        monitor = get_reconciliation_monitor(
+            ksi_adapter=ksi,
+            vector_db=vdb,
+            websocket_manager=websocket_manager,
+            config=recon_config,
+        )
+
+        if getattr(settings, "reconciliation_enabled", True) and hasattr(monitor, "start"):
+            logger.info(
+                f"ReconciliationMonitor configured: include_statement_diffs={recon_config.include_statement_diffs}, "
+                f"statements_limit={recon_config.statements_limit}, interval={recon_config.interval_seconds}s"
+            )
+            await monitor.start()
+        else:
+            logger.info("ReconciliationMonitor disabled by configuration; skipping start")
+    except Exception as e:
+        logger.warning(f"Reconciliation monitor not started: {e}")
     await initialize_optional_services()
 
     # Set up consciousness engine in endpoints after initialization
@@ -600,7 +748,24 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("🛑 Shutting down GödelOS Unified Server...")
 
-    # No synthetic streaming task to cancel
+    # Stop unified consciousness engine if running
+    if unified_consciousness_engine:
+        try:
+            await unified_consciousness_engine.shutdown()
+            logger.info("✅ Consciousness engine shutdown complete")
+        except Exception as e:
+            logger.warning(f"⚠️ Error shutting down consciousness engine: {e}")
+
+    # Stop reconciliation monitor if running
+    try:
+        from backend.core.reconciliation_monitor import get_reconciliation_monitor
+        monitor = get_reconciliation_monitor()
+        if monitor and hasattr(monitor, 'stop'):
+            await monitor.stop()
+            logger.info("✅ Reconciliation monitor shutdown complete")
+    except Exception as e:
+        logger.warning(f"⚠️ Error shutting down reconciliation monitor: {e}")
+
     logger.info("✅ Shutdown complete")
 
 # Server start time for metrics
@@ -641,6 +806,17 @@ async def _ensure_ksi_and_inference():
                 broadcaster = _broadcast_knowledge_update
             ksi_adapter = KSIAdapter(config=KSIAdapterConfig(event_broadcaster=broadcaster))
             await ksi_adapter.initialize()
+            try:
+                # Register a simple coherence invalidator to log version bumps and enable future hooks
+                def _coherence_invalidator(context_id: str, reason: str, details: Dict[str, Any]):
+                    logger.info(
+                        "KSIAdapter coherence invalidation",
+                        extra={"component": "ksi_adapter", "context_id": context_id, "reason": reason, "details": details}
+                    )
+                ksi_adapter.set_coherence_invalidator(_coherence_invalidator)
+            except Exception:
+                # Best-effort; do not fail initialization if the invalidator cannot be set
+                pass
         except Exception:
             ksi_adapter = None  # degrade gracefully
 
@@ -887,172 +1063,323 @@ async def root():
 # NL↔Logic and KR endpoints
 # -----------------------------
 
-@app.post("/nlu/formalize")
-async def nlu_formalize(payload: Dict[str, Any]):
-    """
-    Formalize natural language (or logic-like string) into a GödelOS KR AST representation.
-    Returns a serialized AST string for transport along with any parser errors.
-    """
-    text = (payload or {}).get("text") or (payload or {}).get("expression")
-    if not text:
-        raise _structured_http_error(400, code="invalid_request", message="Missing 'text' in request body")
+# Removed duplicate NL↔Logic endpoint: canonical tagged /nlu/formalize is defined earlier
 
+
+# Removed duplicate NL↔Logic endpoint: canonical tagged /inference/prove is defined earlier
+
+
+# Removed duplicate NL↔Logic endpoint: canonical tagged /nlg/realize is defined earlier
+
+
+# Removed duplicate NL↔Logic endpoint: canonical tagged /kr/query is defined earlier
+
+
+@app.post("/kr/assert", tags=["NL↔Logic"])
+@app.post("/api/kr/assert", tags=["NL↔Logic"])
+async def kr_assert(payload: Dict[str, Any]):
+    """
+    Assert a statement into the Knowledge Store via KSIAdapter.
+    Body:
+      {
+        "statement": "forall x. Human(x) => Mortal(x)",   // preferred textual form
+        "context_id": "TRUTHS",                            // optional, defaults to TRUTHS
+        "confidence": 0.9,                                 // optional
+        "metadata": { "tags": ["axiom"] }                  // optional
+      }
+    """
+    text = (payload or {}).get("statement") or (payload or {}).get("text") or (payload or {}).get("formula") or (payload or {}).get("ast")
+    context_id = (payload or {}).get("context_id") or "TRUTHS"
+    confidence = (payload or {}).get("confidence")
+    metadata = (payload or {}).get("metadata") or {}
+    if not text:
+        raise _structured_http_error(400, code="invalid_request", message="Missing 'statement' in request body")
+
+    # Formalize to AST
     try:
         from backend.core.nl_semantic_parser import get_nl_semantic_parser
-    except Exception:
-        raise _structured_http_error(503, code="nlu_unavailable", message="NLU parser not available")
+        parser = get_nl_semantic_parser()
+        formal = await parser.formalize(text)
+        if not formal.success or formal.ast is None:
+            raise _structured_http_error(400, code="formalization_failed", message="Could not parse statement", errors=formal.errors)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise _structured_http_error(500, code="nlu_error", message=str(e))
 
-    parser = get_nl_semantic_parser()
-    result = await parser.formalize(text)
-
-    return {
-        "success": result.success,
-        "confidence": result.confidence,
-        "ast": str(result.ast) if result.ast is not None else None,
-        "errors": result.errors,
-        "notes": result.notes
-    }
-
-
-@app.post("/inference/prove")
-async def inference_prove(payload: Dict[str, Any]):
-    """
-    Attempt to prove a goal against the KR using the KSI adapter.
-    Streams 'proof_trace' cognitive events via the WebSocket manager.
-    """
-    goal_text = (payload or {}).get("goal") or (payload or {}).get("formula")
-    context_ids = (payload or {}).get("contexts") or ["TRUTHS"]
-    if not goal_text:
-        raise _structured_http_error(400, code="invalid_request", message="Missing 'goal' in request body")
-
-    # Ensure parser available
-    try:
-        from backend.core.nl_semantic_parser import get_nl_semantic_parser, get_inference_engine
-    except Exception:
-        raise _structured_http_error(503, code="inference_unavailable", message="Inference components not available")
-
-    parser = get_nl_semantic_parser()
-    formal = await parser.formalize(goal_text)
-    if not formal.success or formal.ast is None:
-        raise _structured_http_error(400, code="parse_error", message="Failed to parse goal into AST", details={"errors": formal.errors})
-
-    # Lazily initialize KSI Adapter with WS broadcaster if not yet available
-    try:
-        global ksi_adapter
-    except NameError:
-        ksi_adapter = None  # ensure symbol exists
-
-    if not ksi_adapter:
-        try:
-            from backend.core.ksi_adapter import KSIAdapter, KSIAdapterConfig
-            broadcaster = None
-            if enhanced_websocket_manager and hasattr(enhanced_websocket_manager, "broadcast"):
-                async def _broadcast_knowledge_update(event: dict):
-                    # Forward normalized knowledge_update events to all WS clients
-                    await enhanced_websocket_manager.broadcast(event)
-                broadcaster = _broadcast_knowledge_update
-            ksi_adapter = KSIAdapter(config=KSIAdapterConfig(event_broadcaster=broadcaster))
-            await ksi_adapter.initialize()
-        except Exception:
-            ksi_adapter = None
-
-    if not ksi_adapter or not await ksi_adapter.capabilities():
+    # Ensure KSI available (wired with WS broadcaster for knowledge_update events)
+    ksi, _ = await _ensure_ksi_and_inference()
+    if not ksi or not ksi.available():
         raise _structured_http_error(503, code="ksi_unavailable", message="Knowledge Store Interface unavailable")
 
-    # Build inference engine and run proof (proof_trace will be broadcast)
-    inference = get_inference_engine(ksi_adapter=ksi_adapter, websocket_manager=websocket_manager)
-    proof = await inference.prove(formal.ast, context_ids=context_ids)
-
-    return {
-        "success": proof.success,
-        "goal": proof.goal_serialized,
-        "contexts": proof.context_ids,
-        "duration_sec": proof.duration_sec,
-        "proof": proof.proof_object
-    }
+    result = await ksi.add_statement(
+        formal.ast,
+        context_id=context_id,
+        provenance={"source": "api/kr/assert"},
+        confidence=confidence,
+        metadata=metadata
+    )
+    return JSONResponse(content=result)
 
 
-@app.post("/nlg/realize")
-async def nlg_realize(payload: Dict[str, Any]):
+@app.post("/kr/retract", tags=["NL↔Logic"])
+@app.post("/api/kr/retract", tags=["NL↔Logic"])
+async def kr_retract(payload: Dict[str, Any]):
     """
-    Realize an AST or result object into natural language text.
-    Accepts:
-      - { "ast": "<serialized-ast>" } (treated as text proxy)
-      - { "object": { ... } } or { "items": [ ... ] }
+    Retract a statement or pattern from the Knowledge Store via KSIAdapter.
+    Body:
+      {
+        "pattern": "exists x. Human(x) ∧ ¬Mortal(x)",      // textual pattern to retract (preferred)
+        "context_id": "TRUTHS",                            // optional, defaults to TRUTHS
+        "metadata": { "reason": "cleanup" }               // optional
+      }
     """
+    text = (payload or {}).get("pattern") or (payload or {}).get("statement") or (payload or {}).get("text") or (payload or {}).get("formula") or (payload or {}).get("ast")
+    context_id = (payload or {}).get("context_id") or "TRUTHS"
+    metadata = (payload or {}).get("metadata") or {}
+    if not text:
+        raise _structured_http_error(400, code="invalid_request", message="Missing 'pattern' or 'statement' in request body")
+
+    # Formalize to AST
     try:
-        from backend.core.nl_semantic_parser import get_nlg_realizer
-    except Exception:
-        raise _structured_http_error(503, code="nlg_unavailable", message="NLG realizer not available")
+        from backend.core.nl_semantic_parser import get_nl_semantic_parser
+        parser = get_nl_semantic_parser()
+        formal = await parser.formalize(text)
+        if not formal.success or formal.ast is None:
+            raise _structured_http_error(400, code="formalization_failed", message="Could not parse pattern", errors=formal.errors)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise _structured_http_error(500, code="nlu_error", message=str(e))
 
-    realizer = get_nlg_realizer()
-
-    obj = None
-    if "object" in (payload or {}):
-        obj = payload.get("object")
-    elif "items" in (payload or {}):
-        obj = payload.get("items")
-    elif "ast" in (payload or {}):
-        # If only a serialized AST string is provided, treat it as text for realization
-        obj = payload.get("ast")
-    else:
-        raise _structured_http_error(400, code="invalid_request", message="Provide one of 'object', 'items', or 'ast'")
-
-    res = await realizer.realize(obj)
-    return {
-        "text": res.text,
-        "confidence": res.confidence,
-        "notes": res.notes
-    }
-
-
-@app.get("/kr/query")
-async def kr_query(pattern: str = Query(..., description="Logical pattern to match"),
-                   contexts: Optional[List[str]] = Query(None, description="Contexts to search (repeatable)")):
-    """
-    Execute a KR pattern query across one or more contexts and return normalized variable bindings.
-    """
-    try:
-        from backend.core.nl_semantic_parser import get_nl_semantic_parser, get_inference_engine
-    except Exception:
-        raise _structured_http_error(503, code="query_unavailable", message="KR query components not available")
-
-    parser = get_nl_semantic_parser()
-    formal = await parser.formalize(pattern)
-    if not formal.success or formal.ast is None:
-        raise _structured_http_error(400, code="parse_error", message="Failed to parse pattern into AST", details={"errors": formal.errors})
-
-    # Lazily initialize KSI Adapter if needed (reuse logic from capabilities endpoint)
-    try:
-        global ksi_adapter
-    except NameError:
-        ksi_adapter = None
-
-    if not ksi_adapter:
-        try:
-            from backend.core.ksi_adapter import KSIAdapter, KSIAdapterConfig
-            broadcaster = None
-            if enhanced_websocket_manager and hasattr(enhanced_websocket_manager, "broadcast"):
-                async def _broadcast_knowledge_update(event: dict):
-                    await enhanced_websocket_manager.broadcast(event)
-                broadcaster = _broadcast_knowledge_update
-            ksi_adapter = KSIAdapter(config=KSIAdapterConfig(event_broadcaster=broadcaster))
-            await ksi_adapter.initialize()
-        except Exception:
-            ksi_adapter = None
-
-    if not ksi_adapter or not ksi_adapter.available():
+    # Ensure KSI available
+    ksi, _ = await _ensure_ksi_and_inference()
+    if not ksi or not ksi.available():
         raise _structured_http_error(503, code="ksi_unavailable", message="Knowledge Store Interface unavailable")
 
-    inference = get_inference_engine(ksi_adapter=ksi_adapter, websocket_manager=websocket_manager)
-    bindings = await inference.query(formal.ast, context_ids=contexts or ["TRUTHS"])
+    result = await ksi.retract_statement(
+        formal.ast,
+        context_id=context_id,
+        provenance={"source": "api/kr/retract"},
+        metadata=metadata
+    )
+    return JSONResponse(content=result)
 
-    return {
-        "success": True,
-        "count": len(bindings),
-        "contexts": contexts or ["TRUTHS"],
-        "bindings": bindings
-    }
+
+@app.get("/ksi/capabilities", tags=["NL↔Logic"])
+@app.get("/api/ksi/capabilities", tags=["NL↔Logic"])
+async def ksi_capabilities():
+    """
+    Report KSIAdapter capability status and known contexts.
+    """
+    ksi, _ = await _ensure_ksi_and_inference()
+    if not ksi:
+        return JSONResponse(content={"ksi_available": False})
+
+    try:
+        caps = await ksi.capabilities()
+    except Exception:
+        caps = {"ksi_available": False}
+    return JSONResponse(content=caps)
+
+# Admin endpoint to update reconciliation monitor settings at runtime
+@app.post("/admin/reconciliation/config", tags=["Admin"])
+async def update_reconciliation_config(payload: Dict[str, Any]):
+    """
+    Update reconciliation monitor configuration at runtime.
+    Body fields (all optional):
+      - include_statement_diffs: bool
+      - statements_limit: int|null
+      - interval_seconds: int
+      - emit_summary_every_n_cycles: int
+      - max_discrepancies_per_cycle: int
+      - contexts_to_check: list[str] or comma-separated string
+      - emit_streamed: bool
+      - ping_when_idle: bool
+    """
+    try:
+        from backend.core.reconciliation_monitor import get_reconciliation_monitor
+        # Ensure KSI is available and wire it into the monitor so baseline snapshots work
+        try:
+            ksi, _ = await _ensure_ksi_and_inference()
+        except Exception:
+            ksi = None
+        monitor = get_reconciliation_monitor(ksi_adapter=ksi)
+        if not monitor:
+            return JSONResponse(status_code=503, content={"success": False, "message": "Reconciliation monitor unavailable"})
+
+        data = payload or {}
+
+        # Normalize contexts
+        contexts = data.get("contexts_to_check")
+        if isinstance(contexts, str):
+            contexts = [c.strip() for c in contexts.split(",") if c.strip()]
+        elif contexts is not None and not isinstance(contexts, list):
+            contexts = None
+
+        # Build kwargs for update
+        kwargs: Dict[str, Any] = {}
+        for key in ("interval_seconds", "emit_summary_every_n_cycles", "max_discrepancies_per_cycle"):
+            if key in data and data[key] is not None:
+                try:
+                    kwargs[key] = int(data[key])
+                except Exception:
+                    pass
+        for key in ("include_statement_diffs", "emit_streamed", "ping_when_idle"):
+            if key in data and data[key] is not None:
+                kwargs[key] = bool(data[key])
+
+        # statements_limit can be int or None
+        if "statements_limit" in data:
+            try:
+                kwargs["statements_limit"] = None if data["statements_limit"] is None else int(data["statements_limit"])
+            except Exception:
+                pass
+
+        if contexts is not None:
+            kwargs["contexts_to_check"] = contexts
+
+        cfg = monitor.update_config(**kwargs)
+        # Return the effective config
+        return JSONResponse(content={
+            "success": True,
+            "config": {
+                "interval_seconds": cfg.interval_seconds,
+                "emit_streamed": cfg.emit_streamed,
+                "emit_summary_every_n_cycles": cfg.emit_summary_every_n_cycles,
+                "max_discrepancies_per_cycle": cfg.max_discrepancies_per_cycle,
+                "severity_threshold": cfg.severity_threshold,
+                "contexts_to_check": cfg.contexts_to_check,
+                "ping_when_idle": cfg.ping_when_idle,
+                "include_statement_diffs": cfg.include_statement_diffs,
+                "statements_limit": cfg.statements_limit,
+            }
+        })
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"success": False, "message": str(e)})
+
+# Admin endpoint to trigger a single reconciliation cycle and return the report
+@app.post("/admin/reconciliation/run-once", tags=["Admin"])
+async def reconciliation_run_once():
+    """
+    Trigger a single reconciliation cycle and return the report payload.
+    Intended for tests and diagnostics.
+    """
+    try:
+        from backend.core.reconciliation_monitor import get_reconciliation_monitor
+        # Wire current KSIAdapter into the reconciliation monitor if available
+        try:
+            ksi_adapter  # use existing global if present
+        except NameError:
+            ksi_adapter = None
+        monitor = get_reconciliation_monitor(ksi_adapter=ksi_adapter)
+        if not monitor:
+            return JSONResponse(status_code=503, content={"success": False, "message": "Reconciliation monitor unavailable"})
+
+        report = await monitor.run_once()
+
+        # Serialize report to JSON-friendly dict
+        discrepancies = []
+        try:
+            for d in getattr(report, "discrepancies", []) or []:
+                if hasattr(d, "to_dict"):
+                    discrepancies.append(d.to_dict())
+                else:
+                    discrepancies.append(d)
+        except Exception:
+            pass
+
+        out = {
+            "timestamp": getattr(report, "timestamp", None),
+            "cycle": getattr(report, "cycle", None),
+            "contexts_checked": getattr(report, "contexts_checked", []),
+            "discrepancies": discrepancies,
+            "errors": getattr(report, "errors", []),
+            "counts": report.counts() if hasattr(report, "counts") else {},
+        }
+        return JSONResponse(content={"success": True, "report": out})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"success": False, "message": str(e)})
+
+# Admin endpoints for KR assertions (batch and raw) for reconciliation testing
+@app.post("/admin/kr/assert-batch", tags=["Admin"])
+async def admin_assert_batch(payload: Dict[str, Any]):
+    try:
+        statements = (payload or {}).get("statements") or []
+        context_id = (payload or {}).get("context_id") or "TRUTHS"
+        confidence = (payload or {}).get("confidence")
+        metadata = (payload or {}).get("metadata") or {}
+        emit_events = bool((payload or {}).get("emit_events", True))
+
+        if not isinstance(statements, list) or not statements:
+            return JSONResponse(status_code=400, content={"success": False, "message": "Missing non-empty 'statements' list"})
+
+        from backend.core.nl_semantic_parser import get_nl_semantic_parser
+        parser = get_nl_semantic_parser()
+        asts = []
+        for text in statements:
+            try:
+                formal = await parser.formalize(str(text))
+                if formal.success and formal.ast is not None:
+                    asts.append(formal.ast)
+            except Exception:
+                continue
+
+        if not asts:
+            return JSONResponse(status_code=400, content={"success": False, "message": "No statements could be formalized"})
+
+        ksi, _ = await _ensure_ksi_and_inference()
+        if not ksi or not ksi.available():
+            return JSONResponse(status_code=503, content={"success": False, "message": "KSI unavailable"})
+
+        result = await ksi.add_statements_batch(
+            asts,
+            context_id=context_id,
+            provenance={"source": "admin/assert-batch"},
+            confidence=confidence,
+            metadata=metadata,
+            emit_events=emit_events,
+        )
+        return JSONResponse(content=result)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"success": False, "message": str(e)})
+
+@app.post("/admin/kr/assert-raw", tags=["Admin"])
+async def admin_assert_raw(payload: Dict[str, Any]):
+    """
+    Directly mutate the underlying KSI backend via the adapter's internal handle.
+    This bypasses KSIAdapter version bumping and event broadcasting — useful for
+    inducing reconciliation diffs in testing.
+    """
+    try:
+        text = (payload or {}).get("statement") or (payload or {}).get("text") or (payload or {}).get("formula")
+        context_id = (payload or {}).get("context_id") or "TRUTHS"
+        if not text:
+            return JSONResponse(status_code=400, content={"success": False, "message": "Missing 'statement'"})
+
+        ksi, _ = await _ensure_ksi_and_inference()
+        if not ksi or not ksi.available():
+            return JSONResponse(status_code=503, content={"success": False, "message": "KSI unavailable"})
+
+        raw_ksi = getattr(ksi, "_ksi", None)
+        if raw_ksi is None:
+            return JSONResponse(status_code=503, content={"success": False, "message": "Underlying KSI not accessible"})
+
+        from backend.core.nl_semantic_parser import get_nl_semantic_parser
+        parser = get_nl_semantic_parser()
+        formal = await parser.formalize(text)
+        if not formal.success or formal.ast is None:
+            return JSONResponse(status_code=400, content={"success": False, "message": "Could not parse statement"})
+
+        ok = False
+        try:
+            ok = await asyncio.to_thread(raw_ksi.add_statement, formal.ast, context_id, {})  # type: ignore[attr-defined]
+        except Exception:
+            ok = False
+
+        return JSONResponse(content={"success": bool(ok), "context_id": context_id, "note": "raw insert (no version bump/event emission)"})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"success": False, "message": str(e)})
 
 @app.get("/health")
 async def health_check():
@@ -1298,10 +1625,24 @@ async def get_capabilities():
         except Exception:
             return False
 
+    def _has_spacy_model(model_name: str) -> bool:
+        """
+        Best-effort check for spaCy model presence without loading heavy weights.
+        """
+        try:
+            import importlib.util as _iu  # local import to avoid top-level overhead
+            return _iu.find_spec(model_name) is not None
+        except Exception:
+            return False
+
     caps["dependencies"] = {
         "z3": _has_module("z3"),
         "cvc5": _has_module("cvc5"),
         "spacy": _has_module("spacy"),
+        # spaCy model presence (no heavy load on request path)
+        "spacy_model_en_core_web_sm": _has_spacy_model("en_core_web_sm"),
+        # FAISS presence (either meta-package or CPU/GPU variants)
+        "faiss": _has_module("faiss") or _has_module("faiss_cpu") or _has_module("faiss_gpu"),
     }
 
     return JSONResponse(content=caps)

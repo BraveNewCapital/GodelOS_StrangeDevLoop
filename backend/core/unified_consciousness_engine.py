@@ -490,6 +490,7 @@ class UnifiedConsciousnessEngine:
         # Unified state
         self.consciousness_state = UnifiedConsciousnessState()
         self.consciousness_loop_active = False
+        self.consciousness_loop_task = None
         self.consciousness_history = []
         
         # Consciousness emergence detection
@@ -521,13 +522,37 @@ class UnifiedConsciousnessEngine:
         self.consciousness_loop_active = True
         logger.info("🧠 Starting unified consciousness loop")
         
-        # Start the continuous consciousness process
-        asyncio.create_task(self._unified_consciousness_loop())
+        # Start the continuous consciousness process and store task reference
+        self.consciousness_loop_task = asyncio.create_task(self._unified_consciousness_loop())
     
     async def stop_consciousness_loop(self):
-        """Stop the consciousness loop"""
+        """Stop the consciousness loop and wait for completion"""
+        if not self.consciousness_loop_active:
+            return
+            
         self.consciousness_loop_active = False
         logger.info("🛑 Stopping unified consciousness loop")
+        
+        # Wait for the task to complete if it exists
+        if self.consciousness_loop_task and not self.consciousness_loop_task.done():
+            try:
+                await asyncio.wait_for(self.consciousness_loop_task, timeout=5.0)
+                logger.info("✅ Consciousness loop stopped gracefully")
+            except asyncio.TimeoutError:
+                logger.warning("⚠️ Consciousness loop task timed out, canceling")
+                self.consciousness_loop_task.cancel()
+                try:
+                    await self.consciousness_loop_task
+                except asyncio.CancelledError:
+                    pass
+            except Exception as e:
+                logger.warning(f"⚠️ Error stopping consciousness loop: {e}")
+        
+        self.consciousness_loop_task = None
+    
+    async def shutdown(self):
+        """Shutdown the consciousness engine - alias for stop_consciousness_loop"""
+        await self.stop_consciousness_loop()
     
     async def _unified_consciousness_loop(self):
         """
