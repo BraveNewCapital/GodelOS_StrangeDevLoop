@@ -1,0 +1,138 @@
+name: E2E Tests
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+    branches:
+      - "**"
+  workflow_dispatch:
+    inputs:
+      run_perf_tests:
+        description: "Run performance smoke tests (optional)"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  e2e:
+    name: E2E Functional Suite
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: GodelOS
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            # Minimal deps for backend + tests (requests, websocket clients)
+            pip install fastapi uvicorn pytest requests websockets websocket-client pydantic pydantic-settings
+          fi
+
+      - name: Start backend server
+        env:
+          GODELOS_ENVIRONMENT: testing
+          GODELOS_BASE_URL: http://127.0.0.1:8000
+        run: |
+          nohup python -m uvicorn backend.unified_server:app \
+            --host 127.0.0.1 --port 8000 --lifespan on --no-access-log > server.log 2>&1 &
+          # Wait for health endpoint (up to ~30s)
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:8000/health > /dev/null; then
+              echo "Backend healthy"
+              break
+            fi
+            sleep 1
+          done
+          # Show early server output to aid diagnostics
+          sed -n '1,200p' server.log || true
+
+      - name: Run E2E tests (functional)
+        env:
+          PYTEST_ADDOPTS: "-q"
+          GODELOS_BASE_URL: http://127.0.0.1:8000
+        run: |
+          pytest -m e2e
+
+      - name: Upload artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: |
+            GodelOS/server.log
+            GodelOS/test_output
+            GodelOS/test_logs
+
+  perf:
+    name: Performance Smoke (Optional)
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_perf_tests == true }}
+    defaults:
+      run:
+        working-directory: GodelOS
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            pip install fastapi uvicorn pytest requests websockets websocket-client pydantic pydantic-settings
+          fi
+
+      - name: Start backend server
+        env:
+          GODELOS_ENVIRONMENT: testing
+          GODELOS_BASE_URL: http://127.0.0.1:8000
+        run: |
+          nohup python -m uvicorn backend.unified_server:app \
+            --host 127.0.0.1 --port 8000 --lifespan on --no-access-log > server.log 2>&1 &
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:8000/health > /dev/null; then
+              echo "Backend healthy"
+              break
+            fi
+            sleep 1
+          done
+          sed -n '1,200p' server.log || true
+
+      - name: Run E2E performance smoke tests
+        env:
+          PYTEST_ADDOPTS: "-q"
+          GODELOS_BASE_URL: http://127.0.0.1:8000
+          RUN_PERF_TESTS: "1"
+        run: |
+          pytest -m "e2e and performance"
+
+      - name: Upload artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-artifacts
+          path: |
+            GodelOS/server.log
+            GodelOS/test_output
+            GodelOS/test_logs

@@ -105,11 +105,24 @@ class NormalizedMetadata:
             "revision": self.revision,
             "user": self.user,
         }
-        # Drop Nones for cleanliness
+        # Drop Nones and ensure values are hashable (lists/sets/dicts -> immutable forms)
         payload = {k: v for k, v in payload.items() if v is not None}
-        if self.extra:
-            payload["extra"] = self.extra
-        return payload
+
+        def _make_hashable(x):
+            if isinstance(x, dict):
+                return tuple(sorted((str(k), _make_hashable(v)) for k, v in x.items()))
+            if isinstance(x, (list, tuple)):
+                return tuple(_make_hashable(i) for i in x)
+            if isinstance(x, set):
+                return tuple(sorted(_make_hashable(i) for i in x))
+            try:
+                hash(x)
+                return x
+            except Exception:
+                return str(x)
+
+        # Note: intentionally drop 'extra' to avoid unhashable metadata entries
+        return {k: _make_hashable(v) for k, v in payload.items()}
 
 
 # -----------------------------
@@ -127,6 +140,19 @@ class KSIAdapter:
 
     All public methods are async for ergonomic use in FastAPI handlers, with internal
     use of asyncio.to_thread for compatibility with synchronous KSI implementations.
+
+    Cache invalidation/coherence policy (stub)
+    - Per-context version counters are maintained by the adapter. Any mutation that
+      changes a context's statements SHOULD bump its version.
+    - External caches/retrievers MAY register a simple invalidation callable via
+      set_coherence_invalidator(callable). This callable can deterministically
+      invalidate or refresh derived artifacts keyed by (context_id, version).
+    - On version changes (assert/retract/batch), the adapter can best-effort invoke
+      the invalidation hook with a minimal signature:
+          (context_id: str, reason: str, details: Dict[str, Any])
+      The default behavior is a no-op if no invalidator is set.
+    - This hook is intentionally lightweight and optional; it is safe to ignore
+      failures and should never impact the primary KR mutation path.
     """
 
     def __init__(
@@ -204,6 +230,40 @@ class KSIAdapter:
     def set_broadcaster(self, broadcaster: Optional[KnowledgeEventBroadcaster]) -> None:
         """Attach or replace the event broadcaster callable."""
         self._event_broadcaster = broadcaster
+
+    def set_coherence_invalidator(self, invalidator: Optional[Callable[[str, str, Dict[str, Any]], Any]]) -> None:
+        """
+        Register an optional coherence invalidation callback that will be invoked
+        best-effort on context version changes.
+
+        Signature:
+            invalidator(context_id: str, reason: str, details: Dict[str, Any]) -> Any
+
+        Notes:
+        - This is a stub hook; if not set, no invalidation occurs.
+        - Implementations should be resilient and non-blocking; failures are ignored.
+        """
+        self._coherence_invalidator = invalidator  # created lazily; presence is optional
+
+    async def _coherence_invalidate(self, context_id: str, reason: str, details: Dict[str, Any]) -> None:
+        """
+        Best-effort coherence invalidation trigger. No-op if no invalidator is set.
+
+        Args:
+            context_id: Context whose version changed.
+            reason: Short reason code ("assert", "retract", "batch", etc.).
+            details: Minimal metadata (e.g., {"version": int, "statement_hash": str}).
+
+        Behavior:
+        - Invokes the registered invalidator if present; ignores all errors.
+        """
+        try:
+            invalidator = getattr(self, "_coherence_invalidator", None)
+            if invalidator:
+                await maybe_await(invalidator, context_id, reason, details)
+        except Exception:
+            # Never allow invalidation failures to impact KR operations
+            pass
 
     def _get_ctx_lock(self, context_id: str) -> asyncio.Lock:
         lock = self._context_locks.get(context_id)
@@ -363,7 +423,7 @@ class KSIAdapter:
                 # Version bump and event
                 new_version = self._bump_context_version_nolock(context_id)
                 result.update({"success": True, "version": new_version, "statement_hash": statement_hash})
-
+                await self._coherence_invalidate(context_id, "assert", {"version": new_version, "statement_hash": statement_hash})
                 await self._broadcast_update({
                     "type": "knowledge_update",
                     "timestamp": time.time(),
@@ -434,6 +494,7 @@ class KSIAdapter:
 
                 new_version = self._bump_context_version_nolock(context_id)
                 outcome.update({"success": failures == 0, "count": count, "failures": failures, "version": new_version})
+                await self._coherence_invalidate(context_id, "batch", {"version": new_version, "count": count, "failures": failures})
                 return outcome
             except Exception:
                 outcome["failures"] = failures + 1
@@ -469,7 +530,7 @@ class KSIAdapter:
 
                 new_version = self._bump_context_version_nolock(context_id)
                 result.update({"success": True, "version": new_version, "statement_hash": stmt_hash})
-
+                await self._coherence_invalidate(context_id, "retract", {"version": new_version, "statement_hash": stmt_hash})
                 await self._broadcast_update({
                     "type": "knowledge_update",
                     "timestamp": time.time(),
@@ -547,6 +608,184 @@ class KSIAdapter:
             "versioning_enabled": self.config.enable_versioning,
             "contexts": list(self._context_versions.keys()),
         }
+
+
+    async def list_contexts(self) -> List[str]:
+        """
+        List all contexts known to KSI.
+
+        Returns:
+            List of context IDs, or empty list if unavailable.
+        """
+        if not self.available():
+            return []
+        try:
+            ctxs = await asyncio.to_thread(self._ksi.list_contexts)  # type: ignore[attr-defined]
+            return list(ctxs or [])
+        except Exception:
+            return []
+
+    async def get_context_versions(self, context_ids: Optional[List[str]] = None) -> Dict[str, int]:
+        """
+        Get versions for multiple contexts.
+
+        Args:
+            context_ids: Optional subset of contexts; when None, all known contexts will be used.
+
+        Returns:
+            Mapping context_id -> version (0 if unknown).
+        """
+        versions: Dict[str, int] = {}
+        ctxs = context_ids or await self.list_contexts()
+        for c in ctxs:
+            try:
+                versions[c] = await self.get_context_version(c)
+            except Exception:
+                versions[c] = 0
+        return versions
+
+    def _make_generic_pattern(self) -> Any:
+        """
+        Construct a generic 'match-any' pattern for KSI queries.
+
+        Prefer a VariableNode typed to 'Proposition' (matches top-level statements);
+        fall back to 'Entity' when 'Proposition' is unavailable.
+        Falls back to raising if core_kr nodes are unavailable.
+        """
+        try:
+            from godelOS.core_kr.ast.nodes import VariableNode  # type: ignore
+            prop_t = None
+            ent_t = None
+            if self._type_system is not None:
+                try:
+                    prop_t = self._type_system.get_type("Proposition")  # type: ignore[attr-defined]
+                except Exception:
+                    prop_t = None
+                try:
+                    ent_t = self._type_system.get_type("Entity")  # type: ignore[attr-defined]
+                except Exception:
+                    ent_t = None
+            t = prop_t or ent_t
+            if t is None:
+                raise RuntimeError("No suitable type available for generic pattern")
+            # Use ID 1 as conventional variable slot
+            return VariableNode("?x", 1, t)
+        except Exception:
+            # If VariableNode is unavailable, raise to signal enumeration not supported
+            raise RuntimeError("Generic pattern construction unavailable (core_kr AST not present)")
+
+    async def enumerate_statements(self, context_id: str, limit: Optional[int] = None) -> List[Any]:
+        """
+        Enumerate statements in a context (KR-native AST nodes).
+
+        Args:
+            context_id: The context to enumerate.
+            limit: Optional max number of statements.
+
+        Returns:
+            List of AST nodes (best-effort; empty list on failure or when unavailable).
+        """
+        if not self.available():
+            return []
+        try:
+            pattern = self._make_generic_pattern()
+        except Exception:
+            return []
+
+        try:
+            raw = await asyncio.to_thread(
+                self._ksi.query_statements_match_pattern,  # type: ignore[attr-defined]
+                pattern,
+                [context_id],
+                None
+            )
+        except Exception:
+            return []
+
+        # raw is List[Dict[VariableNode, AST_Node]], flatten to list of AST nodes
+        results: List[Any] = []
+        try:
+            for binding in (raw or []):
+                for _, node in (binding or {}).items():
+                    results.append(node)
+                    if limit is not None and len(results) >= limit:
+                        return results
+        except Exception:
+            # If unexpected shape, return empty
+            return []
+
+        return results
+
+    async def enumerate_statements_serialized(self, context_id: str, limit: Optional[int] = None) -> List[str]:
+        """
+        Enumerate statements in a context as serialized strings (safe for transport/logging).
+
+        Args:
+            context_id: The context to enumerate.
+            limit: Optional max number of statements.
+
+        Returns:
+            List of string-serialized statements.
+        """
+        asts = await self.enumerate_statements(context_id, limit=limit)
+        return [self._serialize_ast(a) for a in asts]
+
+    async def snapshot_context(
+        self,
+        context_id: str,
+        *,
+        include_statements: bool = False,
+        limit: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Take a snapshot of a single context, including version and optionally statements.
+
+        Args:
+            context_id: Context to snapshot.
+            include_statements: Include serialized statements if True.
+            limit: Optional max number of statements to include.
+
+        Returns:
+            { context_id, version, statements? }
+        """
+        snap: Dict[str, Any] = {"context_id": context_id, "version": await self.get_context_version(context_id)}
+        if include_statements:
+            snap["statements"] = await self.enumerate_statements_serialized(context_id, limit=limit)
+        return snap
+
+    async def snapshot(
+        self,
+        context_ids: Optional[List[str]] = None,
+        *,
+        include_statements: bool = False,
+        limit: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Take a snapshot across contexts for reconciliation and diffs.
+
+        Args:
+            context_ids: Optional subset; when None, all contexts will be used.
+            include_statements: Include serialized statements per context if True.
+            limit: Optional max number of statements per context.
+
+        Returns:
+            {
+              "contexts": [...],
+              "versions": { ctx: version },
+              "contexts_detail"?: [ { context_id, version, statements? }, ... ]
+            }
+        """
+        ctxs = context_ids or await self.list_contexts()
+        versions = await self.get_context_versions(ctxs)
+        out: Dict[str, Any] = {"contexts": ctxs, "versions": versions}
+
+        if include_statements:
+            details: List[Dict[str, Any]] = []
+            for c in ctxs:
+                details.append(await self.snapshot_context(c, include_statements=True, limit=limit))
+            out["contexts_detail"] = details
+
+        return out
 
 
 # -----------------------------

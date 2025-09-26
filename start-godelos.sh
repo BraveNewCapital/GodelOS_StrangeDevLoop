@@ -30,8 +30,11 @@ FRONTEND_DIR="$SCRIPT_DIR/svelte-frontend"
 LOGS_DIR="$SCRIPT_DIR/logs"
 
 # Auto-detect frontend type
-FRONTEND_DIR=""
 DETECTED_FRONTEND_TYPE=""
+# Ensure FRONTEND_DIR defaults to svelte-frontend if not already set
+if [ -z "$FRONTEND_DIR" ]; then
+    FRONTEND_DIR="$SCRIPT_DIR/svelte-frontend"
+fi
 
 # PID storage
 BACKEND_PID=""
@@ -139,7 +142,7 @@ port_in_use() {
 check_endpoint_health() {
     local url=$1
     local timeout=${2:-5}
-    
+
     if command_exists curl; then
         # Use curl with comprehensive options
         curl -f -s -m "$timeout" --connect-timeout "$timeout" "$url" >/dev/null 2>&1
@@ -176,57 +179,57 @@ setup_directories() {
 # Check system requirements
 check_requirements() {
     log_step "Checking system requirements..."
-    
+
     # Check Python
     if ! command_exists python3; then
         log_error "Python 3 is required but not found"
         log_info "Please install Python 3.8+ and try again"
         exit 1
     fi
-    
+
     python_version=$(python3 --version 2>&1 | awk '{print $2}')
     log_success "Python $python_version found"
-    
+
     # Check required directories
     if [ ! -d "$BACKEND_DIR" ]; then
         log_error "Backend directory not found: $BACKEND_DIR"
         log_info "Please run this script from the GödelOS root directory"
         exit 1
     fi
-    
+
     # if [ ! -f "$BACKEND_DIR/main.py" ]; then
     #     log_error "Backend main.py not found"
     #     exit 1
     # fi
-    
+
     # Detect frontend
     detect_frontend
-    
+
     if [ -z "$FRONTEND_DIR" ] || [ ! -d "$FRONTEND_DIR" ]; then
         log_error "Svelte frontend not found at $FRONTEND_DIR"
         exit 1
     fi
-    
+
     # Validate frontend
     if [ ! -f "$FRONTEND_DIR/package.json" ]; then
         log_error "Svelte frontend package.json not found"
         exit 1
     fi
-    
+
     log_success "All required files found"
     log_success "Frontend type: svelte ($FRONTEND_DIR)"
-    
+
     # Check ports
     if port_in_use $BACKEND_PORT; then
         log_warning "Backend port $BACKEND_PORT is already in use"
         return 1
     fi
-    
+
     if port_in_use $FRONTEND_PORT; then
         log_warning "Frontend port $FRONTEND_PORT is already in use"
         return 1
     fi
-    
+
     log_success "Ports $BACKEND_PORT and $FRONTEND_PORT are available"
     return 0
 }
@@ -234,10 +237,10 @@ check_requirements() {
 # Install dependencies
 install_dependencies() {
     log_step "Installing dependencies..."
-    
+
     # Detect frontend first
     detect_frontend
-    
+
     # Backend dependencies - create/use godelos_venv as mentioned by user
     local venv_path="$SCRIPT_DIR/godelos_venv"
     if [ ! -d "$venv_path" ] && [ -z "$VIRTUAL_ENV" ]; then
@@ -252,7 +255,7 @@ install_dependencies() {
         source "$venv_path/bin/activate"
         log_success "godelos_venv activated"
     fi
-    
+
     # Create backend/venv for backward compatibility if needed
     if [ ! -d "$BACKEND_DIR/venv" ] && [ -z "$VIRTUAL_ENV" ]; then
         log_step "Creating backend Python virtual environment for compatibility..."
@@ -265,10 +268,10 @@ install_dependencies() {
         fi
         log_success "Backend Python virtual environment created"
     fi
-    
+
     # Install Python dependencies - try both locations
     local requirements_installed=false
-    
+
     # Ensure we're using the right virtual environment
     local venv_path="$SCRIPT_DIR/godelos_venv"
     if [ -d "$venv_path" ] && [ -z "$VIRTUAL_ENV" ]; then
@@ -277,7 +280,7 @@ install_dependencies() {
     elif [ -d "$BACKEND_DIR/venv" ] && [ -z "$VIRTUAL_ENV" ]; then
         source "$BACKEND_DIR/venv/bin/activate"
     fi
-    
+
     # Try backend-specific requirements first
     if [ -f "$BACKEND_DIR/requirements.txt" ]; then
         log_step "Installing backend-specific Python dependencies..."
@@ -285,7 +288,7 @@ install_dependencies() {
         requirements_installed=true
         log_success "Backend requirements installed"
     fi
-    
+
     # Then install comprehensive requirements from root
     if [ -f "$SCRIPT_DIR/requirements.txt" ]; then
         log_step "Installing comprehensive Python dependencies..."
@@ -293,31 +296,31 @@ install_dependencies() {
         requirements_installed=true
         log_success "Root requirements installed"
     fi
-    
+
     if [ "$requirements_installed" = false ]; then
         log_warning "No requirements.txt found - installing essential dependencies manually"
         pip install fastapi uvicorn pydantic websockets python-multipart aiofiles python-dotenv
     fi
-    
+
     # Install additional critical dependencies that are commonly missing
     log_step "Installing additional critical dependencies..."
-    
+
     # Fix NumPy compatibility issue for ML libraries - force 1.x version
     log_step "Ensuring NumPy 1.x compatibility for ML libraries..."
     pip install "numpy>=1.24.0,<2.0" --upgrade --force-reinstall --no-cache-dir
-    
+
     # Install/repair scipy specifically with NumPy compatibility (prevent NumPy 2.x)
     log_step "Installing scipy with NumPy 1.x compatibility..."
     pip install scipy "numpy>=1.24.0,<2.0" --upgrade --force-reinstall --no-cache-dir
-    
+
     # Reinstall scikit-learn for NumPy compatibility (prevent NumPy 2.x)
     log_step "Installing scikit-learn with NumPy 1.x compatibility..."
     pip install scikit-learn "numpy>=1.24.0,<2.0" --upgrade --force-reinstall --no-cache-dir
-    
+
     # Install transformers and related dependencies with NumPy constraint
     log_step "Installing transformers ecosystem..."
     pip install transformers sentence-transformers tokenizers "numpy>=1.24.0,<2.0" --upgrade
-    
+
     # Install other critical dependencies
     pip install --upgrade \
         httpx requests beautifulsoup4 lxml \
@@ -325,7 +328,7 @@ install_dependencies() {
         psutil typing-extensions filelock huggingface-hub \
         packaging regex safetensors tqdm click \
         "textract==1.6.4" || true
-    
+
     # Frontend dependencies
     log_step "Installing Svelte frontend dependencies..."
     if ! command_exists npm; then
@@ -340,7 +343,7 @@ install_dependencies() {
         log_success "Svelte dependencies installed"
         cd "$SCRIPT_DIR"
     fi
-    
+
     # Verify critical Python dependencies including ML/NLP components
     log_step "Verifying critical dependencies..."
     python3 -c "
@@ -349,7 +352,7 @@ import importlib.util
 
 required_modules = {
     'fastapi': 'FastAPI web framework',
-    'uvicorn': 'ASGI server', 
+    'uvicorn': 'ASGI server',
     'pydantic': 'Data validation',
     'websockets': 'WebSocket support',
     'aiofiles': 'Async file operations',
@@ -409,10 +412,10 @@ if missing:
     print(f'❌ Missing critical dependencies: {missing}')
     print('🔧 Run with --setup to install missing dependencies')
     sys.exit(1)
-    
+
 if optional_missing:
     print(f'⚠️  Missing optional dependencies: {optional_missing}')
-    
+
 if ml_missing:
     print(f'⚠️  Missing ML/NLP dependencies: {ml_missing}')
     print('🔧 Some ML/NLP features may not work correctly')
@@ -429,30 +432,30 @@ print('🚀 System ready to start')
 # Pre-cache ML models to avoid startup delays
 cache_models() {
     log_step "Checking ML model cache..."
-    
+
     # Ensure we're in the right virtual environment
     local venv_path="$SCRIPT_DIR/godelos_venv"
     if [ -d "$venv_path" ] && [ -z "$VIRTUAL_ENV" ]; then
         log_info "Activating virtual environment..."
         source "$venv_path/bin/activate"
     fi
-    
+
     # Check if cache_models.py script exists
     if [ ! -f "$SCRIPT_DIR/scripts/cache_models.py" ]; then
         log_warning "Model caching script not found - skipping cache check"
         return 0
     fi
-    
+
     # Check if models are already cached
     local cache_dir="$SCRIPT_DIR/data/vector_db/model_cache"
     if [ -d "$cache_dir" ] && [ "$(ls -A "$cache_dir" 2>/dev/null | wc -l)" -gt 2 ]; then
         log_info "ML models already cached - skipping download"
         return 0
     fi
-    
+
     log_info "Caching ML models to improve startup performance..."
     log_info "This may take a few minutes on first run..."
-    
+
     # Run the caching script
     if python3 "$SCRIPT_DIR/scripts/cache_models.py"; then
         log_success "ML models cached successfully"
@@ -465,7 +468,7 @@ cache_models() {
 # Stop existing processes
 stop_processes() {
     log_step "Stopping existing GödelOS processes..."
-    
+
     # Kill by PID files
     if [ -f "$LOGS_DIR/backend.pid" ]; then
         local pid=$(cat "$LOGS_DIR/backend.pid")
@@ -475,7 +478,7 @@ stop_processes() {
         fi
         rm -f "$LOGS_DIR/backend.pid"
     fi
-    
+
     if [ -f "$LOGS_DIR/frontend.pid" ]; then
         local pid=$(cat "$LOGS_DIR/frontend.pid")
         if kill -0 "$pid" 2>/dev/null; then
@@ -484,23 +487,25 @@ stop_processes() {
         fi
         rm -f "$LOGS_DIR/frontend.pid"
     fi
-    
+
     # Kill by process name (fallback)
-    pkill -f "uvicorn.*unified_server:app" 2>/dev/null && log_success "Stopped uvicorn processes"
+    if pkill -f "uvicorn.*backend\.unified_server:app" 2>/dev/null || pkill -f "uvicorn.*unified_server:app" 2>/dev/null; then
+        log_success "Stopped uvicorn processes"
+    fi
     pkill -f "python.*http.server.*$FRONTEND_PORT" 2>/dev/null && log_success "Stopped frontend server"
-    
+
     # Wait a moment for cleanup
     sleep 1
-    
+
     log_success "All existing processes stopped"
 }
 
 # Start backend
 start_backend() {
     log_step "Starting backend server on port $BACKEND_PORT..."
-    
-    cd "$BACKEND_DIR"
-    
+
+        cd "$SCRIPT_DIR"
+
     # Activate virtual environment if it exists (prefer godelos_venv)
     local venv_path="$SCRIPT_DIR/godelos_venv"
     if [ -d "$venv_path" ] && [ -z "$VIRTUAL_ENV" ]; then
@@ -509,14 +514,14 @@ start_backend() {
     elif [ -d "venv" ] && [ -z "$VIRTUAL_ENV" ]; then
         source venv/bin/activate
     fi
-    
+
     # Verify transformers.pipeline works before starting
     if ! python3 -c "from transformers import pipeline; print('✅ transformers.pipeline ready')" 2>/dev/null; then
         log_warning "transformers.pipeline not working - attempting dependency fix..."
         # Quick fix attempt
         pip install "numpy>=1.24.0,<2.0" --force-reinstall --quiet --no-cache-dir || true
         pip install scipy scikit-learn --force-reinstall --quiet --no-cache-dir || true
-        
+
         # Test again
         if ! python3 -c "from transformers import pipeline; print('✅ transformers.pipeline fixed')" 2>/dev/null; then
             log_error "transformers.pipeline still not working - ML features may be limited"
@@ -524,29 +529,29 @@ start_backend() {
             log_success "transformers.pipeline dependency fixed"
         fi
     fi
-    
-    # Prepare startup command - use unified server
-    local cmd="python3 -m uvicorn unified_server:app --host $BACKEND_HOST --port $BACKEND_PORT" 
-    
+
+    # Prepare startup command - use unified server (module path from repo root)
+    local cmd="python3 -m uvicorn backend.unified_server:app --host $BACKEND_HOST --port $BACKEND_PORT"
+
     if [ "$DEBUG_MODE" = "true" ]; then
         cmd="$cmd --reload --log-level debug"
     fi
-    
+
     # Start backend
     $cmd > "$LOGS_DIR/backend.log" 2>&1 &
     BACKEND_PID=$!
-    
+
     echo $BACKEND_PID > "$LOGS_DIR/backend.pid"
-    
+
     cd "$SCRIPT_DIR"
-    
+
     # Wait for backend to start with sophisticated health checking
     log_step "Waiting for backend initialization..."
     local attempts=0
     local max_attempts=150  # Increased for ML model loading (transformers, spacy, etc.)
     local health_checks=0
     local required_health_checks=3  # Require 3 consecutive successful health checks
-    
+
     while [ $attempts -lt $max_attempts ]; do
         # First check if port is open
         if port_in_use $BACKEND_PORT; then
@@ -557,15 +562,15 @@ start_backend() {
                     # Verify core endpoints are responding
                     local endpoints_ready=0
                     local total_endpoints=0
-                    
-                    # Test essential endpoints
-                    for endpoint in "/api/health" "/api/cognitive-state" "/api/knowledge/concepts"; do
+
+                    # Test essential endpoints (align with unified_server)
+                    for endpoint in "/api/health" "/api/capabilities" "/ksi/capabilities"; do
                         total_endpoints=$((total_endpoints + 1))
                         if check_endpoint_health "http://localhost:$BACKEND_PORT$endpoint" 3; then
                             endpoints_ready=$((endpoints_ready + 1))
                         fi
                     done
-                    
+
                     if [ $endpoints_ready -eq $total_endpoints ]; then
                         log_success "Backend server fully initialized (PID: $BACKEND_PID)"
                         log_success "✅ All core endpoints responding"
@@ -587,15 +592,15 @@ start_backend() {
                 echo -ne "${YELLOW}  Starting backend server... ${attempts}s (ML models loading)\r${NC}"
             fi
         fi
-        
+
         sleep 1
         attempts=$((attempts + 1))
     done
-    
+
     echo -ne "\n"  # Clear the progress line
     log_error "Backend failed to start within ${max_attempts} seconds"
     log_info "Check logs: tail -f $LOGS_DIR/backend.log"
-    
+
     # Provide helpful debugging information
     if port_in_use $BACKEND_PORT; then
         log_warning "Port $BACKEND_PORT is open but server not responding to health checks"
@@ -608,7 +613,7 @@ start_backend() {
             tail -5 "$LOGS_DIR/backend.log" | sed 's/^/    /'
         fi
     fi
-    
+
     return 1
 }
 
@@ -616,7 +621,7 @@ start_backend() {
 configure_frontend() {
     if [ "$DETECTED_FRONTEND_TYPE" = "svelte" ]; then
         log_step "Configuring Svelte frontend for backend port $BACKEND_PORT..."
-        
+
         # Create .env file for Vite
         cat > "$FRONTEND_DIR/.env" << EOF
 VITE_BACKEND_PORT=$BACKEND_PORT
@@ -633,7 +638,7 @@ window.GODELOS_BACKEND_HOST = '$BACKEND_HOST';
 window.GODELOS_FRONTEND_PORT = '$FRONTEND_PORT';
 console.log('🔧 GödelOS Config Loaded - Backend: http://' + window.GODELOS_BACKEND_HOST + ':' + window.GODELOS_BACKEND_PORT);
 EOF
-        
+
         log_success "Frontend configured for backend at $BACKEND_HOST:$BACKEND_PORT"
     fi
 }
@@ -642,11 +647,11 @@ EOF
 start_frontend() {
     # Configure frontend for backend connection
     configure_frontend
-    
+
     log_step "Starting svelte frontend server on port $FRONTEND_PORT..."
-    
+
     cd "$FRONTEND_DIR"
-    
+
     # Start Svelte dev server
     if [ "$DEBUG_MODE" = "true" ] || [ "$DEV_MODE" = "true" ]; then
         VITE_BACKEND_PORT=$BACKEND_PORT npm run dev -- --host $FRONTEND_HOST --port $FRONTEND_PORT > "$LOGS_DIR/frontend.log" 2>&1 &
@@ -658,15 +663,15 @@ start_frontend() {
         npm run preview -- --host $FRONTEND_HOST --port $FRONTEND_PORT > "$LOGS_DIR/frontend.log" 2>&1 &
     fi
     FRONTEND_PID=$!
-    
+
     echo $FRONTEND_PID > "$LOGS_DIR/frontend.pid"
-    
+
     cd "$SCRIPT_DIR"
-    
+
     # Wait for frontend to start
     local attempts=0
     local max_attempts=15
-    
+
     while [ $attempts -lt $max_attempts ]; do
         if port_in_use $FRONTEND_PORT; then
             log_success "svelte frontend server started (PID: $FRONTEND_PID)"
@@ -678,7 +683,7 @@ start_frontend() {
             echo -ne "${YELLOW}  Waiting for svelte frontend... ${attempts}/${max_attempts}\r${NC}"
         fi
     done
-    
+
     log_error "svelte frontend failed to start within ${max_attempts} seconds"
     log_info "Check logs: tail -f $LOGS_DIR/frontend.log"
     return 1
@@ -689,7 +694,7 @@ show_status() {
     echo -e "${BLUE}📊 GödelOS System Status${NC}"
     echo -e "${BLUE}========================${NC}"
     echo ""
-    
+
     # Check backend
     if [ -f "$LOGS_DIR/backend.pid" ]; then
         local pid=$(cat "$LOGS_DIR/backend.pid")
@@ -703,7 +708,7 @@ show_status() {
     else
         echo -e "${RED}🔧 Backend:  Stopped${NC}"
     fi
-    
+
     # Check frontend
     if [ -f "$LOGS_DIR/frontend.pid" ]; then
         local pid=$(cat "$LOGS_DIR/frontend.pid")
@@ -718,7 +723,7 @@ show_status() {
     else
         echo -e "${RED}🌐 Frontend: Stopped${NC}"
     fi
-    
+
     echo ""
     echo -e "${BLUE}🔗 Access URLs:${NC}"
     echo -e "   Frontend:  ${CYAN}http://localhost:$FRONTEND_PORT${NC}"
@@ -733,13 +738,13 @@ show_logs() {
     echo -e "${BLUE}📄 Recent Logs${NC}"
     echo -e "${BLUE}==============${NC}"
     echo ""
-    
+
     if [ -f "$LOGS_DIR/backend.log" ]; then
         echo -e "${YELLOW}Backend Logs (last 10 lines):${NC}"
         tail -10 "$LOGS_DIR/backend.log"
         echo ""
     fi
-    
+
     if [ -f "$LOGS_DIR/frontend.log" ]; then
         echo -e "${YELLOW}Frontend Logs (last 10 lines):${NC}"
         tail -10 "$LOGS_DIR/frontend.log"
@@ -751,20 +756,20 @@ show_logs() {
 cleanup() {
     echo ""
     log_step "Shutting down GödelOS system..."
-    
+
     if [ ! -z "$BACKEND_PID" ] && kill -0 "$BACKEND_PID" 2>/dev/null; then
         kill "$BACKEND_PID"
         log_success "Backend server stopped"
     fi
-    
+
     if [ ! -z "$FRONTEND_PID" ] && kill -0 "$FRONTEND_PID" 2>/dev/null; then
         kill "$FRONTEND_PID"
         log_success "Frontend server stopped"
     fi
-    
+
     # Clean up PID files
     rm -f "$LOGS_DIR/backend.pid" "$LOGS_DIR/frontend.pid"
-    
+
     echo -e "${PURPLE}👋 GödelOS system shutdown complete${NC}"
     exit 0
 }
@@ -782,7 +787,7 @@ main() {
     STOP_ONLY=false
     STATUS_ONLY=false
     LOGS_ONLY=false
-    
+
     for arg in "$@"; do
         case $arg in
             --setup|--install)
@@ -834,21 +839,21 @@ main() {
                 ;;
         esac
     done
-    
+
     # Show banner
     show_banner
-    
+
     # Handle special modes
     if [ "$STATUS_ONLY" = "true" ]; then
         show_status
         exit 0
     fi
-    
+
     if [ "$LOGS_ONLY" = "true" ]; then
         show_logs
         exit 0
     fi
-    
+
     if [ "$TEST_ML_ONLY" = "true" ]; then
         log_step "Running ML/NLP dependency tests..."
         # If --setup was also specified, install dependencies first
@@ -856,16 +861,16 @@ main() {
             setup_directories
             install_dependencies
         fi
-        
+
         if [ -f "$SCRIPT_DIR/test_transformers_fix.py" ]; then
             # Ensure we use the right virtual environment for testing
             local venv_path="$SCRIPT_DIR/godelos_venv"
             if [ -d "$venv_path" ]; then
                 source "$venv_path/bin/activate"
             elif [ -d "$BACKEND_DIR/venv" ]; then
-                source "$BACKEND_DIR/venv/bin/activate" 
+                source "$BACKEND_DIR/venv/bin/activate"
             fi
-            
+
             python3 "$SCRIPT_DIR/test_transformers_fix.py"
         else
             log_error "Test script not found: test_transformers_fix.py"
@@ -873,15 +878,15 @@ main() {
         fi
         exit 0
     fi
-    
+
     if [ "$STOP_ONLY" = "true" ]; then
         stop_processes
         exit 0
     fi
-    
+
     # Setup directories
     setup_directories
-    
+
     # Check requirements
     if ! check_requirements; then
         if [ "$CHECK_ONLY" = "true" ]; then
@@ -890,33 +895,33 @@ main() {
         log_info "Some ports are in use. Use --stop to stop existing processes."
         exit 1
     fi
-    
+
     if [ "$CHECK_ONLY" = "true" ]; then
         log_success "All system requirements met"
         exit 0
     fi
-    
+
     # Install dependencies if needed
     if [ "$SETUP_FLAG" = "true" ]; then
         install_dependencies
     fi
-    
+
     # Cache ML models to avoid startup delays
     cache_models
-    
+
     # Stop existing processes
     stop_processes
-    
+
     # Set up signal handlers
     trap cleanup SIGINT SIGTERM
-    
+
     # Start services
     if [ "$FRONTEND_ONLY" != "true" ]; then
         if ! start_backend; then
             exit 1
         fi
     fi
-    
+
     if [ "$BACKEND_ONLY" != "true" ]; then
         if ! start_frontend; then
             # If backend was started, clean it up
@@ -926,33 +931,33 @@ main() {
             exit 1
         fi
     fi
-    
+
     # Show success message
     echo ""
     echo -e "${GREEN}🎉 GödelOS v0.2 Beta is now running!${NC}"
     echo -e "${GREEN}====================================${NC}"
     show_status
-    
+
     if [ "$DEV_MODE" = "true" ]; then
         log_info "Development mode: Backend will auto-reload on changes"
     fi
-    
+
     echo -e "${YELLOW}💡 Tip: Open http://localhost:$FRONTEND_PORT in your browser${NC}"
     echo -e "${YELLOW}🛑 Press Ctrl+C to stop the system${NC}"
     echo ""
-    
+
     # Monitor system
     log_info "System monitoring active..."
     while true; do
         sleep 5
-        
+
         # Check if processes are still running
         if [ "$FRONTEND_ONLY" != "true" ] && ! kill -0 "$BACKEND_PID" 2>/dev/null; then
             log_error "Backend server stopped unexpectedly"
             log_info "Check logs: tail -f $LOGS_DIR/backend.log"
             cleanup
         fi
-        
+
         if [ "$BACKEND_ONLY" != "true" ] && ! kill -0 "$FRONTEND_PID" 2>/dev/null; then
             log_error "Frontend server stopped unexpectedly"
             log_info "Check logs: tail -f $LOGS_DIR/frontend.log"

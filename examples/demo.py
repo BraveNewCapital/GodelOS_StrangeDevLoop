@@ -1,8 +1,20 @@
 # demo.py
 # This file provides a structured and practical demonstration of key GödelOS components.
+#
+# Recommendation (Standardized):
+# In backend contexts, prefer the public KR endpoints or KSIAdapter:
+#   - HTTP endpoints: /kr/assert, /kr/retract, /kr/query
+#   - Programmatic adapter: backend.core.ksi_adapter.KSIAdapter
+# This ensures normalized provenance/confidence metadata, per‑context versioning for deterministic cache
+# invalidation, and unified WebSocket transparency via knowledge_update events.
+# Demo scripts may still use direct KnowledgeStoreInterface for pedagogy; adapt to the above patterns for
+# production/backend integration.
+
 
 import sys
 import os
+
+from godel_os_example import GodelOSSystem
 
 # Add the parent directory to the sys.path to allow importing modules from godelOS
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -166,7 +178,7 @@ print("the processing of natural language queries, symbol grounding results, com
 print("metacognitive analysis, and the final natural language responses.")
 print("-" * 60)
 try:
-    from examples import godel_os_example
+    import godel_os_example
     print("Executing godel_os_example.py...")
     godel_os_example.main()
 except ImportError:

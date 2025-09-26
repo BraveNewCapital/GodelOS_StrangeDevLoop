@@ -238,7 +238,7 @@ class NLSemanticParser:
         # Fallback: wrap NL utterance as a canonical proposition
         if CORE_KR_AST_AVAILABLE and self._prop_type and ConstantNode:
             try:
-                ast = ConstantNode("utterance", self._prop_type, value=text, metadata={"source": "nlu/fallback"})
+                ast = ConstantNode(f"utterance::{text}", self._prop_type, value=text, metadata={"source": "nlu/fallback"})
                 return FormalizeResult(success=True, ast=ast, errors=[], confidence=0.5, notes="Fallback wrapper proposition")
             except Exception as e:
                 logger.error(f"Failed to construct wrapper AST: {e}")
@@ -319,6 +319,19 @@ class InferenceEngine:
         ctxs = context_ids or ["TRUTHS"]
         steps: List[ProofStep] = []
         goal_ser = _serialize_ast(goal_ast)
+        # Capture context versions at inference time for tagging
+        context_versions: Dict[str, int] = {}
+        try:
+            if self._ksi and self._ksi.available():
+                for c in ctxs:
+                    try:
+                        v = await self._ksi.get_context_version(c)
+                    except Exception:
+                        v = 0
+                    context_versions[c] = v
+        except Exception:
+            # Best-effort only
+            context_versions = {}
 
         # Broadcast start
         await _broadcast_proof_trace(self._ws, {
@@ -344,9 +357,10 @@ class InferenceEngine:
                 "context_ids": ctxs,
                 "success": False,
                 "proof": {"steps": [asdict(s) for s in steps], "duration_sec": duration},
+                "context_versions": context_versions,
                 "source": "godelos_system",
             })
-            return ProofResult(False, goal_ser, ctxs, steps, duration, {"reason": "ksi_unavailable"})
+            return ProofResult(False, goal_ser, ctxs, steps, duration, {"reason": "ksi_unavailable", "context_versions": context_versions})
 
         # Step 1: Direct existence check
         try:
@@ -392,6 +406,7 @@ class InferenceEngine:
                 "duration_sec": duration,
                 "witness_bindings": binding_used
             },
+            "context_versions": context_versions,
             "source": "godelos_system",
         })
 
@@ -400,7 +415,8 @@ class InferenceEngine:
             "success": success,
             "steps": [asdict(s) for s in steps],
             "duration_sec": duration,
-            "witness_bindings": binding_used
+            "witness_bindings": binding_used,
+            "context_versions": context_versions
         }
         return ProofResult(success, goal_ser, ctxs, steps, duration, proof_obj)
 

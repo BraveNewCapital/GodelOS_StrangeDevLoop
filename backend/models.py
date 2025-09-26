@@ -36,6 +36,8 @@ class ReasoningStep(BaseModel):
 
 class QueryResponse(BaseModel):
     """Response model for natural language queries."""
+    model_config = {"protected_namespaces": ()}
+    
     response: str = Field(..., description="Natural language response to the query")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Overall confidence in the response")
     reasoning_steps: List[ReasoningStep] = Field(default_factory=list, description="Step-by-step reasoning process")

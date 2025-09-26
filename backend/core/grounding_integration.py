@@ -143,17 +143,15 @@ class GroundingContextManager:
             # Ensure grounding contexts exist
             for context_id, config in GROUNDING_CONTEXTS.items():
                 try:
-                    await self.ksi_adapter.ensure_context_exists(
-                        context_id=context_id,
-                        metadata={
-                            "description": config["description"],
-                            "schema_version": config["schema"],
-                            "retention_policy": config["retention_policy"],
-                            "created_by": "GroundingContextManager",
-                            "purpose": "P3_W3.1_grounding_integration"
-                        }
+                    success = await self.ksi_adapter.ensure_context(
+                        context_id, 
+                        context_type="grounding"
                     )
-                    logger.info(f"Grounding context '{context_id}' initialized")
+                    if success:
+                        logger.info(f"Grounding context '{context_id}' initialized")
+                    else:
+                        logger.error(f"Failed to ensure grounding context '{context_id}'")
+                        return False
                 except Exception as e:
                     logger.error(f"Error initializing context '{context_id}': {e}")
                     return False

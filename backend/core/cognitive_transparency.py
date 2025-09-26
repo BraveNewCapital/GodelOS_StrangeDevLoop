@@ -363,6 +363,100 @@ class CognitiveTransparencyEngine:
         for websocket in disconnected_clients:
             await self.disconnect_client(websocket)
 
+    # =====================================================================
+    # PARALLEL INFERENCE TRANSPARENCY METHODS
+    # =====================================================================
+
+    async def log_parallel_inference_submission(self, 
+                                              task_id: str,
+                                              query: str,
+                                              context_ids: List[str],
+                                              priority: str,
+                                              reasoning: str) -> None:
+        """Log parallel inference task submission for transparency."""
+        try:
+            event = CognitiveEvent(
+                timestamp=datetime.now().isoformat(),
+                event_type="parallel_inference_submission",
+                component="parallel_inference_manager",
+                details={
+                    "task_id": task_id,
+                    "query_preview": query,
+                    "context_ids": context_ids,
+                    "priority": priority,
+                    "action": "task_submitted"
+                },
+                llm_reasoning=reasoning,
+                priority=3
+            )
+            
+            await self.stream_cognitive_event(event)
+            logger.info(f"📊 TRANSPARENCY: Logged parallel inference submission - {task_id}")
+            
+        except Exception as e:
+            logger.error(f"Error logging parallel inference submission: {e}")
+
+    async def log_batch_inference_completion(self,
+                                           batch_size: int,
+                                           context_ids: List[str],
+                                           processing_time: float,
+                                           success_count: int,
+                                           reasoning: str) -> None:
+        """Log batch inference completion for transparency."""
+        try:
+            success_rate = success_count / batch_size if batch_size > 0 else 0.0
+            
+            event = CognitiveEvent(
+                timestamp=datetime.now().isoformat(),
+                event_type="batch_inference_completion",
+                component="parallel_inference_manager",
+                details={
+                    "batch_size": batch_size,
+                    "context_ids": context_ids,
+                    "processing_time_seconds": processing_time,
+                    "success_count": success_count,
+                    "success_rate": success_rate,
+                    "queries_per_second": batch_size / processing_time if processing_time > 0 else 0.0,
+                    "action": "batch_completed"
+                },
+                llm_reasoning=reasoning,
+                priority=2
+            )
+            
+            await self.stream_cognitive_event(event)
+            logger.info(f"📊 TRANSPARENCY: Logged batch inference completion - {batch_size} queries, {success_count} successful")
+            
+        except Exception as e:
+            logger.error(f"Error logging batch inference completion: {e}")
+
+    async def log_parallel_inference_performance(self,
+                                               statistics: Dict[str, Any],
+                                               reasoning: str) -> None:
+        """Log parallel inference performance statistics for transparency."""
+        try:
+            event = CognitiveEvent(
+                timestamp=datetime.now().isoformat(),
+                event_type="parallel_inference_metrics",
+                component="parallel_inference_manager",
+                details={
+                    "performance_stats": statistics,
+                    "total_tasks_submitted": statistics.get("total_tasks_submitted", 0),
+                    "total_tasks_completed": statistics.get("total_tasks_completed", 0),
+                    "total_tasks_failed": statistics.get("total_tasks_failed", 0),
+                    "active_tasks": statistics.get("active_tasks", 0),
+                    "average_task_duration": statistics.get("average_task_duration", 0.0),
+                    "action": "performance_update"
+                },
+                llm_reasoning=reasoning,
+                priority=4
+            )
+            
+            await self.stream_cognitive_event(event)
+            logger.info(f"📊 TRANSPARENCY: Logged parallel inference performance metrics")
+            
+        except Exception as e:
+            logger.error(f"Error logging parallel inference performance: {e}")
+
 # Global transparency engine instance - will be initialized with websocket_manager later
 transparency_engine = None
 

@@ -3428,7 +3428,7 @@ async def get_grounding_contexts_status():
     """Get status of grounding contexts and integration."""
     try:
         # Initialize if needed
-        await initialize_ksi_adapter_and_inference_engine()
+        await _ensure_ksi_and_inference()
         
         if not grounding_context_manager:
             return JSONResponse(content={
@@ -3455,7 +3455,7 @@ async def assert_percept(payload: Dict[str, Any]):
     """Assert a perceptual predicate to the PERCEPTS context with proper schema and timestamp."""
     try:
         # Initialize if needed
-        await initialize_ksi_adapter_and_inference_engine()
+        await _ensure_ksi_and_inference()
         
         if not grounding_context_manager:
             raise HTTPException(status_code=503, detail="GroundingContextManager not available")
@@ -3517,7 +3517,7 @@ async def assert_action_effect(payload: Dict[str, Any]):
     """Assert an action effect predicate to the ACTION_EFFECTS context with proper schema."""
     try:
         # Initialize if needed
-        await initialize_ksi_adapter_and_inference_engine()
+        await _ensure_ksi_and_inference()
         
         if not grounding_context_manager:
             raise HTTPException(status_code=503, detail="GroundingContextManager not available")
@@ -3582,7 +3582,7 @@ async def get_recent_percepts(modality: Optional[str] = None, time_window: float
     """Query recent percepts from the PERCEPTS context."""
     try:
         # Initialize if needed
-        await initialize_ksi_adapter_and_inference_engine()
+        await _ensure_ksi_and_inference()
         
         if not grounding_context_manager:
             raise HTTPException(status_code=503, detail="GroundingContextManager not available")
@@ -3612,7 +3612,7 @@ async def get_grounding_statistics():
     """Get comprehensive statistics for grounding context usage."""
     try:
         # Initialize if needed  
-        await initialize_ksi_adapter_and_inference_engine()
+        await _ensure_ksi_and_inference()
         
         if not grounding_context_manager:
             return JSONResponse(content={

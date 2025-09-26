@@ -148,6 +148,80 @@ class CognitiveManager:
         phenomenal_experience_generator.llm_driver = llm_driver
         logger.info("Phenomenal experience generator initialized with LLM driver")
         
+        # Initialize MetaControlRLModule (MCRL) if available
+        self.mcrl_module = None
+        try:
+            from godelOS.learning_system.meta_control_rl_module import MetaControlRLModule, RLConfig
+            mcrl_config = RLConfig()  # Use default config
+            self.mcrl_module = MetaControlRLModule(mcrl_config)
+            logger.info("✅ MetaControlRLModule (MCRL) initialized with default config")
+        except ImportError as e:
+            logger.warning(f"MetaControlRLModule not available: {e}")
+        except Exception as e:
+            logger.error(f"Failed to initialize MetaControlRLModule: {e}")
+        
+        # Initialize MetaKnowledgeBase (MKB) if available
+        self.meta_knowledge_base = None
+        try:
+            from godelOS.metacognition.meta_knowledge import MetaKnowledgeBase
+            # We need a KR system interface and type system - use godelos_integration if available
+            if godelos_integration and hasattr(godelos_integration, 'kr_system') and hasattr(godelos_integration, 'type_system'):
+                self.meta_knowledge_base = MetaKnowledgeBase(
+                    kr_system_interface=godelos_integration.kr_system,
+                    type_system=godelos_integration.type_system,
+                    persistence_directory="meta_knowledge_store"  # Store in project directory
+                )
+                logger.info("✅ MetaKnowledgeBase (MKB) initialized with GödelOS integration")
+            else:
+                logger.warning("MetaKnowledgeBase initialization skipped - GödelOS KR system not available")
+        except ImportError as e:
+            logger.warning(f"MetaKnowledgeBase not available: {e}")
+        except Exception as e:
+            logger.error(f"Failed to initialize MetaKnowledgeBase: {e}")
+        
+        # Initialize ParallelInferenceManager if available
+        self.parallel_inference_manager = None
+        try:
+            from godelOS.scalability.parallel_inference import ParallelInferenceManager, WorkDistributionStrategy
+            
+            # Initialize with godelos_integration if available for proving
+            if godelos_integration and hasattr(godelos_integration, 'prover'):
+                proving_function = godelos_integration.prover.prove_batch
+                logger.info("Using GödelOS prover for parallel inference")
+            else:
+                # Fallback to a dummy proving function for testing
+                def dummy_prove_batch(queries, context_ids):
+                    """Dummy prove function for testing when GödelOS prover not available."""
+                    from godelOS.inference_engine.proof_object import ProofObject
+                    results = []
+                    for query in queries:
+                        # Create a dummy proof object with the expected structure
+                        proof = ProofObject(
+                            goal_achieved=False,  # Use the correct field name
+                            conclusion_ast=query,
+                            status_message=f"Dummy proof attempt for query: {str(query)[:50]}",
+                            proof_steps=[],
+                            inference_engine_used="dummy_prover",
+                            time_taken_ms=1.0
+                        )
+                        results.append(proof)
+                    return results
+                proving_function = dummy_prove_batch
+                logger.warning("Using dummy proving function - GödelOS prover not available")
+            
+            # Create ParallelInferenceManager with optimal settings
+            self.parallel_inference_manager = ParallelInferenceManager(
+                max_workers=4,  # Good default for most systems
+                proving_function=proving_function,
+                strategy=WorkDistributionStrategy.DYNAMIC  # Use dynamic load balancing
+            )
+            
+            logger.info("✅ ParallelInferenceManager initialized with dynamic load balancing")
+        except ImportError as e:
+            logger.warning(f"ParallelInferenceManager not available: {e}")
+        except Exception as e:
+            logger.error(f"Failed to initialize ParallelInferenceManager: {e}")
+        
         # Cognitive state management
         self.active_sessions: Dict[str, Dict[str, Any]] = {}
         self.reasoning_traces: Dict[str, List[Dict[str, Any]]] = {}
@@ -210,6 +284,14 @@ class CognitiveManager:
                 ComponentType.PHENOMENAL_EXPERIENCE, "phenomenal_experience",
                 phenomenal_experience_generator, ["experience_generation", "qualia_modeling"]
             )
+            
+            # Register MetaControlRLModule if available
+            if self.mcrl_module:
+                self.enhanced_coordinator.register_component(
+                    ComponentType.AUTONOMOUS_LEARNING, "meta_control_rl",
+                    self.mcrl_module, ["meta_control", "reinforcement_learning", "policy_optimization"]
+                )
+                logger.info("✅ MetaControlRLModule registered with enhanced coordinator")
             
             logger.info("🔗 Successfully registered all cognitive components")
             
@@ -2197,6 +2279,316 @@ class CognitiveManager:
         except Exception as e:
             logger.error(f"❌ Error finding similar sessions: {e}")
             return []
+    
+    # =====================================================================
+    # PARALLEL INFERENCE METHODS
+    # =====================================================================
+    
+    async def submit_parallel_inference_task(self, 
+                                           query_ast: Any,
+                                           context_ids: List[str] = None,
+                                           priority: str = "medium",
+                                           timeout: float = None) -> str:
+        """Submit a task for parallel inference processing."""
+        try:
+            if not self.parallel_inference_manager:
+                raise CognitiveError("ParallelInferenceManager not available")
+            
+            # Import TaskPriority
+            from godelOS.scalability.parallel_inference import TaskPriority
+            
+            priority_map = {
+                "low": TaskPriority.LOW,
+                "medium": TaskPriority.MEDIUM,
+                "high": TaskPriority.HIGH,
+                "critical": TaskPriority.CRITICAL
+            }
+            
+            task_priority = priority_map.get(priority.lower(), TaskPriority.MEDIUM)
+            context_ids = context_ids or ["TRUTHS"]
+            
+            # Submit task
+            task_id = self.parallel_inference_manager.submit_task(
+                query=query_ast,
+                context_ids=context_ids,
+                priority=task_priority,
+                timeout=timeout
+            )
+            
+            # Log transparency event
+            await transparency_engine.log_parallel_inference_submission(
+                task_id=task_id,
+                query=str(query_ast)[:100] + "..." if len(str(query_ast)) > 100 else str(query_ast),
+                context_ids=context_ids,
+                priority=priority,
+                reasoning="Submitted parallel inference task for distributed processing"
+            )
+            
+            # Broadcast WebSocket event if available
+            if self.websocket_manager:
+                try:
+                    parallel_event = {
+                        "component": "parallel_inference",
+                        "details": {
+                            "task_submitted": task_id,
+                            "priority": priority,
+                            "context_ids": context_ids,
+                            "timestamp": time.time()
+                        },
+                        "timestamp": time.time(),
+                        "priority": 3
+                    }
+                    await self.websocket_manager.broadcast_cognitive_update(parallel_event)
+                except Exception as e:
+                    logger.warning(f"Could not broadcast parallel inference event: {e}")
+            
+            return task_id
+            
+        except Exception as e:
+            logger.error(f"Error submitting parallel inference task: {e}")
+            raise CognitiveError(f"Parallel inference submission failed: {e}")
+    
+    def get_parallel_inference_task_status(self, task_id: str) -> Optional[str]:
+        """Get the status of a parallel inference task."""
+        try:
+            if not self.parallel_inference_manager:
+                return None
+                
+            return self.parallel_inference_manager.get_task_status(task_id)
+            
+        except Exception as e:
+            logger.error(f"Error getting parallel inference task status: {e}")
+            return None
+    
+    def get_parallel_inference_task_result(self, task_id: str, wait: bool = False):
+        """Get the result of a parallel inference task."""
+        try:
+            if not self.parallel_inference_manager:
+                return None
+                
+            return self.parallel_inference_manager.get_task_result(task_id, wait=wait)
+            
+        except Exception as e:
+            logger.error(f"Error getting parallel inference task result: {e}")
+            return None
+    
+    async def batch_parallel_inference(self, 
+                                     query_asts: List[Any],
+                                     context_ids: List[str] = None) -> List[Any]:
+        """Process multiple queries using parallel batch inference."""
+        try:
+            if not self.parallel_inference_manager:
+                raise CognitiveError("ParallelInferenceManager not available")
+            
+            context_ids = context_ids or ["TRUTHS"]
+            start_time = time.time()
+            
+            # Execute batch processing
+            results = self.parallel_inference_manager.batch_prove(query_asts, context_ids)
+            
+            end_time = time.time()
+            processing_time = end_time - start_time
+            
+            # Log transparency event
+            await transparency_engine.log_batch_inference_completion(
+                batch_size=len(query_asts),
+                context_ids=context_ids,
+                processing_time=processing_time,
+                success_count=sum(1 for result in results if result.goal_achieved),
+                reasoning="Completed parallel batch inference processing"
+            )
+            
+            # Broadcast WebSocket event if available
+            if self.websocket_manager:
+                try:
+                    batch_event = {
+                        "component": "parallel_inference",
+                        "details": {
+                            "batch_completed": len(query_asts),
+                            "duration_seconds": processing_time,
+                            "success_count": sum(1 for result in results if result.goal_achieved),
+                            "context_ids": context_ids,
+                            "timestamp": end_time
+                        },
+                        "timestamp": end_time,
+                        "priority": 2
+                    }
+                    await self.websocket_manager.broadcast_cognitive_update(batch_event)
+                except Exception as e:
+                    logger.warning(f"Could not broadcast batch inference event: {e}")
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error in batch parallel inference: {e}")
+            raise CognitiveError(f"Batch parallel inference failed: {e}")
+    
+    def get_parallel_inference_statistics(self) -> Dict[str, Any]:
+        """Get comprehensive parallel inference performance statistics."""
+        try:
+            if not self.parallel_inference_manager:
+                return {"available": False, "error": "ParallelInferenceManager not available"}
+            
+            stats = self.parallel_inference_manager.get_statistics()
+            
+            # Add additional context
+            extended_stats = {
+                "available": True,
+                "initialized": True,
+                "timestamp": time.time(),
+                "max_workers": self.parallel_inference_manager.max_workers,
+                "current_strategy": self.parallel_inference_manager.strategy.__class__.__name__,
+                "statistics": stats
+            }
+            
+            # Add queue information if available
+            try:
+                extended_stats["queue_size"] = self.parallel_inference_manager.task_queue.qsize()
+                extended_stats["queue_empty"] = self.parallel_inference_manager.task_queue.empty()
+            except Exception:
+                pass
+            
+            return extended_stats
+            
+        except Exception as e:
+            logger.error(f"Error getting parallel inference statistics: {e}")
+            return {"available": False, "error": str(e)}
+
+    async def process_parallel_batch(self, queries: List[str], context: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+        """Process a batch of queries using parallel inference with full cognitive processing."""
+        try:
+            if not self.parallel_inference_manager:
+                logger.warning("ParallelInferenceManager not available, falling back to sequential processing")
+                # Fallback to sequential processing
+                results = []
+                for i, query in enumerate(queries):
+                    try:
+                        result = await self.process_query(query, context or {})
+                        results.append({
+                            "query_id": i,
+                            "query": query,
+                            "result": result,
+                            "status": "completed",
+                            "processing_time": getattr(result, 'processing_time', 0.0)
+                        })
+                    except Exception as e:
+                        results.append({
+                            "query_id": i,
+                            "query": query,
+                            "error": str(e),
+                            "status": "error",
+                            "processing_time": 0.0
+                        })
+                return results
+
+            # Use parallel inference manager for batch processing
+            batch_results = []
+            
+            # Submit all queries as parallel tasks
+            task_submissions = []
+            for i, query in enumerate(queries):
+                try:
+                    task_context = {
+                        **(context or {}),
+                        "batch_id": str(uuid.uuid4()),
+                        "query_index": i,
+                        "total_queries": len(queries),
+                        "benchmark": context.get("benchmark", False) if context else False
+                    }
+                    
+                    # Submit task to parallel inference manager
+                    task_id = self.parallel_inference_manager.submit_task(
+                        query_text=query,
+                        context_id=f"batch_query_{i}",
+                        task_metadata=task_context
+                    )
+                    
+                    task_submissions.append({
+                        "task_id": task_id,
+                        "query_id": i,
+                        "query": query,
+                        "submitted_at": time.time()
+                    })
+                    
+                except Exception as e:
+                    logger.error(f"Error submitting batch query {i}: {e}")
+                    batch_results.append({
+                        "query_id": i,
+                        "query": query,
+                        "error": f"Submission failed: {str(e)}",
+                        "status": "submission_error",
+                        "processing_time": 0.0
+                    })
+
+            # Collect results from all submitted tasks
+            for submission in task_submissions:
+                try:
+                    # Wait for task completion with timeout
+                    result = self.parallel_inference_manager.get_task_result(
+                        submission["task_id"], 
+                        wait=True
+                    )
+                    
+                    processing_time = time.time() - submission["submitted_at"]
+                    
+                    # Format the result
+                    if result and not getattr(result, 'error', None):
+                        batch_results.append({
+                            "query_id": submission["query_id"],
+                            "query": submission["query"],
+                            "result": {
+                                "response": getattr(result, 'result', str(result)),
+                                "confidence": getattr(result, 'confidence', 0.8),
+                                "metadata": getattr(result, 'metadata', {})
+                            },
+                            "status": "completed",
+                            "processing_time": processing_time,
+                            "task_id": submission["task_id"]
+                        })
+                    else:
+                        batch_results.append({
+                            "query_id": submission["query_id"],
+                            "query": submission["query"],
+                            "error": str(getattr(result, 'error', 'Unknown error')),
+                            "status": "processing_error",
+                            "processing_time": processing_time,
+                            "task_id": submission["task_id"]
+                        })
+                        
+                except Exception as e:
+                    logger.error(f"Error retrieving result for task {submission['task_id']}: {e}")
+                    batch_results.append({
+                        "query_id": submission["query_id"],
+                        "query": submission["query"],
+                        "error": f"Result retrieval failed: {str(e)}",
+                        "status": "retrieval_error",
+                        "processing_time": time.time() - submission["submitted_at"],
+                        "task_id": submission["task_id"]
+                    })
+
+            # Sort results by query_id to maintain order
+            batch_results.sort(key=lambda x: x["query_id"])
+            
+            # Log batch processing summary
+            successful_count = len([r for r in batch_results if r["status"] == "completed"])
+            total_processing_time = sum(r["processing_time"] for r in batch_results)
+            avg_processing_time = total_processing_time / len(batch_results) if batch_results else 0.0
+            
+            logger.info(f"Batch processing completed: {successful_count}/{len(queries)} successful, "
+                       f"avg time: {avg_processing_time:.2f}s")
+            
+            return batch_results
+            
+        except Exception as e:
+            logger.error(f"Error in parallel batch processing: {e}")
+            # Return error results for all queries
+            return [{
+                "query_id": i,
+                "query": query,
+                "error": f"Batch processing error: {str(e)}",
+                "status": "batch_error",
+                "processing_time": 0.0
+            } for i, query in enumerate(queries)]
 
 
 # Global instance
