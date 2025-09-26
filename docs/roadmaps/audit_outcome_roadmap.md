@@ -186,12 +186,12 @@ W4.1 Proof Trace and KR Visualization - **COMPLETE**
 - Acceptance
   - ✅ Usable dashboards showing live proofs and knowledge evolution in sync with the unified event schema.
 
-W4.2 Developer Documentation and ADRs
+W4.2 Developer Documentation and ADRs - **COMPLETE**
 - Tasks
-  - Document KSI Adapter contract, event schema, cache policy, persistent routing, capability detection, and endpoint usage.
-  - Add ADRs for key decisions (persistence enabled/disabled; parallelization patterns).
+  - ✅ Document KSI Adapter contract, event schema, cache policy, persistent routing, capability detection, and endpoint usage.
+  - ✅ Add ADRs for key decisions (persistence enabled/disabled; parallelization patterns).
 - Acceptance
-  - Developers can onboard and extend the system without ambiguity; audits can trace decisions.
+  - ✅ Developers can onboard and extend the system without ambiguity; audits can trace decisions.
 
 ---
 
@@ -625,3 +625,63 @@ Notes:
   - statement_version_mismatch: statements changed without a corresponding context version bump
   - version_changed_no_statement_diff: version bumped but statements unchanged
 - System degrades gracefully when enumeration is unavailable (falls back to versions-only checks).
+
+---
+
+## PHASE 5: CORE ARCHITECTURE IMPLEMENTATION
+
+**Status**: 🚀 **READY TO BEGIN**  
+**Reference**: `docs/roadmaps/P5_CORE_ARCHITECTURE_ROADMAP.md`  
+**Priority**: Foundational - implements core GödelOS v21 architecture specification
+
+### Overview
+Phase 5 implements the foundational Knowledge Representation and Inference Engine components as specified in the comprehensive GödelOS v21 technical architecture (`docs/architecture/GodelOS_Spec.md`). This phase establishes the formal logical foundation that will support all higher-level cognitive capabilities.
+
+### Implementation Strategy
+Following the architecture specification's guidance for "Iterative Implementation & Prototyping", starting with core KR and Inference systems, then gradually adding other modules in subsequent phases.
+
+### P5 Milestone Progression
+
+**P5 W1: Knowledge Representation Foundation** - [ ] PENDING
+- Formal Logic Parser for HOL AST parsing
+- Enhanced AST representation with full type support  
+- TypeSystemManager for type checking/inference
+- UnificationEngine for logical unification
+- Integration testing and documentation
+
+**P5 W2: Knowledge Store Interface Enhancement** - [ ] PENDING  
+- Enhanced KSI adapter matching architecture specification
+- Persistent knowledge base backend implementation
+- Query optimization system with cost-based optimization
+- Caching and memoization layer
+- Performance testing and migration documentation
+
+**P5 W3: Inference Engine Core** - [ ] PENDING
+- InferenceCoordinator with strategy selection
+- ResolutionProver for first-order logic theorem proving
+- ProofObject system with detailed derivation traces
+- Basic modal reasoning support for consciousness integration
+- Comprehensive inference engine integration
+
+**P5 W4: Integration & System Validation** - [ ] PENDING
+- Integration with existing cognitive architecture
+- Performance optimization and parallel processing
+- Comprehensive end-to-end testing suite
+- System validation and benchmarking
+- Complete documentation and P6 transition planning
+
+### Success Criteria
+- [ ] Complete HOL AST parsing and type checking system operational
+- [ ] Functional first-order logic theorem proving with proof objects
+- [ ] Enhanced KSI with backend routing and query optimization
+- [ ] Full integration with existing cognitive transparency system
+- [ ] Performance equivalent or superior to current implementation
+- [ ] >95% test coverage with comprehensive integration testing
+
+### Post-P5 Planning
+Upon successful P5 completion, continuation phases are planned:
+- **P6**: Learning & Adaptation Systems (ILP, EBL, Template Evolution)
+- **P7**: Natural Language & Symbol Grounding (Enhanced NLU/NLG, SimEnv)
+- **P8**: Advanced Reasoning & Creativity (Analogical reasoning, Metacognition)
+
+🎯 **P5 represents the critical foundation for achieving the full GödelOS v21 vision outlined in the architecture specification.**
