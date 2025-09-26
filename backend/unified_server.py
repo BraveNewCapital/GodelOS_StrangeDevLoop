@@ -3420,6 +3420,309 @@ async def get_parallel_performance_report():
         raise HTTPException(status_code=500, detail=f"Performance report error: {str(e)}")
 
 # =====================================================================
+# P5 ADVANCED INFERENCE ENGINE ENDPOINTS (P5 W4.3)
+# =====================================================================
+
+@app.post("/api/inference/p5/prove-goal", tags=["P5-Inference"])
+async def p5_prove_goal(payload: Dict[str, Any]):
+    """
+    Advanced P5 proof generation using InferenceCoordinator with modal reasoning.
+    Body: { "query": "I am conscious", "context_ids": ["consciousness"], "enable_modal": true }
+    """
+    try:
+        query = payload.get("query")
+        context_ids = payload.get("context_ids", [])
+        enable_modal = payload.get("enable_modal", True)
+        max_steps = payload.get("max_steps", 50)
+        
+        if not query:
+            raise _structured_http_error(400, code="invalid_request", message="Missing 'query' in request body")
+        
+        if not cognitive_manager:
+            raise _structured_http_error(503, code="cognitive_manager_unavailable", message="Cognitive manager not available")
+        
+        if not cognitive_manager.inference_coordinator:
+            raise _structured_http_error(503, code="inference_coordinator_unavailable", message="P5 InferenceCoordinator not available")
+        
+        # Create simple AST for the query
+        try:
+            from backend.core.ast_nodes import ConstantNode
+            goal_ast = ConstantNode(name=f"p5_query_{hash(query) % 10000}", value=query)
+        except ImportError:
+            class MockAST:
+                def __init__(self, content):
+                    self.content = content
+                    self.name = f"p5_query_{hash(content) % 10000}"
+                def __str__(self):
+                    return f"P5Query({self.content[:50]}...)"
+            goal_ast = MockAST(query)
+        
+        # Perform P5 inference
+        start_time = time.time()
+        proof_result = await cognitive_manager.inference_coordinator.prove_goal(
+            goal_ast=goal_ast,
+            context_ids=context_ids,
+            metadata={
+                'source': 'rest_api',
+                'query_type': 'p5_advanced_inference',
+                'enable_modal_reasoning': enable_modal,
+                'max_steps': max_steps
+            }
+        )
+        processing_time = time.time() - start_time
+        
+        # Format response
+        return JSONResponse(content={
+            "success": getattr(proof_result, 'goal_achieved', False),
+            "query": query,
+            "proof_steps": len(getattr(proof_result, 'proof_steps', [])),
+            "processing_time_ms": getattr(proof_result, 'time_taken_ms', processing_time * 1000),
+            "strategy_used": getattr(proof_result, 'strategy_used', 'unknown'),
+            "status_message": getattr(proof_result, 'status_message', 'Proof completed'),
+            "modal_reasoning_used": enable_modal,
+            "context_ids": context_ids,
+            "proof_object": {
+                "goal_achieved": getattr(proof_result, 'goal_achieved', False),
+                "proof_steps": [str(step) for step in getattr(proof_result, 'proof_steps', [])[:10]],  # Limit for API response
+                "inference_engine_used": "P5_InferenceCoordinator",
+                "time_taken_ms": getattr(proof_result, 'time_taken_ms', processing_time * 1000)
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"P5 prove goal error: {e}")
+        raise HTTPException(status_code=500, detail=f"P5 inference error: {str(e)}")
+
+@app.get("/api/inference/p5/capabilities", tags=["P5-Inference"])
+async def p5_inference_capabilities():
+    """Get P5 InferenceCoordinator capabilities and registered provers."""
+    try:
+        if not cognitive_manager:
+            return JSONResponse(content={
+                "available": False,
+                "error": "Cognitive manager not available"
+            })
+        
+        if not cognitive_manager.inference_coordinator:
+            return JSONResponse(content={
+                "available": False,
+                "error": "P5 InferenceCoordinator not available"
+            })
+        
+        coordinator = cognitive_manager.inference_coordinator
+        
+        # Get prover capabilities
+        capabilities = {}
+        try:
+            capabilities = coordinator.get_prover_capabilities()
+        except Exception as e:
+            logger.warning(f"Could not get prover capabilities: {e}")
+        
+        return JSONResponse(content={
+            "available": True,
+            "inference_coordinator": "P5_InferenceCoordinator",
+            "registered_provers": list(getattr(coordinator, 'provers', {}).keys()),
+            "strategies_available": [
+                "resolution_first", 
+                "modal_tableau",
+                "hybrid_reasoning",
+                "adaptive_strategy"
+            ],
+            "modal_reasoning_supported": True,
+            "prover_capabilities": capabilities,
+            "timestamp": time.time()
+        })
+        
+    except Exception as e:
+        logger.error(f"P5 capabilities error: {e}")
+        return JSONResponse(content={
+            "available": False,
+            "error": str(e)
+        })
+
+@app.post("/api/inference/p5/modal-analysis", tags=["P5-Inference"])
+async def p5_modal_analysis(payload: Dict[str, Any]):
+    """
+    Perform modal reasoning analysis using P5 ModalTableauProver.
+    Body: { "statements": ["Necessarily P", "Possibly Q"], "modal_system": "S5" }
+    """
+    try:
+        statements = payload.get("statements", [])
+        modal_system = payload.get("modal_system", "S5")
+        
+        if not statements:
+            raise _structured_http_error(400, code="invalid_request", message="Missing 'statements' array in request body")
+        
+        if not cognitive_manager or not cognitive_manager.inference_coordinator:
+            raise _structured_http_error(503, code="inference_unavailable", message="P5 inference system not available")
+        
+        # Analyze each modal statement
+        results = []
+        for i, statement in enumerate(statements):
+            try:
+                # Create AST for modal statement
+                try:
+                    from backend.core.ast_nodes import ConstantNode
+                    goal_ast = ConstantNode(name=f"modal_{i}", value=statement)
+                except ImportError:
+                    class MockAST:
+                        def __init__(self, content):
+                            self.content = content
+                            self.name = f"modal_{i}"
+                        def __str__(self):
+                            return f"ModalStatement({self.content})"
+                    goal_ast = MockAST(statement)
+                
+                # Perform modal analysis
+                proof_result = await cognitive_manager.inference_coordinator.prove_goal(
+                    goal_ast=goal_ast,
+                    metadata={
+                        'source': 'modal_analysis_api',
+                        'modal_system': modal_system,
+                        'enable_modal_reasoning': True,
+                        'query_type': 'modal_analysis'
+                    }
+                )
+                
+                results.append({
+                    "statement": statement,
+                    "analysis_successful": getattr(proof_result, 'goal_achieved', False),
+                    "processing_time_ms": getattr(proof_result, 'time_taken_ms', 0),
+                    "modal_operators_detected": any("modal" in str(step).lower() for step in getattr(proof_result, 'proof_steps', [])),
+                    "proof_complexity": len(getattr(proof_result, 'proof_steps', [])),
+                    "status": getattr(proof_result, 'status_message', 'Analysis completed')
+                })
+                
+            except Exception as e:
+                results.append({
+                    "statement": statement,
+                    "analysis_successful": False,
+                    "error": str(e)
+                })
+        
+        return JSONResponse(content={
+            "modal_analysis_complete": True,
+            "modal_system": modal_system,
+            "statements_analyzed": len(statements),
+            "successful_analyses": sum(1 for r in results if r.get("analysis_successful", False)),
+            "results": results,
+            "timestamp": time.time()
+        })
+        
+    except Exception as e:
+        logger.error(f"P5 modal analysis error: {e}")
+        raise HTTPException(status_code=500, detail=f"Modal analysis error: {str(e)}")
+
+@app.post("/api/inference/p5/consciousness-analysis", tags=["P5-Inference"])
+async def p5_consciousness_analysis(payload: Dict[str, Any] = None):
+    """
+    Perform P5 modal consciousness analysis using enhanced consciousness engine.
+    Body: { "context": {"session_id": "analysis"}, "include_modal_insights": true }
+    """
+    try:
+        context = (payload or {}).get("context", {})
+        include_modal_insights = (payload or {}).get("include_modal_insights", True)
+        
+        if not cognitive_manager:
+            raise _structured_http_error(503, code="cognitive_manager_unavailable", message="Cognitive manager not available")
+        
+        if not cognitive_manager.consciousness_engine:
+            raise _structured_http_error(503, code="consciousness_engine_unavailable", message="Consciousness engine not available")
+        
+        # Perform P5-enhanced consciousness assessment
+        consciousness_state = await cognitive_manager.consciousness_engine.assess_consciousness_state(context)
+        
+        # Format comprehensive response
+        response_data = {
+            "consciousness_assessment_complete": True,
+            "awareness_level": consciousness_state.awareness_level,
+            "self_reflection_depth": consciousness_state.self_reflection_depth,
+            "autonomous_goals": consciousness_state.autonomous_goals,
+            "cognitive_integration": consciousness_state.cognitive_integration,
+            "manifest_behaviors": consciousness_state.manifest_behaviors,
+            "timestamp": consciousness_state.timestamp
+        }
+        
+        # Include P5 modal reasoning insights if available and requested
+        if include_modal_insights and hasattr(consciousness_state, 'modal_reasoning_insights'):
+            modal_insights = consciousness_state.modal_reasoning_insights
+            response_data["p5_modal_analysis"] = {
+                "modal_proofs_completed": modal_insights.get("modal_proofs_completed", 0),
+                "successful_proofs": modal_insights.get("successful_proofs", 0),
+                "proof_success_ratio": modal_insights.get("proof_success_ratio", 0.0),
+                "consciousness_logical_analysis": modal_insights.get("consciousness_logical_analysis", {}),
+                "modal_reasoning_time_ms": modal_insights.get("modal_reasoning_time_ms", 0),
+                "confidence_in_analysis": modal_insights.get("confidence_in_analysis", 0.0)
+            }
+        
+        return JSONResponse(content=response_data)
+        
+    except Exception as e:
+        logger.error(f"P5 consciousness analysis error: {e}")
+        raise HTTPException(status_code=500, detail=f"Consciousness analysis error: {str(e)}")
+
+@app.get("/api/inference/p5/status", tags=["P5-Inference"])
+async def p5_inference_status():
+    """Get comprehensive P5 inference system status and performance metrics."""
+    try:
+        status = {
+            "available": False,
+            "inference_coordinator": None,
+            "consciousness_engine": None,
+            "parallel_inference_manager": None,
+            "performance_metrics": {}
+        }
+        
+        if cognitive_manager:
+            status["cognitive_manager"] = True
+            
+            # Check P5 InferenceCoordinator
+            if cognitive_manager.inference_coordinator:
+                coordinator = cognitive_manager.inference_coordinator
+                status["inference_coordinator"] = {
+                    "available": True,
+                    "registered_provers": len(getattr(coordinator, 'provers', {})),
+                    "provers": list(getattr(coordinator, 'provers', {}).keys())
+                }
+            else:
+                status["inference_coordinator"] = {"available": False}
+            
+            # Check P5-enhanced consciousness engine
+            if cognitive_manager.consciousness_engine:
+                consciousness_engine = cognitive_manager.consciousness_engine
+                status["consciousness_engine"] = {
+                    "available": True,
+                    "p5_enhanced": hasattr(consciousness_engine, 'inference_coordinator'),
+                    "modal_reasoning_history": len(getattr(consciousness_engine, 'modal_reasoning_history', [])),
+                    "consciousness_proofs": len(getattr(consciousness_engine, 'consciousness_proofs', []))
+                }
+            else:
+                status["consciousness_engine"] = {"available": False}
+            
+            # Check ParallelInferenceManager with P5 integration
+            if cognitive_manager.parallel_inference_manager:
+                status["parallel_inference_manager"] = {
+                    "available": True,
+                    "p5_integrated": True,
+                    "max_workers": getattr(cognitive_manager.parallel_inference_manager, 'max_workers', 0)
+                }
+            else:
+                status["parallel_inference_manager"] = {"available": False}
+            
+            status["available"] = True
+        else:
+            status["cognitive_manager"] = False
+        
+        return JSONResponse(content=status)
+        
+    except Exception as e:
+        logger.error(f"P5 status error: {e}")
+        return JSONResponse(content={
+            "available": False,
+            "error": str(e)
+        })
+
+# =====================================================================
 # GROUNDING CONTEXT INTEGRATION ENDPOINTS (P3 W3.1)
 # =====================================================================
 

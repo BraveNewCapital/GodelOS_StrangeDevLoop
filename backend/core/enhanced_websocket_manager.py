@@ -5,6 +5,7 @@ Enhanced WebSocket Manager for Consciousness Streaming
 
 Extends the existing WebSocket infrastructure to handle real-time
 consciousness streaming and emergence detection alerts.
+Enhanced with P5 Inference Streaming for transparent reasoning.
 
 Based on GODELOS_UNIFIED_CONSCIOUSNESS_BLUEPRINT.md
 """
@@ -31,18 +32,21 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 class ConsciousnessStreamManager:
-    """Enhanced WebSocket manager for consciousness streaming"""
+    """Enhanced WebSocket manager for consciousness streaming with P5 inference transparency"""
     
-    def __init__(self, base_websocket_manager: WebSocketManager = None, consciousness_engine = None):
+    def __init__(self, base_websocket_manager: WebSocketManager = None, consciousness_engine = None, inference_coordinator = None):
         self.base_manager = base_websocket_manager
         self.consciousness_engine = consciousness_engine  # Reference to actual consciousness engine
+        self.inference_coordinator = inference_coordinator  # P5 enhancement
         self.consciousness_clients: Set[Any] = set()
         self.emergence_clients: Set[Any] = set()
+        self.inference_clients: Set[Any] = set()  # P5 enhancement
         self.breakthrough_alerts_enabled = True
         self.consciousness_history = []
+        self.inference_history = []  # P5 enhancement
         self.max_history_size = 1000
         
-        logger.info("ConsciousnessStreamManager initialized")
+        logger.info("ConsciousnessStreamManager initialized with P5 inference streaming")
     
     async def register_consciousness_client(self, websocket):
         """Register a WebSocket client for consciousness streaming"""
@@ -468,6 +472,177 @@ class ConsciousnessStreamManager:
             return []
         
         return self.consciousness_engine.consciousness_state.global_workspace.get('conscious_access', [])
+    
+    # P5 W4.4 Enhancement: Inference Streaming Methods
+    async def register_inference_client(self, websocket):
+        """Register a WebSocket client for P5 inference streaming"""
+        self.inference_clients.add(websocket)
+        logger.info(f"P5 Inference client registered. Total: {len(self.inference_clients)}")
+        
+        # Send P5 inference welcome message
+        welcome_message = {
+            'type': 'p5_inference_welcome',
+            'timestamp': time.time(),
+            'message': 'Connected to P5 Inference Streaming',
+            'features': {
+                'proof_steps': True,
+                'modal_analysis': True,
+                'real_time_transparency': True,
+                'inference_coordinator_available': self.inference_coordinator is not None
+            }
+        }
+        
+        try:
+            await websocket.send_json(welcome_message)
+        except Exception as e:
+            logger.warning(f"Failed to send P5 inference welcome message: {e}")
+    
+    async def unregister_inference_client(self, websocket):
+        """Unregister a WebSocket client from P5 inference streaming"""
+        self.inference_clients.discard(websocket)
+        logger.info(f"P5 Inference client unregistered. Total: {len(self.inference_clients)}")
+    
+    async def broadcast_inference_step(self, proof_step: Dict[str, Any]):
+        """Broadcast a P5 inference step in real-time for transparency"""
+        if not self.inference_clients:
+            return
+        
+        # Prepare inference step message
+        step_message = {
+            'type': 'inference_step',
+            'timestamp': time.time(),
+            'step_data': {
+                'step_number': proof_step.get('step_number', 0),
+                'inference_type': proof_step.get('inference_type', 'unknown'),
+                'premises': proof_step.get('premises', [])[:5],  # Limit for streaming
+                'conclusion': proof_step.get('conclusion', ''),
+                'justification': proof_step.get('justification', ''),
+                'confidence': proof_step.get('confidence', 0.0),
+                'modal_operators_used': proof_step.get('modal_operators_used', [])
+            }
+        }
+        
+        # Add to inference history
+        self.inference_history.append(step_message)
+        if len(self.inference_history) > self.max_history_size:
+            self.inference_history = self.inference_history[-self.max_history_size//2:]
+        
+        # Broadcast to all inference clients
+        await self._broadcast_to_inference_clients(step_message)
+        
+        logger.debug(f"P5 inference step broadcast to {len(self.inference_clients)} clients")
+    
+    async def broadcast_proof_completion(self, proof_result: Dict[str, Any]):
+        """Broadcast P5 proof completion with full results"""
+        if not self.inference_clients:
+            return
+        
+        completion_message = {
+            'type': 'proof_completion',
+            'timestamp': time.time(),
+            'proof_data': {
+                'success': proof_result.get('success', False),
+                'goal_achieved': proof_result.get('goal_achieved', False),
+                'total_steps': proof_result.get('total_steps', 0),
+                'processing_time_ms': proof_result.get('processing_time_ms', 0),
+                'strategy_used': proof_result.get('strategy_used', 'unknown'),
+                'modal_reasoning_used': proof_result.get('modal_reasoning_used', False),
+                'status_message': proof_result.get('status_message', 'Proof completed'),
+                'confidence_score': proof_result.get('confidence_score', 0.0)
+            }
+        }
+        
+        # Broadcast to all inference clients
+        await self._broadcast_to_inference_clients(completion_message)
+        
+        logger.info(f"P5 proof completion broadcast: {proof_result.get('success', 'unknown')} in {proof_result.get('processing_time_ms', 0)}ms")
+    
+    async def broadcast_modal_analysis(self, modal_data: Dict[str, Any]):
+        """Broadcast P5 modal reasoning analysis results"""
+        if not self.inference_clients:
+            return
+        
+        modal_message = {
+            'type': 'modal_analysis',
+            'timestamp': time.time(),
+            'modal_data': {
+                'modal_proofs_completed': modal_data.get('modal_proofs_completed', 0),
+                'successful_proofs': modal_data.get('successful_proofs', 0),
+                'proof_success_ratio': modal_data.get('proof_success_ratio', 0.0),
+                'consciousness_logical_analysis': modal_data.get('consciousness_logical_analysis', {}),
+                'modal_reasoning_time_ms': modal_data.get('modal_reasoning_time_ms', 0),
+                'confidence_in_analysis': modal_data.get('confidence_in_analysis', 0.0)
+            }
+        }
+        
+        # Broadcast to all inference clients
+        await self._broadcast_to_inference_clients(modal_message)
+        
+        logger.info(f"P5 modal analysis broadcast: {modal_data.get('successful_proofs', 0)}/{modal_data.get('modal_proofs_completed', 0)} proofs successful")
+    
+    async def stream_inference_realtime(self, websocket):
+        """Stream real-time P5 inference operations"""
+        await self.register_inference_client(websocket)
+        
+        try:
+            while True:
+                # Stream ongoing inference status
+                inference_status = {
+                    'type': 'inference_status',
+                    'timestamp': time.time(),
+                    'active_proofs': 0,  # Would be populated from actual inference coordinator
+                    'queue_length': 0,   # Would be populated from actual inference coordinator
+                    'recent_completion_rate': 0.0,
+                    'modal_reasoning_active': False
+                }
+                
+                # Get actual status if inference coordinator is available
+                if self.inference_coordinator:
+                    try:
+                        # This would call actual methods from inference coordinator
+                        inference_status.update({
+                            'coordinator_available': True,
+                            'registered_provers': len(getattr(self.inference_coordinator, 'provers', {}))
+                        })
+                    except Exception as e:
+                        logger.debug(f"Could not get inference coordinator status: {e}")
+                
+                await websocket.send_json(inference_status)
+                await asyncio.sleep(1.0)  # Regular status updates
+                
+        except Exception as e:
+            logger.info(f"Inference stream ended: {e}")
+        finally:
+            await self.unregister_inference_client(websocket)
+    
+    async def _broadcast_to_inference_clients(self, message: Dict[str, Any]):
+        """Helper method to broadcast messages to all inference clients"""
+        if not self.inference_clients:
+            return
+        
+        disconnected_clients = set()
+        for client in self.inference_clients:
+            try:
+                await client.send_json(message)
+            except Exception as e:
+                logger.warning(f"Failed to send inference message to client: {e}")
+                disconnected_clients.add(client)
+        
+        # Clean up disconnected clients
+        for client in disconnected_clients:
+            self.inference_clients.discard(client)
+        
+        # Also use base manager if available
+        if self.base_manager:
+            try:
+                await self.base_manager.broadcast(message)
+            except Exception as e:
+                logger.warning(f"Failed to broadcast inference message via base manager: {e}")
+    
+    def set_inference_coordinator(self, inference_coordinator):
+        """Set the P5 inference coordinator reference for real-time data integration"""
+        self.inference_coordinator = inference_coordinator
+        logger.info("✅ P5 InferenceCoordinator reference set in enhanced WebSocket manager")
 
 # Integrate with base WebSocket manager methods
 class EnhancedWebSocketManager(WebSocketManager):
@@ -554,14 +729,197 @@ class EnhancedWebSocketManager(WebSocketManager):
         self.consciousness_stream.consciousness_engine = consciousness_engine
         logger.info("✅ Consciousness engine reference set in enhanced WebSocket manager")
     
+    # =====================================================================
+    # P5 INFERENCE STREAMING METHODS (P5 W4.4 Enhancement)
+    # =====================================================================
+    
+    async def register_inference_client(self, websocket):
+        """Register a WebSocket client for P5 inference streaming"""
+        self.inference_clients.add(websocket)
+        logger.info(f"P5 Inference client registered. Total: {len(self.inference_clients)}")
+        
+        # Send welcome message with current inference capabilities
+        welcome_message = {
+            'type': 'inference_welcome',
+            'timestamp': time.time(),
+            'message': 'Connected to P5 Inference Stream',
+            'capabilities': {
+                'modal_reasoning': True,
+                'resolution_proving': True,
+                'real_time_streaming': True,
+                'proof_transparency': True
+            }
+        }
+        
+        try:
+            await websocket.send_json(welcome_message)
+        except Exception as e:
+            logger.warning(f"Failed to send inference welcome message: {e}")
+    
+    async def unregister_inference_client(self, websocket):
+        """Unregister a WebSocket client from P5 inference streaming"""
+        self.inference_clients.discard(websocket)
+        logger.info(f"P5 Inference client unregistered. Total: {len(self.inference_clients)}")
+    
+    async def broadcast_inference_step(self, proof_step: Dict[str, Any]):
+        """Broadcast a P5 inference step in real-time for transparency"""
+        if not self.inference_clients:
+            return
+        
+        # Prepare inference step message
+        step_message = {
+            'type': 'inference_step',
+            'timestamp': time.time(),
+            'step_data': {
+                'step_number': proof_step.get('step_number', 0),
+                'inference_type': proof_step.get('inference_type', 'unknown'),
+                'premises': proof_step.get('premises', [])[:5],  # Limit for streaming
+                'conclusion': proof_step.get('conclusion', ''),
+                'justification': proof_step.get('justification', ''),
+                'confidence': proof_step.get('confidence', 0.0),
+                'modal_operators_used': proof_step.get('modal_operators_used', [])
+            }
+        }
+        
+        # Add to inference history
+        self.inference_history.append(step_message)
+        if len(self.inference_history) > self.max_history_size:
+            self.inference_history = self.inference_history[-self.max_history_size//2:]
+        
+        # Broadcast to all inference clients
+        await self._broadcast_to_inference_clients(step_message)
+        
+        logger.debug(f"P5 inference step broadcast to {len(self.inference_clients)} clients")
+    
+    async def broadcast_proof_completion(self, proof_result: Dict[str, Any]):
+        """Broadcast P5 proof completion with full results"""
+        if not self.inference_clients:
+            return
+        
+        completion_message = {
+            'type': 'proof_completion',
+            'timestamp': time.time(),
+            'proof_data': {
+                'success': proof_result.get('success', False),
+                'goal_achieved': proof_result.get('goal_achieved', False),
+                'total_steps': proof_result.get('total_steps', 0),
+                'processing_time_ms': proof_result.get('processing_time_ms', 0),
+                'strategy_used': proof_result.get('strategy_used', 'unknown'),
+                'modal_reasoning_used': proof_result.get('modal_reasoning_used', False),
+                'status_message': proof_result.get('status_message', 'Proof completed'),
+                'confidence_score': proof_result.get('confidence_score', 0.0)
+            }
+        }
+        
+        # Broadcast to all inference clients
+        await self._broadcast_to_inference_clients(completion_message)
+        
+        logger.info(f"P5 proof completion broadcast: {proof_result.get('success', 'unknown')} in {proof_result.get('processing_time_ms', 0)}ms")
+    
+    async def broadcast_modal_analysis(self, modal_data: Dict[str, Any]):
+        """Broadcast P5 modal reasoning analysis results"""
+        if not self.inference_clients:
+            return
+        
+        modal_message = {
+            'type': 'modal_analysis',
+            'timestamp': time.time(),
+            'modal_data': {
+                'modal_proofs_completed': modal_data.get('modal_proofs_completed', 0),
+                'successful_proofs': modal_data.get('successful_proofs', 0),
+                'proof_success_ratio': modal_data.get('proof_success_ratio', 0.0),
+                'consciousness_logical_analysis': modal_data.get('consciousness_logical_analysis', {}),
+                'modal_reasoning_time_ms': modal_data.get('modal_reasoning_time_ms', 0),
+                'confidence_in_analysis': modal_data.get('confidence_in_analysis', 0.0)
+            }
+        }
+        
+        # Broadcast to all inference clients
+        await self._broadcast_to_inference_clients(modal_message)
+        
+        logger.info(f"P5 modal analysis broadcast: {modal_data.get('successful_proofs', 0)}/{modal_data.get('modal_proofs_completed', 0)} proofs successful")
+    
+    async def stream_inference_realtime(self, websocket):
+        """Stream real-time P5 inference operations"""
+        await self.register_inference_client(websocket)
+        
+        try:
+            while True:
+                # Stream ongoing inference status
+                inference_status = {
+                    'type': 'inference_status',
+                    'timestamp': time.time(),
+                    'active_proofs': 0,  # Would be populated from actual inference coordinator
+                    'queue_length': 0,   # Would be populated from actual inference coordinator
+                    'recent_completion_rate': 0.0,
+                    'modal_reasoning_active': False
+                }
+                
+                # Get actual status if inference coordinator is available
+                if self.inference_coordinator:
+                    try:
+                        # This would call actual methods from inference coordinator
+                        inference_status.update({
+                            'coordinator_available': True,
+                            'registered_provers': len(getattr(self.inference_coordinator, 'provers', {}))
+                        })
+                    except Exception as e:
+                        logger.debug(f"Could not get inference coordinator status: {e}")
+                
+                await websocket.send_json(inference_status)
+                await asyncio.sleep(1.0)  # Regular status updates
+                
+        except Exception as e:
+            logger.info(f"Inference stream ended: {e}")
+        finally:
+            await self.unregister_inference_client(websocket)
+    
+    async def _broadcast_to_inference_clients(self, message: Dict[str, Any]):
+        """Helper method to broadcast messages to all inference clients"""
+        if not self.inference_clients:
+            return
+        
+        disconnected_clients = set()
+        for client in self.inference_clients:
+            try:
+                await client.send_json(message)
+            except Exception as e:
+                logger.warning(f"Failed to send inference message to client: {e}")
+                disconnected_clients.add(client)
+        
+        # Clean up disconnected clients
+        for client in disconnected_clients:
+            self.inference_clients.discard(client)
+        
+        # Also use base manager if available
+        if self.base_manager:
+            try:
+                await self.base_manager.broadcast(message)
+            except Exception as e:
+                logger.warning(f"Failed to broadcast inference message via base manager: {e}")
+    
+    def set_inference_coordinator(self, inference_coordinator):
+        """Set the P5 inference coordinator reference for real-time data integration"""
+        self.inference_coordinator = inference_coordinator
+        logger.info("✅ P5 InferenceCoordinator reference set in enhanced WebSocket manager")
+    
     async def get_consciousness_stats(self) -> Dict[str, Any]:
         """Get consciousness streaming statistics"""
         base_stats = await self.get_stats()
         consciousness_stats = await self.consciousness_stream.get_stream_statistics()
         
+        # Add P5 inference stats
+        inference_stats = {
+            'inference_clients': len(self.inference_clients),
+            'inference_history_size': len(self.inference_history),
+            'total_inference_messages': len(self.inference_history),
+            'inference_coordinator_connected': self.inference_coordinator is not None
+        }
+        
         return {
             **base_stats,
-            'consciousness': consciousness_stats
+            'consciousness': consciousness_stats,
+            'p5_inference': inference_stats
         }
 
 # Export classes

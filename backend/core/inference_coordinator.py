@@ -418,7 +418,8 @@ class InferenceCoordinator:
                  ksi_adapter: Optional[EnhancedKSIAdapter] = None,
                  provers: Optional[Dict[str, BaseProver]] = None,
                  strategy_selector: Optional[StrategySelector] = None,
-                 executor_threads: int = 4):
+                 executor_threads: int = 4,
+                 websocket_manager=None):  # P5 W4.4 enhancement
         """
         Initialize the InferenceCoordinator.
         
@@ -427,11 +428,13 @@ class InferenceCoordinator:
             provers: Dictionary of available provers
             strategy_selector: Strategy selection component
             executor_threads: Number of threads for parallel execution
+            websocket_manager: WebSocket manager for streaming transparency (P5 W4.4)
         """
         self.ksi_adapter = ksi_adapter
         self.provers = provers or {}
         self.strategy_selector = strategy_selector or StrategySelector()
         self.executor = ThreadPoolExecutor(max_workers=executor_threads)
+        self.websocket_manager = websocket_manager  # P5 W4.4 enhancement
         
         # Coordinator statistics
         self.stats = {
@@ -564,12 +567,21 @@ class InferenceCoordinator:
             if best_result:
                 best_result.time_taken_ms = time_taken_ms
                 logger.info(f"Completed proof {proof_id}: {best_result.status.value} in {time_taken_ms:.2f}ms")
+                
+                # P5 W4.4: Stream proof completion for transparency
+                await self._stream_proof_completion(proof_id, best_result, time_taken_ms)
+                
                 return best_result
             else:
-                return ProofObject.create_failure(
+                failure_result = ProofObject.create_failure(
                     goal_ast, "InferenceCoordinator", 
                     "No suitable prover found", time_taken_ms
                 )
+                
+                # P5 W4.4: Stream failure for transparency
+                await self._stream_proof_completion(proof_id, failure_result, time_taken_ms)
+                
+                return failure_result
                 
         except Exception as e:
             logger.error(f"Error in proof {proof_id}: {str(e)}")
@@ -685,6 +697,80 @@ class InferenceCoordinator:
 # Example usage and testing
 if __name__ == "__main__":
     import asyncio
+    
+    # =====================================================================
+    # P5 W4.4 STREAMING TRANSPARENCY METHODS
+    # =====================================================================
+    
+    async def _stream_proof_step(self, proof_id: str, step_number: int, step_data: Dict[str, Any]):
+        """Stream individual proof step for real-time transparency"""
+        if not self.websocket_manager:
+            return
+        
+        try:
+            step_info = {
+                'step_number': step_number,
+                'proof_id': proof_id,
+                'inference_type': step_data.get('inference_type', 'unknown'),
+                'premises': step_data.get('premises', []),
+                'conclusion': step_data.get('conclusion', ''),
+                'justification': step_data.get('justification', ''),
+                'confidence': step_data.get('confidence', 0.8),
+                'modal_operators_used': step_data.get('modal_operators_used', [])
+            }
+            
+            if hasattr(self.websocket_manager, 'broadcast_inference_step'):
+                await self.websocket_manager.broadcast_inference_step(step_info)
+            else:
+                logger.debug("WebSocket manager does not support inference step streaming")
+                
+        except Exception as e:
+            logger.debug(f"Failed to stream proof step: {e}")
+    
+    async def _stream_proof_completion(self, proof_id: str, proof_result: ProofObject, time_taken_ms: float):
+        """Stream proof completion for transparency"""
+        if not self.websocket_manager:
+            return
+        
+        try:
+            completion_data = {
+                'proof_id': proof_id,
+                'success': proof_result.status == ProofStatus.SUCCESS,
+                'goal_achieved': proof_result.status == ProofStatus.SUCCESS,
+                'total_steps': len(getattr(proof_result, 'proof_steps', [])),
+                'processing_time_ms': time_taken_ms,
+                'strategy_used': getattr(proof_result, 'strategy_used', 'unknown'),
+                'modal_reasoning_used': any('modal' in str(step).lower() for step in getattr(proof_result, 'proof_steps', [])),
+                'status_message': getattr(proof_result, 'status_message', str(proof_result.status.value)),
+                'confidence_score': getattr(proof_result, 'confidence', 0.8)
+            }
+            
+            if hasattr(self.websocket_manager, 'broadcast_proof_completion'):
+                await self.websocket_manager.broadcast_proof_completion(completion_data)
+            else:
+                logger.debug("WebSocket manager does not support proof completion streaming")
+                
+        except Exception as e:
+            logger.debug(f"Failed to stream proof completion: {e}")
+    
+    async def _stream_modal_analysis(self, modal_data: Dict[str, Any]):
+        """Stream modal reasoning analysis for transparency"""
+        if not self.websocket_manager:
+            return
+        
+        try:
+            if hasattr(self.websocket_manager, 'broadcast_modal_analysis'):
+                await self.websocket_manager.broadcast_modal_analysis(modal_data)
+            else:
+                logger.debug("WebSocket manager does not support modal analysis streaming")
+                
+        except Exception as e:
+            logger.debug(f"Failed to stream modal analysis: {e}")
+    
+    def set_websocket_manager(self, websocket_manager):
+        """Set the WebSocket manager for streaming transparency"""
+        self.websocket_manager = websocket_manager
+        logger.info("✅ WebSocket manager set for P5 inference streaming")
     
     async def test_inference_coordinator():
         """Test the InferenceCoordinator implementation."""

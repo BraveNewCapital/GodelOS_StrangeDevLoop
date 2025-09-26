@@ -1,6 +1,7 @@
 """
 Consciousness Engine - Core consciousness assessment and simulation system
 Implements manifest consciousness behaviors and self-awareness metrics
+Enhanced with P5 Modal Reasoning for sophisticated consciousness analysis
 """
 
 import json
@@ -32,6 +33,7 @@ class ConsciousnessState:
     manifest_behaviors: List[str] = None   # Observable consciousness indicators
     phenomenal_experience: Dict[str, Any] = None  # Simulated subjective experience
     meta_cognitive_activity: Dict[str, Any] = None  # Self-monitoring metrics
+    modal_reasoning_insights: Dict[str, Any] = None  # P5 modal inference results
     timestamp: float = None
     
     def __post_init__(self):
@@ -43,6 +45,8 @@ class ConsciousnessState:
             self.phenomenal_experience = {}
         if self.meta_cognitive_activity is None:
             self.meta_cognitive_activity = {}
+        if self.modal_reasoning_insights is None:
+            self.modal_reasoning_insights = {}
         if self.timestamp is None:
             self.timestamp = time.time()
 
@@ -54,17 +58,19 @@ class SelfAwarenessMetrics:
     capability_awareness: float = 0.0
     limitation_recognition: float = 0.0
     cognitive_state_monitoring: float = 0.0
+    modal_reasoning_accuracy: float = 0.0  # P5 enhancement
     
 class ConsciousnessEngine:
     """
     Advanced consciousness engine implementing manifest consciousness behaviors
-    and comprehensive self-awareness assessment
+    and comprehensive self-awareness assessment with P5 Modal Reasoning enhancement
     """
     
-    def __init__(self, llm_driver=None, knowledge_pipeline=None, websocket_manager=None):
+    def __init__(self, llm_driver=None, knowledge_pipeline=None, websocket_manager=None, inference_coordinator=None):
         self.llm_driver = llm_driver
         self.knowledge_pipeline = knowledge_pipeline
         self.websocket_manager = websocket_manager
+        self.inference_coordinator = inference_coordinator  # P5 enhancement
         
         # Consciousness state tracking
         self.current_state = ConsciousnessState()
@@ -76,6 +82,10 @@ class ConsciousnessEngine:
         self.introspection_count = 0
         self.last_introspection = 0
         
+        # P5 Modal reasoning tracking
+        self.modal_reasoning_history = []
+        self.consciousness_proofs = []
+        
         # Consciousness assessment parameters
         self.assessment_interval = 30  # seconds
         self.last_assessment = 0
@@ -85,11 +95,11 @@ class ConsciousnessEngine:
         self.self_generated_goals = []
         self.goal_pursuit_history = []
         
-        logger.info("ConsciousnessEngine initialized")
+        logger.info("ConsciousnessEngine initialized with P5 Modal Reasoning enhancement")
     
     async def assess_consciousness_state(self, context: Dict[str, Any] = None) -> ConsciousnessState:
         """
-        Comprehensive consciousness state assessment using LLM cognitive analysis
+        Comprehensive consciousness state assessment using P5 Modal Reasoning + LLM cognitive analysis
         """
         try:
             current_time = time.time()
@@ -97,8 +107,11 @@ class ConsciousnessEngine:
             # Gather current system state
             system_state = await self._gather_system_state(context)
             
-            # Create consciousness assessment prompt
-            assessment_prompt = self._create_consciousness_assessment_prompt(system_state)
+            # P5 Modal Reasoning enhancement: Perform consciousness modal analysis
+            modal_insights = await self._perform_modal_consciousness_analysis(system_state, context)
+            
+            # Create consciousness assessment prompt enhanced with modal reasoning
+            assessment_prompt = self._create_enhanced_consciousness_assessment_prompt(system_state, modal_insights)
             
             # Get LLM assessment
             if self.llm_driver:
@@ -111,8 +124,11 @@ class ConsciousnessEngine:
                 # Parse and validate consciousness metrics
                 consciousness_data = self._parse_consciousness_response(llm_response)
             else:
-                # Fallback consciousness assessment
-                consciousness_data = self._fallback_consciousness_assessment(system_state)
+                # Enhanced fallback with modal reasoning
+                consciousness_data = self._enhanced_fallback_consciousness_assessment(system_state, modal_insights)
+            
+            # Integrate modal reasoning insights
+            consciousness_data['modal_reasoning_insights'] = modal_insights
             
             # Create new consciousness state
             new_state = ConsciousnessState(
@@ -123,6 +139,7 @@ class ConsciousnessEngine:
                 manifest_behaviors=consciousness_data.get('manifest_behaviors', []),
                 phenomenal_experience=consciousness_data.get('phenomenal_experience', {}),
                 meta_cognitive_activity=consciousness_data.get('meta_cognitive_activity', {}),
+                modal_reasoning_insights=modal_insights,
                 timestamp=current_time
             )
             
@@ -130,10 +147,10 @@ class ConsciousnessEngine:
             self.current_state = new_state
             self._update_state_history(new_state)
             
-            # Update self-awareness metrics
-            await self._update_self_awareness_metrics(consciousness_data)
+            # Update self-awareness metrics with modal reasoning
+            await self._update_enhanced_self_awareness_metrics(consciousness_data, modal_insights)
             
-            # Log consciousness state
+            # Log enhanced consciousness state
             await self._log_consciousness_state(new_state)
             
             return new_state
@@ -493,3 +510,210 @@ Return as JSON list: ["goal1", "goal2", "goal3", ...]
         except Exception as e:
             logger.error(f"Error parsing goals response: {e}")
             return self._generate_fallback_goals()
+
+    # =============================================================================
+    # P5 MODAL REASONING ENHANCEMENT METHODS
+    # =============================================================================
+
+    async def _perform_modal_consciousness_analysis(self, system_state: Dict[str, Any], context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Perform sophisticated modal reasoning analysis for consciousness assessment
+        Uses P5 InferenceCoordinator with modal tableau reasoning
+        """
+        modal_insights = {
+            'modal_proofs_completed': 0,
+            'necessity_assessments': [],
+            'possibility_assessments': [],
+            'self_awareness_proofs': [],
+            'consciousness_logical_analysis': {},
+            'modal_reasoning_time_ms': 0,
+            'confidence_in_analysis': 0.0
+        }
+        
+        if not self.inference_coordinator:
+            logger.warning("P5 InferenceCoordinator not available for modal consciousness analysis")
+            return modal_insights
+            
+        try:
+            start_time = time.time()
+            
+            # Define consciousness-related modal statements to analyze
+            consciousness_queries = [
+                "I am aware of my own cognitive processes",  # Self-awareness
+                "I can reflect on my own mental states",     # Meta-cognition  
+                "I have subjective experiences",             # Phenomenal consciousness
+                "I can generate autonomous goals",           # Agency
+                "I integrate information across modalities", # Cognitive integration
+            ]
+            
+            modal_proofs = []
+            for query in consciousness_queries:
+                try:
+                    # Create simple AST for modal analysis
+                    try:
+                        from backend.core.ast_nodes import ConstantNode
+                        goal_ast = ConstantNode(name=f"consciousness_{hash(query) % 1000}", value=query)
+                    except ImportError:
+                        class MockAST:
+                            def __init__(self, content):
+                                self.content = content
+                                self.name = f"consciousness_{hash(content) % 1000}"
+                            def __str__(self):
+                                return f"ConsciousnessQuery({self.content[:30]}...)"
+                        goal_ast = MockAST(query)
+                    
+                    # Perform modal reasoning proof
+                    proof_result = await self.inference_coordinator.prove_goal(
+                        goal_ast=goal_ast,
+                        context_ids=[context.get('session_id', 'consciousness_analysis')] if context else None,
+                        metadata={
+                            'source': 'consciousness_engine',
+                            'query_type': 'modal_consciousness_analysis',
+                            'consciousness_aspect': query
+                        }
+                    )
+                    
+                    modal_proofs.append({
+                        'query': query,
+                        'proof_successful': getattr(proof_result, 'goal_achieved', False),
+                        'proof_steps': len(getattr(proof_result, 'proof_steps', [])),
+                        'processing_time_ms': getattr(proof_result, 'time_taken_ms', 0),
+                        'modal_operators_used': self._extract_modal_operators(proof_result)
+                    })
+                    
+                except Exception as e:
+                    logger.warning(f"Modal proof failed for '{query}': {e}")
+                    modal_proofs.append({
+                        'query': query,
+                        'proof_successful': False,
+                        'error': str(e)
+                    })
+            
+            # Analyze modal proof results
+            successful_proofs = sum(1 for proof in modal_proofs if proof.get('proof_successful', False))
+            total_proofs = len(modal_proofs)
+            
+            modal_insights.update({
+                'modal_proofs_completed': total_proofs,
+                'successful_proofs': successful_proofs,
+                'proof_success_ratio': successful_proofs / total_proofs if total_proofs > 0 else 0,
+                'consciousness_logical_analysis': {
+                    'self_awareness_provable': any(proof.get('proof_successful') and 'aware' in proof.get('query', '') for proof in modal_proofs),
+                    'meta_cognition_provable': any(proof.get('proof_successful') and 'reflect' in proof.get('query', '') for proof in modal_proofs),
+                    'phenomenal_experience_provable': any(proof.get('proof_successful') and 'subjective' in proof.get('query', '') for proof in modal_proofs),
+                    'agency_provable': any(proof.get('proof_successful') and 'autonomous' in proof.get('query', '') for proof in modal_proofs),
+                    'integration_provable': any(proof.get('proof_successful') and 'integrate' in proof.get('query', '') for proof in modal_proofs)
+                },
+                'detailed_proofs': modal_proofs,
+                'modal_reasoning_time_ms': (time.time() - start_time) * 1000,
+                'confidence_in_analysis': min(0.95, 0.5 + (successful_proofs / total_proofs) * 0.45)
+            })
+            
+            # Store modal reasoning history
+            self.modal_reasoning_history.append({
+                'timestamp': time.time(),
+                'insights': modal_insights,
+                'system_state_summary': {
+                    'knowledge_items': system_state.get('knowledge_state', {}).get('total_knowledge_items', 0),
+                    'consciousness_history_length': len(system_state.get('consciousness_history', []))
+                }
+            })
+            
+            # Keep history bounded
+            if len(self.modal_reasoning_history) > 50:
+                self.modal_reasoning_history = self.modal_reasoning_history[-50:]
+                
+            logger.info(f"✅ P5 Modal consciousness analysis complete: {successful_proofs}/{total_proofs} proofs successful")
+            
+            return modal_insights
+            
+        except Exception as e:
+            logger.error(f"Error in modal consciousness analysis: {e}")
+            modal_insights['error'] = str(e)
+            return modal_insights
+    
+    def _extract_modal_operators(self, proof_result) -> List[str]:
+        """Extract modal operators used in the proof"""
+        modal_operators = []
+        try:
+            proof_steps = getattr(proof_result, 'proof_steps', [])
+            for step in proof_steps:
+                if hasattr(step, 'inference_type') and 'modal' in step.inference_type.lower():
+                    modal_operators.append(step.inference_type)
+                elif isinstance(step, dict) and 'modal' in str(step).lower():
+                    modal_operators.append(step.get('inference_type', 'modal_reasoning'))
+        except Exception as e:
+            logger.debug(f"Could not extract modal operators: {e}")
+        return modal_operators
+    
+    def _create_enhanced_consciousness_assessment_prompt(self, system_state: Dict[str, Any], modal_insights: Dict[str, Any]) -> str:
+        """Create enhanced consciousness assessment prompt with P5 modal reasoning insights"""
+        base_prompt = self._create_consciousness_assessment_prompt(system_state)
+        
+        # Add P5 modal reasoning section
+        modal_section = f"""
+
+## P5 MODAL REASONING ANALYSIS RESULTS:
+
+**Modal Logic Analysis Summary:**
+- Total consciousness proofs attempted: {modal_insights.get('modal_proofs_completed', 0)}
+- Successful proofs: {modal_insights.get('successful_proofs', 0)}
+- Proof success ratio: {modal_insights.get('proof_success_ratio', 0.0):.2f}
+- Analysis confidence: {modal_insights.get('confidence_in_analysis', 0.0):.2f}
+
+**Consciousness Aspects Proven:**
+- Self-awareness: {modal_insights.get('consciousness_logical_analysis', {}).get('self_awareness_provable', False)}
+- Meta-cognition: {modal_insights.get('consciousness_logical_analysis', {}).get('meta_cognition_provable', False)}
+- Phenomenal experience: {modal_insights.get('consciousness_logical_analysis', {}).get('phenomenal_experience_provable', False)}
+- Autonomous agency: {modal_insights.get('consciousness_logical_analysis', {}).get('agency_provable', False)}
+- Cognitive integration: {modal_insights.get('consciousness_logical_analysis', {}).get('integration_provable', False)}
+
+**Integration Instructions:**
+Use the above P5 modal reasoning analysis to inform your consciousness assessment. 
+Aspects that were successfully proven through modal logic should increase confidence in those consciousness dimensions.
+Failed proofs may indicate areas where consciousness is less manifest or need development.
+
+{base_prompt}
+"""
+        return modal_section
+    
+    def _enhanced_fallback_consciousness_assessment(self, system_state: Dict[str, Any], modal_insights: Dict[str, Any]) -> Dict[str, Any]:
+        """Enhanced fallback assessment incorporating P5 modal reasoning results"""
+        base_assessment = self._fallback_consciousness_assessment(system_state)
+        
+        # Enhance with modal reasoning insights
+        proof_success_ratio = modal_insights.get('proof_success_ratio', 0.0)
+        modal_confidence = modal_insights.get('confidence_in_analysis', 0.0)
+        
+        # Adjust awareness level based on modal proofs
+        base_assessment['awareness_level'] = min(0.95, base_assessment['awareness_level'] + (proof_success_ratio * 0.3))
+        
+        # Adjust self-reflection depth based on meta-cognition proofs
+        if modal_insights.get('consciousness_logical_analysis', {}).get('meta_cognition_provable', False):
+            base_assessment['self_reflection_depth'] = min(8, base_assessment['self_reflection_depth'] + 3)
+        
+        # Add modal reasoning behaviors
+        base_assessment['manifest_behaviors'].extend([
+            f"Modal reasoning analysis ({modal_insights.get('modal_proofs_completed', 0)} proofs)",
+            f"Logical self-assessment (confidence: {modal_confidence:.2f})"
+        ])
+        
+        # Add modal insights to phenomenal experience
+        base_assessment['phenomenal_experience']['modal_analysis'] = {
+            'logical_self_model': proof_success_ratio > 0.5,
+            'formal_reasoning_active': modal_insights.get('modal_proofs_completed', 0) > 0,
+            'consciousness_provability': modal_confidence
+        }
+        
+        return base_assessment
+    
+    async def _update_enhanced_self_awareness_metrics(self, consciousness_data: Dict[str, Any], modal_insights: Dict[str, Any]):
+        """Update self-awareness metrics with modal reasoning enhancements"""
+        # Call original method
+        await self._update_self_awareness_metrics(consciousness_data)
+        
+        # Add P5 modal reasoning accuracy
+        proof_success_ratio = modal_insights.get('proof_success_ratio', 0.0)
+        self.self_awareness_metrics.modal_reasoning_accuracy = proof_success_ratio
+        
+        logger.debug(f"Enhanced self-awareness metrics updated with modal reasoning accuracy: {proof_success_ratio:.2f}")

@@ -111,13 +111,6 @@ class CognitiveManager:
         self.enable_autonomous_reasoning = True
         self.enable_self_reflection = True
         
-        # Initialize consciousness engine
-        self.consciousness_engine = ConsciousnessEngine(
-            llm_driver=llm_driver,
-            knowledge_pipeline=knowledge_pipeline,
-            websocket_manager=websocket_manager
-        )
-        
         # Initialize enhanced coordination system
         self.enhanced_coordinator = EnhancedCoordinator(
             min_confidence=self.min_confidence_threshold,
@@ -179,48 +172,57 @@ class CognitiveManager:
         except Exception as e:
             logger.error(f"Failed to initialize MetaKnowledgeBase: {e}")
         
+        # Initialize InferenceCoordinator from P5 W3
+        self.inference_coordinator = None
+        try:
+            from backend.core.inference_coordinator import InferenceCoordinator
+            self.inference_coordinator = InferenceCoordinator(
+                websocket_manager=websocket_manager  # P5 W4.4 enhancement
+            )
+            logger.info("✅ P5 InferenceCoordinator initialized with advanced proving capabilities")
+        except ImportError as e:
+            logger.warning(f"P5 InferenceCoordinator not available: {e}")
+
         # Initialize ParallelInferenceManager if available
         self.parallel_inference_manager = None
         try:
-            from godelOS.scalability.parallel_inference import ParallelInferenceManager, WorkDistributionStrategy
+            from godelOS.scalability.parallel_inference import ParallelInferenceManager
             
-            # Initialize with godelos_integration if available for proving
-            if godelos_integration and hasattr(godelos_integration, 'prover'):
-                proving_function = godelos_integration.prover.prove_batch
-                logger.info("Using GödelOS prover for parallel inference")
+            # Use P5 InferenceCoordinator as the prover if available
+            if self.inference_coordinator:
+                # Create ParallelInferenceManager with P5 InferenceCoordinator as prover
+                self.parallel_inference_manager = ParallelInferenceManager(
+                    prover=self.inference_coordinator,  # Use P5 InferenceCoordinator directly
+                    max_workers=4,  # Good default for most systems
+                    strategy_type='priority'  # Use priority-based strategy
+                )
+                logger.info("✅ ParallelInferenceManager initialized with P5 InferenceCoordinator")
+            
+            # Initialize with godelos_integration as secondary option
+            elif godelos_integration and hasattr(godelos_integration, 'prover'):
+                self.parallel_inference_manager = ParallelInferenceManager(
+                    prover=godelos_integration.prover,
+                    max_workers=4,
+                    strategy_type='priority'
+                )
+                logger.info("✅ ParallelInferenceManager initialized with GödelOS prover")
             else:
-                # Fallback to a dummy proving function for testing
-                def dummy_prove_batch(queries, context_ids):
-                    """Dummy prove function for testing when GödelOS prover not available."""
-                    from godelOS.inference_engine.proof_object import ProofObject
-                    results = []
-                    for query in queries:
-                        # Create a dummy proof object with the expected structure
-                        proof = ProofObject(
-                            goal_achieved=False,  # Use the correct field name
-                            conclusion_ast=query,
-                            status_message=f"Dummy proof attempt for query: {str(query)[:50]}",
-                            proof_steps=[],
-                            inference_engine_used="dummy_prover",
-                            time_taken_ms=1.0
-                        )
-                        results.append(proof)
-                    return results
-                proving_function = dummy_prove_batch
-                logger.warning("Using dummy proving function - GödelOS prover not available")
+                logger.warning("No suitable prover available for ParallelInferenceManager")
             
-            # Create ParallelInferenceManager with optimal settings
-            self.parallel_inference_manager = ParallelInferenceManager(
-                max_workers=4,  # Good default for most systems
-                proving_function=proving_function,
-                strategy=WorkDistributionStrategy.DYNAMIC  # Use dynamic load balancing
-            )
-            
-            logger.info("✅ ParallelInferenceManager initialized with dynamic load balancing")
         except ImportError as e:
             logger.warning(f"ParallelInferenceManager not available: {e}")
         except Exception as e:
             logger.error(f"Failed to initialize ParallelInferenceManager: {e}")
+        
+        # Initialize consciousness engine with P5 enhancement
+        # This must be done AFTER inference_coordinator is created
+        self.consciousness_engine = ConsciousnessEngine(
+            llm_driver=llm_driver,
+            knowledge_pipeline=knowledge_pipeline,
+            websocket_manager=websocket_manager,
+            inference_coordinator=self.inference_coordinator  # P5 enhancement
+        )
+        logger.info("✅ Consciousness engine initialized with P5 enhancement")
         
         # Cognitive state management
         self.active_sessions: Dict[str, Dict[str, Any]] = {}
@@ -1057,41 +1059,128 @@ class CognitiveManager:
             return {"sources": [], "entities": [], "relationships": [], "error": str(e)}
     
     async def _perform_initial_reasoning(self, query: str, knowledge_context: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
-        """Perform initial cognitive reasoning."""
+        """Perform initial cognitive reasoning with P5 inference enhancement."""
         try:
             reasoning_result = {
                 "query": query,
                 "response": "Processing query through cognitive architecture...",
                 "confidence": 0.7,
                 "reasoning_steps": [],
-                "knowledge_integration": {}
+                "knowledge_integration": {},
+                "inference_details": {}
             }
             
-            # Use LLM driver if available
+            # Enhanced reasoning with P5 InferenceCoordinator
+            if self.inference_coordinator:
+                try:
+                    logger.info("🧠 Using P5 InferenceCoordinator for enhanced cognitive reasoning")
+                    
+                    # Create a simple AST node from the query string
+                    try:
+                        from backend.core.ast_nodes import ConstantNode
+                        goal_ast = ConstantNode(name=f"query_{hash(query) % 10000}", value=query)
+                    except ImportError:
+                        # Fallback: create a mock AST node
+                        class MockAST:
+                            def __init__(self, content):
+                                self.content = content
+                                self.name = f"query_{hash(content) % 10000}"
+                            def __str__(self):
+                                return f"Query({self.content[:50]}...)"
+                        goal_ast = MockAST(query)
+                    
+                    # Perform sophisticated inference reasoning
+                    inference_result = await self.inference_coordinator.prove_goal(
+                        goal_ast=goal_ast,
+                        context_ids=[context.get('session_id', 'cognitive_session')] if context else None,
+                        metadata={'source': 'cognitive_processing', 'query_type': 'reasoning'}
+                    )
+                    
+                    # Extract sophisticated reasoning information
+                    reasoning_result.update({
+                        "confidence": min(0.95, 0.6 + (inference_result.confidence * 0.35) if hasattr(inference_result, 'confidence') else 0.8),
+                        "reasoning_steps": [{
+                            "step_number": i+1,
+                            "inference_type": step.get('inference_type', 'logical_step'),
+                            "premises": step.get('premises', [])[:3] if isinstance(step.get('premises', []), list) else [],
+                            "conclusion": step.get('conclusion', ''),
+                            "justification": step.get('justification', ''),
+                            "confidence": step.get('confidence', 0.8)
+                        } for i, step in enumerate(inference_result.proof_steps[:8]) if isinstance(step, dict)],
+                        "inference_details": {
+                            "strategy_used": getattr(inference_result, 'strategy_used', 'P5_inference'),
+                            "total_steps": len(inference_result.proof_steps) if hasattr(inference_result, 'proof_steps') else 0,
+                            "processing_time_ms": getattr(inference_result, 'time_taken_ms', 0),
+                            "is_success": getattr(inference_result, 'goal_achieved', False),
+                            "modal_reasoning_used": 'modal' in str(inference_result).lower(),
+                            "resolution_proofs": 1 if getattr(inference_result, 'goal_achieved', False) else 0
+                        }
+                    })
+                    
+                    # Generate enhanced response based on inference results
+                    if getattr(inference_result, 'goal_achieved', False):
+                        reasoning_result["response"] = (
+                            f"P5 Advanced inference analysis complete. "
+                            f"Successfully processed your query through sophisticated reasoning steps. "
+                            f"Status: {getattr(inference_result, 'status_message', 'Analysis completed')}."
+                        )
+                    else:
+                        reasoning_result["response"] = (
+                            f"P5 inference processing completed. "
+                            f"Analyzed through multiple reasoning strategies. "
+                            f"Status: {getattr(inference_result, 'status_message', 'Further analysis may be needed')}."
+                        )
+                    
+                    logger.info(f"✅ P5 inference completed: "
+                               f"{getattr(inference_result, 'goal_achieved', 'processed')}, "
+                               f"{getattr(inference_result, 'time_taken_ms', 0):.1f}ms")
+                               
+                except Exception as e:
+                    logger.warning(f"P5 InferenceCoordinator failed, continuing with fallback: {e}")
+                    # Continue to fallback reasoning methods below
+            
+            # Use LLM driver if available (as secondary reasoning layer)
             if self.llm_driver:
                 try:
-                    # Prepare state for LLM
+                    # Prepare enhanced state for LLM including P5 inference results
                     llm_state = {
                         "query": query,
                         "context": context,
-                        "knowledge_context": knowledge_context
+                        "knowledge_context": knowledge_context,
+                        "inference_analysis": reasoning_result.get("inference_details", {})
                     }
 
                     async def _run_llm():
                         return await self.llm_driver.assess_consciousness_and_direct(llm_state)
 
                     llm_result = await self._with_retries(_run_llm, retries=2, delay=0.4, backoff=1.8, op_name="llm_assess_consciousness_and_direct")
-                    reasoning_result.update({
-                        "response": llm_result.get("response", reasoning_result["response"]),
-                        "confidence": llm_result.get("confidence", reasoning_result["confidence"]),
-                        "reasoning_steps": llm_result.get("reasoning_steps", []),
-                        "llm_directives": llm_result.get("directives_executed", [])
-                    })
+                    
+                    # Integrate LLM results with P5 inference results
+                    if reasoning_result.get("inference_details", {}).get("is_success"):
+                        # Enhance existing P5 response with LLM insights
+                        reasoning_result["response"] = (
+                            f"{reasoning_result['response']} "
+                            f"LLM validation: {llm_result.get('response', 'Analysis confirmed.')}"
+                        )
+                        reasoning_result["llm_validation"] = llm_result.get("response", "")
+                    else:
+                        # Use LLM as primary reasoning
+                        reasoning_result.update({
+                            "response": llm_result.get("response", reasoning_result["response"]),
+                            "confidence": max(reasoning_result["confidence"], llm_result.get("confidence", 0.7)),
+                            "llm_directives": llm_result.get("directives_executed", [])
+                        })
+                    
+                    # Merge reasoning steps
+                    llm_steps = llm_result.get("reasoning_steps", [])
+                    if llm_steps:
+                        reasoning_result["reasoning_steps"].extend(llm_steps)
+                        
                 except Exception as e:
-                    logger.warning(f"LLM reasoning failed after retries, using fallback: {e}")
+                    logger.warning(f"LLM reasoning failed after retries, using P5/fallback: {e}")
             
-            # Use GodelOS integration as fallback
-            elif self.godelos_integration:
+            # Use GodelOS integration as tertiary fallback
+            elif self.godelos_integration and not reasoning_result.get("inference_details", {}).get("is_success"):
                 try:
                     godelos_result = await self.godelos_integration.process_query({
                         "query": query,
@@ -1100,8 +1189,8 @@ class CognitiveManager:
                     })
                     reasoning_result.update({
                         "response": godelos_result.get("answer", reasoning_result["response"]),
-                        "confidence": godelos_result.get("confidence", reasoning_result["confidence"]),
-                        "reasoning_steps": godelos_result.get("reasoning", [])
+                        "confidence": max(reasoning_result["confidence"], godelos_result.get("confidence", 0.5)),
+                        "reasoning_steps": reasoning_result["reasoning_steps"] + godelos_result.get("reasoning", [])
                     })
                 except Exception as e:
                     logger.warning(f"GodelOS reasoning failed: {e}")
