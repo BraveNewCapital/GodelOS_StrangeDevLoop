@@ -4,6 +4,9 @@ Module 9.1: External Common Sense Knowledge Base Interface (ECSKI)
 This module provides interfaces to external common sense knowledge bases such as
 ConceptNet and WordNet. It handles querying, caching, normalization, and fallback
 mechanisms for external knowledge sources.
+
+Enhanced with P3 W3.3 Alignment Layer for mapping confidence propagation,
+rate-limiting metrics, and alignment quality assessment.
 """
 
 import json
@@ -19,6 +22,7 @@ from nltk.corpus import wordnet as wn
 
 from godelOS.core_kr.knowledge_store.interface import KnowledgeStoreInterface
 from godelOS.scalability.caching import CachingSystem
+from godelOS.common_sense.alignment_layer import AlignmentLayer
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -41,7 +45,10 @@ class ExternalCommonSenseKB_Interface:
                  wordnet_enabled: bool = True,
                  conceptnet_enabled: bool = True,
                  max_cache_age: int = 86400 * 7,  # 1 week in seconds
-                 offline_mode: bool = False):
+                 offline_mode: bool = False,
+                 alignment_confidence_threshold: float = 0.5,
+                 alignment_rate_limit_per_minute: int = 60,
+                 alignment_rate_limit_per_hour: int = 1000):
         """Initialize the External Common Sense KB Interface.
         
         Args:
@@ -53,6 +60,9 @@ class ExternalCommonSenseKB_Interface:
             conceptnet_enabled: Whether to enable ConceptNet as a knowledge source
             max_cache_age: Maximum age of cached data in seconds
             offline_mode: If True, only use cached data and don't query external sources
+            alignment_confidence_threshold: Minimum confidence for accepting mappings
+            alignment_rate_limit_per_minute: Rate limit for external API calls per minute
+            alignment_rate_limit_per_hour: Rate limit for external API calls per hour
         """
         self.knowledge_store = knowledge_store
         self.cache_system = cache_system
@@ -62,6 +72,13 @@ class ExternalCommonSenseKB_Interface:
         self.conceptnet_enabled = conceptnet_enabled
         self.max_cache_age = max_cache_age
         self.offline_mode = offline_mode
+        
+        # Initialize alignment layer for confidence propagation and metrics
+        self.alignment_layer = AlignmentLayer(
+            confidence_threshold=alignment_confidence_threshold,
+            rate_limit_per_minute=alignment_rate_limit_per_minute,
+            rate_limit_per_hour=alignment_rate_limit_per_hour
+        )
         
         # Ensure cache directory exists
         os.makedirs(self.cache_dir, exist_ok=True)
@@ -78,16 +95,20 @@ class ExternalCommonSenseKB_Interface:
                 except Exception as e:
                     logger.warning(f"Failed to download WordNet: {e}")
                     logger.warning("Some WordNet functionality may be unavailable")
+        
+        logger.info("ExternalCommonSenseKB_Interface initialized with alignment layer")
     
-    def query_concept(self, concept: str, relation_types: Optional[List[str]] = None) -> Dict[str, Any]:
+    def query_concept(self, concept: str, relation_types: Optional[List[str]] = None, 
+                     propagate_confidence: bool = True) -> Dict[str, Any]:
         """Query information about a concept from external knowledge bases.
         
         Args:
             concept: The concept to query
             relation_types: Optional list of relation types to filter by
+            propagate_confidence: Whether to use alignment layer for confidence propagation
             
         Returns:
-            Dictionary containing normalized information about the concept
+            Dictionary containing normalized information about the concept with alignment metadata
         """
         # Normalize concept name
         concept = concept.lower().replace(' ', '_')
@@ -95,38 +116,86 @@ class ExternalCommonSenseKB_Interface:
         # Check cache first
         cached_data = self._get_from_cache(f"concept_{concept}")
         if cached_data:
+            # Add alignment information to cached data
+            if propagate_confidence:
+                cached_data = self._enhance_with_alignment_info(cached_data, concept)
             return cached_data
         
-        # Initialize result dictionary
+        # Initialize result dictionary with alignment metadata
         result = {
             "concept": concept,
             "relations": [],
             "definitions": [],
-            "source": []
+            "source": [],
+            "alignment_metadata": {
+                "confidence_propagated": propagate_confidence,
+                "external_mappings": [],
+                "rate_limit_status": {}
+            }
         }
         
-        # Query enabled knowledge bases
+        # Query enabled knowledge bases with rate limiting
         if self.wordnet_enabled and not self.offline_mode:
-            wordnet_data = self._query_wordnet(concept)
-            if wordnet_data:
-                result["definitions"].extend(wordnet_data["definitions"])
-                result["relations"].extend(wordnet_data["relations"])
-                if "wordnet" not in result["source"]:
-                    result["source"].append("wordnet")
+            # Check rate limits for WordNet
+            allowed, rate_status = self.alignment_layer.check_rate_limit("wordnet")
+            result["alignment_metadata"]["rate_limit_status"]["wordnet"] = rate_status
+            
+            if allowed:
+                start_time = time.time()
+                try:
+                    wordnet_data = self._query_wordnet(concept)
+                    response_time = time.time() - start_time
+                    self.alignment_layer.record_request("wordnet", True, response_time)
+                    
+                    if wordnet_data:
+                        # Process with alignment if enabled
+                        if propagate_confidence:
+                            wordnet_data = self._process_with_alignment(wordnet_data, concept, "wordnet")
+                        
+                        result["definitions"].extend(wordnet_data["definitions"])
+                        result["relations"].extend(wordnet_data["relations"])
+                        if "wordnet" not in result["source"]:
+                            result["source"].append("wordnet")
+                except Exception as e:
+                    response_time = time.time() - start_time
+                    self.alignment_layer.record_request("wordnet", False, response_time)
+                    logger.warning(f"WordNet query failed: {e}")
+            else:
+                logger.warning(f"WordNet rate limit exceeded: {rate_status}")
         
         if self.conceptnet_enabled and not self.offline_mode:
-            conceptnet_data = self._query_conceptnet(concept)
-            if conceptnet_data:
-                # Filter by relation types if specified
-                if relation_types:
-                    conceptnet_data["relations"] = [
-                        r for r in conceptnet_data["relations"] 
-                        if r["relation"] in relation_types
-                    ]
-                
-                result["relations"].extend(conceptnet_data["relations"])
-                if "conceptnet" not in result["source"]:
-                    result["source"].append("conceptnet")
+            # Check rate limits for ConceptNet
+            allowed, rate_status = self.alignment_layer.check_rate_limit("conceptnet")
+            result["alignment_metadata"]["rate_limit_status"]["conceptnet"] = rate_status
+            
+            if allowed:
+                start_time = time.time()
+                try:
+                    conceptnet_data = self._query_conceptnet(concept)
+                    response_time = time.time() - start_time
+                    self.alignment_layer.record_request("conceptnet", True, response_time)
+                    
+                    if conceptnet_data:
+                        # Filter by relation types if specified
+                        if relation_types:
+                            conceptnet_data["relations"] = [
+                                r for r in conceptnet_data["relations"] 
+                                if r["relation"] in relation_types
+                            ]
+                        
+                        # Process with alignment if enabled
+                        if propagate_confidence:
+                            conceptnet_data = self._process_with_alignment(conceptnet_data, concept, "conceptnet")
+                        
+                        result["relations"].extend(conceptnet_data["relations"])
+                        if "conceptnet" not in result["source"]:
+                            result["source"].append("conceptnet")
+                except Exception as e:
+                    response_time = time.time() - start_time
+                    self.alignment_layer.record_request("conceptnet", False, response_time)
+                    logger.warning(f"ConceptNet query failed: {e}")
+            else:
+                logger.warning(f"ConceptNet rate limit exceeded: {rate_status}")
         
         # Filter relations by type if needed
         if relation_types:
@@ -627,3 +696,106 @@ class ExternalCommonSenseKB_Interface:
                             logger.debug(f"Removed cache file: {file}")
                         except Exception as e:
                             logger.warning(f"Error removing cache file {file}: {e}")
+
+    # ==========================================
+    # P3 W3.3 Alignment Layer Integration Methods
+    # ==========================================
+    
+    def _process_with_alignment(self, kb_data: Dict[str, Any], internal_concept: str, 
+                               external_source: str) -> Dict[str, Any]:
+        """Process external KB data with alignment layer integration."""
+        enhanced_data = kb_data.copy()
+        
+        # Add alignment mappings for the main concept
+        external_concept = kb_data.get("concept", internal_concept)
+        confidence = self._calculate_mapping_confidence(kb_data, external_source)
+        mapping_type = self._determine_mapping_type(internal_concept, external_concept)
+        
+        mapping_key = self.alignment_layer.add_alignment(
+            internal_concept=internal_concept,
+            external_concept=external_concept,
+            external_source=external_source,
+            confidence=confidence,
+            mapping_type=mapping_type,
+            metadata={
+                'definitions_count': len(kb_data.get('definitions', [])),
+                'relations_count': len(kb_data.get('relations', [])),
+                'query_timestamp': time.time()
+            }
+        )
+        
+        enhanced_data['alignment_mapping_key'] = mapping_key
+        enhanced_data['alignment_confidence'] = confidence
+        return enhanced_data
+    
+    def _enhance_with_alignment_info(self, cached_data: Dict[str, Any], 
+                                   internal_concept: str) -> Dict[str, Any]:
+        """Enhance cached data with current alignment information."""
+        enhanced_data = cached_data.copy()
+        mappings = self.alignment_layer.get_external_mappings(internal_concept)
+        
+        if 'alignment_metadata' not in enhanced_data:
+            enhanced_data['alignment_metadata'] = {}
+        
+        enhanced_data['alignment_metadata']['external_mappings'] = [
+            {
+                'external_concept': m.external_concept,
+                'external_source': m.external_source,
+                'confidence': m.confidence,
+                'mapping_type': m.mapping_type,
+                'quality_score': m.quality_score
+            }
+            for m in mappings
+        ]
+        enhanced_data['alignment_metadata']['cache_hit'] = True
+        return enhanced_data
+    
+    def _calculate_mapping_confidence(self, kb_data: Dict[str, Any], 
+                                    external_source: str) -> float:
+        """Calculate confidence score for a mapping based on data quality."""
+        confidence = 0.5  # Base confidence
+        confidence += min(len(kb_data.get('definitions', [])) * 0.1, 0.2)
+        confidence += min(len(kb_data.get('relations', [])) * 0.05, 0.2)
+        
+        if external_source == "wordnet":
+            confidence += 0.1
+        elif external_source == "conceptnet":
+            confidence += 0.05
+        
+        return min(confidence, 1.0)
+    
+    def _determine_mapping_type(self, internal_concept: str, external_concept: str) -> str:
+        """Determine the type of alignment mapping."""
+        internal_norm = internal_concept.lower().replace('_', '').replace(' ', '')
+        external_norm = external_concept.lower().replace('_', '').replace(' ', '')
+        
+        if internal_norm == external_norm:
+            return "exact"
+        elif internal_norm in external_norm or external_norm in internal_norm:
+            return "similar"
+        else:
+            return "related"
+    
+    def get_alignment_metrics(self) -> Dict[str, Any]:
+        """Get comprehensive alignment and rate limiting metrics."""
+        return self.alignment_layer.get_alignment_statistics()
+    
+    def get_external_mappings(self, internal_concept: str, 
+                            min_confidence: Optional[float] = None) -> List[Dict[str, Any]]:
+        """Get external mappings for an internal concept."""
+        mappings = self.alignment_layer.get_external_mappings(internal_concept, min_confidence)
+        return [
+            {
+                'internal_concept': m.internal_concept,
+                'external_concept': m.external_concept,
+                'external_source': m.external_source,
+                'confidence': m.confidence,
+                'mapping_type': m.mapping_type,
+                'quality_score': m.quality_score,
+                'usage_count': m.usage_count,
+                'created_at': m.created_at.isoformat(),
+                'last_used': m.last_used.isoformat(),
+                'metadata': m.metadata
+            }
+            for m in mappings
+        ]

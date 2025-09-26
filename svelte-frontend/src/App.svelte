@@ -80,6 +80,10 @@
   let showTransparencyModal = false;
   let showConsciousnessModal = false;
   
+  // P4 W4.1 Frontend Transparency Components
+  let showProofTraceModal = false;
+  let showKnowledgeEvolutionModal = false;
+  
   onMount(async () => {
     try {
       console.log('🚀 Initializing GödelOS cognitive interface...');
@@ -633,6 +637,35 @@
                 </div>
               </div>
             </div>
+            
+            <!-- P4 W4.1 Frontend Transparency Components -->
+            <div class="transparency-preview-panel">
+              <div class="panel-header">
+                <h3>Proof Traces</h3>
+                <button class="expand-btn" on:click={() => showProofTraceModal = true}>
+                  View Proofs 🔍
+                </button>
+              </div>
+              <div class="proof-preview">
+                <p class="component-description">
+                  Real-time proof step visualization and reasoning chain analysis
+                </p>
+              </div>
+            </div>
+            
+            <div class="evolution-preview-panel">
+              <div class="panel-header">
+                <h3>Knowledge Evolution</h3>
+                <button class="expand-btn" on:click={() => showKnowledgeEvolutionModal = true}>
+                  View Evolution 🌱
+                </button>
+              </div>
+              <div class="evolution-preview">
+                <p class="component-description">
+                  Track knowledge updates, context versions, and ontology changes
+                </p>
+              </div>
+            </div>
           </div>
         </div>
         
@@ -950,6 +983,53 @@
     on:close={() => showArchitectureTimelineModal = false}
   >
     <ArchitectureTimeline />
+  </Modal>
+
+  <!-- P4 W4.1 Frontend Transparency Modals -->
+  <Modal 
+    bind:show={showProofTraceModal} 
+    title="Proof Trace Visualization"
+    size="extra-large"
+    on:close={() => showProofTraceModal = false}
+  >
+    {#if showProofTraceModal}
+      {#await import('./components/transparency/ProofTraceVisualization.svelte')}
+        <div class="loading-container">
+          <div class="loading-spinner"></div>
+          <p>Loading Proof Trace Visualization...</p>
+        </div>
+      {:then module}
+        <svelte:component this={module.default} />
+      {:catch error}
+        <div class="error-container">
+          <p>Failed to load Proof Trace Visualization: {error.message}</p>
+          <p>⚠️ Proof trace visualization temporarily unavailable</p>
+        </div>
+      {/await}
+    {/if}
+  </Modal>
+
+  <Modal 
+    bind:show={showKnowledgeEvolutionModal} 
+    title="Knowledge Evolution Dashboard"
+    size="extra-large"
+    on:close={() => showKnowledgeEvolutionModal = false}
+  >
+    {#if showKnowledgeEvolutionModal}
+      {#await import('./components/transparency/KnowledgeEvolutionDashboard.svelte')}
+        <div class="loading-container">
+          <div class="loading-spinner"></div>
+          <p>Loading Knowledge Evolution Dashboard...</p>
+        </div>
+      {:then module}
+        <svelte:component this={module.default} />
+      {:catch error}
+        <div class="error-container">
+          <p>Failed to load Knowledge Evolution Dashboard: {error.message}</p>
+          <p>⚠️ Knowledge evolution dashboard temporarily unavailable</p>
+        </div>
+      {/await}
+    {/if}
   </Modal>
 </main>
 
