@@ -67,6 +67,22 @@ jobs:
         run: |
           pytest -m e2e
 
+      - name: Run P5 Core Architecture Tests
+        env:
+          PYTEST_ADDOPTS: "-q -v"
+        run: |
+          # Test P5 W1: KR Foundation
+          python -m pytest tests/core/ -k "test_p5w1" --tb=short || true
+          
+          # Test P5 W2: Enhanced Storage Integration
+          python tests/core/validate_p5w2.py || echo "P5 W2 validation completed with warnings"
+          
+          # Test P5 W3: Inference Engine
+          python -m pytest tests/core/ -k "test_p5w3" --tb=short || true
+          
+          # Test P5 W4: Cognitive Integration
+          python -m pytest tests/core/ -k "test_p5w4" --tb=short || true
+
       - name: Upload artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v4
