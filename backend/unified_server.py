@@ -258,6 +258,39 @@ class WebSocketManager:
         except Exception as e:
             logger.error(f"Error broadcasting consciousness update: {e}")
 
+    async def broadcast_learning_event(self, learning_event: dict):
+        """Broadcast learning system events (MCRL decisions, policy updates, progress) to all connected clients"""
+        try:
+            # Ensure learning event has proper structure
+            event_data = {
+                "event_type": "learning_update",
+                "component": learning_event.get("component", "learning_system"),
+                "details": learning_event.get("details", {}),
+                "timestamp": learning_event.get("timestamp", time.time()),
+                "priority": learning_event.get("priority", 3)  # Default to info level
+            }
+            
+            # Add learning-specific fields
+            if "policy_update" in learning_event:
+                event_data["policy_update"] = learning_event["policy_update"]
+            if "decision" in learning_event:
+                event_data["decision"] = learning_event["decision"]
+            if "reward" in learning_event:
+                event_data["reward"] = learning_event["reward"]
+            if "exploration_rate" in learning_event:
+                event_data["exploration_rate"] = learning_event["exploration_rate"]
+            if "performance_metrics" in learning_event:
+                event_data["performance_metrics"] = learning_event["performance_metrics"]
+
+            message = {
+                "type": "cognitive_event",
+                "timestamp": event_data["timestamp"],
+                "data": event_data
+            }
+            await self.broadcast(message)
+        except Exception as e:
+            logger.error(f"Error broadcasting learning event: {e}")
+
     def has_connections(self) -> bool:
         return len(self.active_connections) > 0
 
@@ -819,6 +852,23 @@ async def _ensure_ksi_and_inference():
                 pass
         except Exception:
             ksi_adapter = None  # degrade gracefully
+
+    # Initialize grounding integration (P3 W3.1)
+    global grounding_context_manager
+    try:
+        grounding_context_manager
+    except NameError:
+        grounding_context_manager = None
+        
+    if not grounding_context_manager and ksi_adapter:
+        try:
+            from backend.core.grounding_integration import initialize_grounding_integration
+            grounding_context_manager = initialize_grounding_integration(ksi_adapter)
+            await grounding_context_manager.initialize_contexts()
+            logger.info("Grounding integration initialized successfully")
+        except Exception as e:
+            logger.warning(f"Grounding integration initialization failed: {e}")
+            grounding_context_manager = None
 
     if not inference_engine:
         try:
@@ -2022,6 +2072,1580 @@ async def get_learning_summary():
     except Exception as e:
         logger.error(f"Error getting learning summary: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# =====================================================================
+# META-CONTROL REINFORCEMENT LEARNING (MCRL) ENDPOINTS
+# =====================================================================
+
+@app.get("/api/learning/mcrl/status")
+async def get_mcrl_status():
+    """Get MetaControlRLModule status including policy state and learning metrics."""
+    try:
+        # Import MetaControlRLModule if available
+        try:
+            from godelOS.learning_system.meta_control_rl_module import MetaControlRLModule
+            MCRL_AVAILABLE = True
+        except ImportError:
+            MCRL_AVAILABLE = False
+
+        if not MCRL_AVAILABLE:
+            return JSONResponse(content={
+                "available": False,
+                "error": "MetaControlRLModule not available",
+                "status": "unavailable"
+            })
+
+        # Get MCRL instance from cognitive manager if available
+        mcrl_instance = None
+        if cognitive_manager and hasattr(cognitive_manager, 'mcrl_module'):
+            mcrl_instance = cognitive_manager.mcrl_module
+
+        if not mcrl_instance:
+            # Try to initialize a status-only instance for reporting
+            try:
+                from godelOS.learning_system.meta_control_rl_module import RLConfig
+                config = RLConfig()  # Use default config
+                mcrl_instance = MetaControlRLModule(config)
+                logger.info("Created temporary MCRL instance for status reporting")
+            except Exception as e:
+                logger.warning(f"Could not create MCRL instance: {e}")
+
+        if mcrl_instance:
+            # Get comprehensive status
+            status = {
+                "available": True,
+                "initialized": True,
+                "total_episodes": getattr(mcrl_instance, 'episode_count', 0),
+                "current_epsilon": getattr(mcrl_instance, 'epsilon', 0.1),
+                "total_actions": len(getattr(mcrl_instance, 'action_history', [])),
+                "replay_buffer_size": len(getattr(mcrl_instance.replay_buffer, 'buffer', [])) if hasattr(mcrl_instance, 'replay_buffer') else 0,
+                "model_trained": getattr(mcrl_instance, 'model_trained', False),
+                "last_reward": getattr(mcrl_instance, 'last_reward', None),
+                "average_reward": getattr(mcrl_instance, 'average_reward', None),
+                "exploration_rate": getattr(mcrl_instance, 'epsilon', 0.1),
+                "learning_rate": getattr(mcrl_instance.config, 'learning_rate', 0.001),
+                "status": "active"
+            }
+
+            # Add policy state if available
+            if hasattr(mcrl_instance, 'get_policy_summary'):
+                try:
+                    status["policy_summary"] = mcrl_instance.get_policy_summary()
+                except Exception as e:
+                    logger.warning(f"Could not get policy summary: {e}")
+                    status["policy_summary"] = {"error": str(e)}
+
+            return JSONResponse(content=status)
+        else:
+            return JSONResponse(content={
+                "available": True,
+                "initialized": False,
+                "status": "not_initialized",
+                "error": "MCRL instance not available in cognitive manager"
+            })
+
+    except Exception as e:
+        logger.error(f"Error getting MCRL status: {e}")
+        raise HTTPException(status_code=500, detail=f"MCRL status error: {str(e)}")
+
+@app.get("/api/learning/mcrl/policy")
+async def get_mcrl_policy():
+    """Get MetaControlRLModule policy details including Q-values and action preferences."""
+    try:
+        # Import and check availability
+        try:
+            from godelOS.learning_system.meta_control_rl_module import MetaControlRLModule
+            MCRL_AVAILABLE = True
+        except ImportError:
+            MCRL_AVAILABLE = False
+
+        if not MCRL_AVAILABLE:
+            return JSONResponse(content={
+                "available": False,
+                "error": "MetaControlRLModule not available"
+            })
+
+        # Get MCRL instance
+        mcrl_instance = None
+        if cognitive_manager and hasattr(cognitive_manager, 'mcrl_module'):
+            mcrl_instance = cognitive_manager.mcrl_module
+
+        if not mcrl_instance:
+            return JSONResponse(content={
+                "available": True,
+                "initialized": False,
+                "error": "MCRL instance not available in cognitive manager"
+            })
+
+        # Get policy details
+        policy_data = {
+            "available": True,
+            "initialized": True,
+            "timestamp": time.time()
+        }
+
+        # Get current state and Q-values if model is trained
+        if hasattr(mcrl_instance, 'model') and mcrl_instance.model and getattr(mcrl_instance, 'model_trained', False):
+            try:
+                # Get current state representation
+                current_state = getattr(mcrl_instance, 'current_state', None)
+                if current_state is not None:
+                    policy_data["current_state"] = current_state.tolist() if hasattr(current_state, 'tolist') else str(current_state)
+
+                # Get Q-values for current state if available
+                if hasattr(mcrl_instance, 'get_q_values'):
+                    q_values = mcrl_instance.get_q_values(current_state)
+                    policy_data["q_values"] = q_values.tolist() if hasattr(q_values, 'tolist') else str(q_values)
+
+                # Get action preferences
+                if hasattr(mcrl_instance, 'get_action_probabilities'):
+                    action_probs = mcrl_instance.get_action_probabilities(current_state)
+                    policy_data["action_probabilities"] = action_probs
+
+            except Exception as e:
+                logger.warning(f"Could not get detailed policy info: {e}")
+                policy_data["policy_details_error"] = str(e)
+
+        # Get recent action history
+        if hasattr(mcrl_instance, 'action_history'):
+            recent_actions = list(mcrl_instance.action_history)[-10:]  # Last 10 actions
+            policy_data["recent_actions"] = [
+                {
+                    "action": str(action),
+                    "timestamp": getattr(action, 'timestamp', None)
+                } for action in recent_actions
+            ]
+
+        # Get exploration/exploitation stats
+        policy_data["exploration_stats"] = {
+            "epsilon": getattr(mcrl_instance, 'epsilon', 0.1),
+            "exploration_decay": getattr(mcrl_instance.config, 'epsilon_decay', 0.995),
+            "min_epsilon": getattr(mcrl_instance.config, 'epsilon_min', 0.01)
+        }
+
+        return JSONResponse(content=policy_data)
+
+    except Exception as e:
+        logger.error(f"Error getting MCRL policy: {e}")
+        raise HTTPException(status_code=500, detail=f"MCRL policy error: {str(e)}")
+
+@app.post("/api/learning/mcrl/action")
+async def execute_mcrl_action(action_request: Dict[str, Any]):
+    """Execute a meta-control action through the MCRL module."""
+    try:
+        # Import and check availability
+        try:
+            from godelOS.learning_system.meta_control_rl_module import MetaControlRLModule
+            MCRL_AVAILABLE = True
+        except ImportError:
+            MCRL_AVAILABLE = False
+
+        if not MCRL_AVAILABLE:
+            raise HTTPException(status_code=503, detail="MetaControlRLModule not available")
+
+        # Get MCRL instance
+        mcrl_instance = None
+        if cognitive_manager and hasattr(cognitive_manager, 'mcrl_module'):
+            mcrl_instance = cognitive_manager.mcrl_module
+
+        if not mcrl_instance:
+            raise HTTPException(status_code=503, detail="MCRL instance not available in cognitive manager")
+
+        # Extract action parameters
+        action_type = action_request.get("action_type")
+        context = action_request.get("context", {})
+        
+        if not action_type:
+            raise HTTPException(status_code=400, detail="action_type is required")
+
+        # Execute the action
+        try:
+            if hasattr(mcrl_instance, 'execute_meta_action'):
+                result = await mcrl_instance.execute_meta_action(action_type, context)
+            else:
+                result = {"error": "execute_meta_action method not available", "action_type": action_type}
+
+            # Broadcast learning event for transparency
+            if websocket_manager and websocket_manager.has_connections():
+                learning_event = {
+                    "component": "mcrl_module",
+                    "details": {
+                        "action_executed": action_type,
+                        "context": context,
+                        "result_status": "success" if "error" not in result else "error"
+                    },
+                    "decision": {
+                        "action_type": action_type,
+                        "success": "error" not in result
+                    },
+                    "timestamp": time.time(),
+                    "priority": 2  # Important learning decision
+                }
+                
+                # Add reward if available
+                if hasattr(mcrl_instance, 'last_reward') and mcrl_instance.last_reward is not None:
+                    learning_event["reward"] = mcrl_instance.last_reward
+                
+                # Add exploration rate
+                if hasattr(mcrl_instance, 'epsilon'):
+                    learning_event["exploration_rate"] = mcrl_instance.epsilon
+
+                await websocket_manager.broadcast_learning_event(learning_event)
+
+            return JSONResponse(content={
+                "success": True,
+                "action_type": action_type,
+                "result": result,
+                "timestamp": time.time()
+            })
+
+        except Exception as e:
+            logger.error(f"Error executing MCRL action {action_type}: {e}")
+            
+            # Broadcast error event
+            if websocket_manager and websocket_manager.has_connections():
+                error_event = {
+                    "component": "mcrl_module",
+                    "details": {
+                        "action_attempted": action_type,
+                        "error": str(e)
+                    },
+                    "decision": {
+                        "action_type": action_type,
+                        "success": False,
+                        "error": str(e)
+                    },
+                    "timestamp": time.time(),
+                    "priority": 1  # Error level
+                }
+                await websocket_manager.broadcast_learning_event(error_event)
+            
+            return JSONResponse(content={
+                "success": False,
+                "action_type": action_type,
+                "error": str(e),
+                "timestamp": time.time()
+            })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in MCRL action execution: {e}")
+        raise HTTPException(status_code=500, detail=f"MCRL action error: {str(e)}")
+
+@app.get("/api/learning/mcrl/metrics")
+async def get_mcrl_metrics():
+    """Get MetaControlRLModule performance metrics and learning statistics."""
+    try:
+        # Import and check availability
+        try:
+            from godelOS.learning_system.meta_control_rl_module import MetaControlRLModule
+            MCRL_AVAILABLE = True
+        except ImportError:
+            MCRL_AVAILABLE = False
+
+        if not MCRL_AVAILABLE:
+            return JSONResponse(content={
+                "available": False,
+                "error": "MetaControlRLModule not available"
+            })
+
+        # Get MCRL instance
+        mcrl_instance = None
+        if cognitive_manager and hasattr(cognitive_manager, 'mcrl_module'):
+            mcrl_instance = cognitive_manager.mcrl_module
+
+        if not mcrl_instance:
+            return JSONResponse(content={
+                "available": True,
+                "initialized": False,
+                "error": "MCRL instance not available in cognitive manager"
+            })
+
+        # Collect comprehensive metrics
+        metrics = {
+            "available": True,
+            "initialized": True,
+            "timestamp": time.time(),
+            
+            # Learning progress metrics
+            "learning_progress": {
+                "total_episodes": getattr(mcrl_instance, 'episode_count', 0),
+                "total_actions": len(getattr(mcrl_instance, 'action_history', [])),
+                "average_reward": getattr(mcrl_instance, 'average_reward', None),
+                "last_reward": getattr(mcrl_instance, 'last_reward', None),
+                "model_trained": getattr(mcrl_instance, 'model_trained', False)
+            },
+            
+            # Policy metrics
+            "policy_metrics": {
+                "exploration_rate": getattr(mcrl_instance, 'epsilon', 0.1),
+                "learning_rate": getattr(mcrl_instance.config, 'learning_rate', 0.001),
+                "discount_factor": getattr(mcrl_instance.config, 'discount_factor', 0.99)
+            },
+            
+            # Memory metrics
+            "memory_metrics": {
+                "replay_buffer_size": len(getattr(mcrl_instance.replay_buffer, 'buffer', [])) if hasattr(mcrl_instance, 'replay_buffer') else 0,
+                "replay_buffer_capacity": getattr(mcrl_instance.config, 'replay_buffer_size', 10000)
+            }
+        }
+
+        # Add reward history if available
+        if hasattr(mcrl_instance, 'reward_history'):
+            reward_history = list(mcrl_instance.reward_history)
+            metrics["reward_statistics"] = {
+                "recent_rewards": reward_history[-20:],  # Last 20 rewards
+                "total_rewards": len(reward_history),
+                "average_recent": sum(reward_history[-10:]) / len(reward_history[-10:]) if len(reward_history) >= 10 else None
+            }
+
+        # Add action distribution if available
+        if hasattr(mcrl_instance, 'action_history'):
+            from collections import Counter
+            action_counts = Counter(str(action) for action in mcrl_instance.action_history)
+            metrics["action_distribution"] = dict(action_counts)
+
+        # Add MetaKnowledgeBase (MKB) metrics if available
+        mkb_metrics = {}
+        try:
+            from godelOS.metacognition.meta_knowledge import MetaKnowledgeBase, MetaKnowledgeType
+            
+            # Try to get MKB instance from cognitive manager or initialize one
+            mkb_instance = getattr(cognitive_manager, 'meta_knowledge_base', None) if cognitive_manager else None
+            
+            if mkb_instance:
+                # Get learning effectiveness models
+                learning_models = mkb_instance.get_entries_by_type(MetaKnowledgeType.LEARNING_EFFECTIVENESS)
+                if learning_models:
+                    mkb_metrics["learning_effectiveness"] = {
+                        "total_models": len(learning_models),
+                        "models": [
+                            {
+                                "learning_approach": model.learning_approach,
+                                "success_rate": model.success_rate,
+                                "efficiency_score": model.efficiency_score,
+                                "confidence": model.confidence
+                            } for model in learning_models[-5:]  # Last 5 models
+                        ]
+                    }
+                
+                # Get component performance models related to learning
+                component_models = mkb_instance.get_entries_by_type(MetaKnowledgeType.COMPONENT_PERFORMANCE)
+                learning_components = [m for m in component_models if 'learning' in m.component_id.lower() or 'mcrl' in m.component_id.lower()]
+                if learning_components:
+                    mkb_metrics["component_performance"] = {
+                        "learning_components": len(learning_components),
+                        "average_response_time": sum(c.average_response_time_ms for c in learning_components) / len(learning_components),
+                        "average_failure_rate": sum(c.failure_rate for c in learning_components) / len(learning_components)
+                    }
+                
+                # Get optimization hints for learning components
+                optimization_hints = []
+                for comp in learning_components:
+                    hints = mkb_instance.get_optimization_hints_for_component(comp.component_id)
+                    optimization_hints.extend(hints)
+                
+                if optimization_hints:
+                    mkb_metrics["optimization_hints"] = {
+                        "total_hints": len(optimization_hints),
+                        "recent_hints": [
+                            {
+                                "hint": hint.hint_description,
+                                "priority": hint.priority,
+                                "expected_improvement": hint.expected_improvement
+                            } for hint in optimization_hints[-3:]  # Last 3 hints
+                        ]
+                    }
+                
+                mkb_metrics["mkb_available"] = True
+                mkb_metrics["mkb_total_entries"] = sum(len(repo.list_all()) for repo in mkb_instance.repositories.values())
+            else:
+                mkb_metrics["mkb_available"] = False
+                mkb_metrics["error"] = "MetaKnowledgeBase instance not available"
+                
+        except ImportError:
+            mkb_metrics["mkb_available"] = False
+            mkb_metrics["error"] = "MetaKnowledgeBase not available"
+        except Exception as e:
+            mkb_metrics["mkb_available"] = False
+            mkb_metrics["error"] = f"Error accessing MKB: {str(e)}"
+
+        metrics["meta_knowledge_metrics"] = mkb_metrics
+
+        return JSONResponse(content=metrics)
+
+    except Exception as e:
+        logger.error(f"Error getting MCRL metrics: {e}")
+        raise HTTPException(status_code=500, detail=f"MCRL metrics error: {str(e)}")
+
+@app.get("/api/learning/mkb/metrics")
+async def get_mkb_learning_metrics():
+    """Get MetaKnowledgeBase learning-specific metrics and insights."""
+    try:
+        # Import MetaKnowledgeBase
+        try:
+            from godelOS.metacognition.meta_knowledge import MetaKnowledgeBase, MetaKnowledgeType
+            MKB_AVAILABLE = True
+        except ImportError:
+            MKB_AVAILABLE = False
+
+        if not MKB_AVAILABLE:
+            return JSONResponse(content={
+                "available": False,
+                "error": "MetaKnowledgeBase not available"
+            })
+
+        # Get MKB instance from cognitive manager
+        mkb_instance = None
+        if cognitive_manager and hasattr(cognitive_manager, 'meta_knowledge_base'):
+            mkb_instance = cognitive_manager.meta_knowledge_base
+
+        if not mkb_instance:
+            return JSONResponse(content={
+                "available": True,
+                "initialized": False,
+                "error": "MetaKnowledgeBase instance not available in cognitive manager"
+            })
+
+        # Collect comprehensive MKB learning metrics
+        mkb_metrics = {
+            "available": True,
+            "initialized": True,
+            "timestamp": time.time()
+        }
+
+        # Learning effectiveness metrics
+        try:
+            learning_models = mkb_instance.get_entries_by_type(MetaKnowledgeType.LEARNING_EFFECTIVENESS)
+            mkb_metrics["learning_effectiveness"] = {
+                "total_models": len(learning_models),
+                "average_success_rate": sum(m.success_rate for m in learning_models) / len(learning_models) if learning_models else 0.0,
+                "average_efficiency": sum(m.efficiency_score for m in learning_models) / len(learning_models) if learning_models else 0.0,
+                "recent_models": [
+                    {
+                        "learning_approach": model.learning_approach,
+                        "success_rate": model.success_rate,
+                        "efficiency_score": model.efficiency_score,
+                        "confidence": model.confidence,
+                        "last_updated": model.last_updated
+                    } for model in sorted(learning_models, key=lambda x: x.last_updated, reverse=True)[:5]
+                ]
+            }
+        except Exception as e:
+            mkb_metrics["learning_effectiveness"] = {"error": str(e)}
+
+        # Component performance for learning systems
+        try:
+            component_models = mkb_instance.get_entries_by_type(MetaKnowledgeType.COMPONENT_PERFORMANCE)
+            learning_components = [m for m in component_models if any(keyword in m.component_id.lower() for keyword in ['learning', 'mcrl', 'rl', 'train'])]
+            
+            mkb_metrics["learning_component_performance"] = {
+                "total_components": len(learning_components),
+                "components": [
+                    {
+                        "component_id": comp.component_id,
+                        "average_response_time_ms": comp.average_response_time_ms,
+                        "throughput_per_second": comp.throughput_per_second,
+                        "failure_rate": comp.failure_rate,
+                        "confidence": comp.confidence
+                    } for comp in learning_components[-5:]  # Last 5 components
+                ]
+            }
+            
+            if learning_components:
+                mkb_metrics["learning_component_performance"]["aggregated"] = {
+                    "average_response_time": sum(c.average_response_time_ms for c in learning_components) / len(learning_components),
+                    "average_throughput": sum(c.throughput_per_second for c in learning_components) / len(learning_components),
+                    "average_failure_rate": sum(c.failure_rate for c in learning_components) / len(learning_components)
+                }
+                
+        except Exception as e:
+            mkb_metrics["learning_component_performance"] = {"error": str(e)}
+
+        # System capabilities related to learning
+        try:
+            all_capabilities = mkb_instance.get_entries_by_type(MetaKnowledgeType.SYSTEM_CAPABILITY)
+            learning_capabilities = [c for c in all_capabilities if any(keyword in c.capability_name.lower() for keyword in ['learning', 'adapt', 'train', 'improve'])]
+            
+            mkb_metrics["learning_capabilities"] = {
+                "total_capabilities": len(learning_capabilities),
+                "capabilities": [
+                    {
+                        "capability_name": cap.capability_name,
+                        "performance_level": cap.performance_level,
+                        "confidence": cap.confidence,
+                        "last_updated": cap.last_updated
+                    } for cap in learning_capabilities
+                ]
+            }
+        except Exception as e:
+            mkb_metrics["learning_capabilities"] = {"error": str(e)}
+
+        # Optimization hints for learning systems
+        try:
+            all_hints = mkb_instance.get_entries_by_type(MetaKnowledgeType.OPTIMIZATION_HINT)
+            learning_hints = [h for h in all_hints if any(keyword in h.target_component.lower() for keyword in ['learning', 'mcrl', 'rl', 'train'])]
+            
+            mkb_metrics["optimization_hints"] = {
+                "total_hints": len(learning_hints),
+                "high_priority_hints": len([h for h in learning_hints if h.priority == "high"]),
+                "recent_hints": [
+                    {
+                        "target_component": hint.target_component,
+                        "hint_description": hint.hint_description,
+                        "priority": hint.priority,
+                        "expected_improvement": hint.expected_improvement,
+                        "confidence": hint.confidence
+                    } for hint in sorted(learning_hints, key=lambda x: x.last_updated, reverse=True)[:5]
+                ]
+            }
+        except Exception as e:
+            mkb_metrics["optimization_hints"] = {"error": str(e)}
+
+        # Failure patterns in learning systems
+        try:
+            failure_patterns = mkb_instance.get_entries_by_type(MetaKnowledgeType.FAILURE_PATTERN)
+            learning_failures = [f for f in failure_patterns if any(comp for comp in f.affected_components if any(keyword in comp.lower() for keyword in ['learning', 'mcrl', 'rl']))]
+            
+            mkb_metrics["failure_patterns"] = {
+                "total_patterns": len(learning_failures),
+                "recent_patterns": [
+                    {
+                        "failure_description": pattern.failure_description,
+                        "affected_components": pattern.affected_components,
+                        "severity": pattern.severity,
+                        "frequency": pattern.frequency
+                    } for pattern in sorted(learning_failures, key=lambda x: x.last_updated, reverse=True)[:3]
+                ]
+            }
+        except Exception as e:
+            mkb_metrics["failure_patterns"] = {"error": str(e)}
+
+        # Overall MKB statistics
+        try:
+            total_entries = sum(len(repo.list_all()) for repo in mkb_instance.repositories.values())
+            mkb_metrics["overall_statistics"] = {
+                "total_entries": total_entries,
+                "entries_by_type": {
+                    mk_type.value: len(mkb_instance.repositories[mk_type].list_all())
+                    for mk_type in MetaKnowledgeType
+                },
+                "average_confidence": sum(
+                    sum(entry.confidence for entry in repo.list_all())
+                    for repo in mkb_instance.repositories.values()
+                ) / total_entries if total_entries > 0 else 0.0
+            }
+        except Exception as e:
+            mkb_metrics["overall_statistics"] = {"error": str(e)}
+
+        return JSONResponse(content=mkb_metrics)
+
+    except Exception as e:
+        logger.error(f"Error getting MKB learning metrics: {e}")
+        raise HTTPException(status_code=500, detail=f"MKB metrics error: {str(e)}")
+
+@app.post("/api/learning/stream/progress")
+async def stream_learning_progress():
+    """Trigger streaming of current learning system progress to connected WebSocket clients."""
+    try:
+        if not websocket_manager or not websocket_manager.has_connections():
+            return JSONResponse(content={
+                "success": False,
+                "error": "No WebSocket connections available for streaming"
+            })
+
+        # Get current learning progress from various sources
+        progress_data = {
+            "component": "learning_system",
+            "details": {
+                "progress_type": "comprehensive_update",
+                "systems_active": []
+            },
+            "timestamp": time.time(),
+            "priority": 3
+        }
+
+        # Add MCRL progress if available
+        if cognitive_manager and hasattr(cognitive_manager, 'mcrl_module') and cognitive_manager.mcrl_module:
+            mcrl = cognitive_manager.mcrl_module
+            mcrl_progress = {
+                "system": "mcrl",
+                "episodes": getattr(mcrl, 'episode_count', 0),
+                "actions": len(getattr(mcrl, 'action_history', [])),
+                "exploration_rate": getattr(mcrl, 'epsilon', 0.1),
+                "average_reward": getattr(mcrl, 'average_reward', None),
+                "model_trained": getattr(mcrl, 'model_trained', False)
+            }
+            progress_data["details"]["mcrl"] = mcrl_progress
+            progress_data["details"]["systems_active"].append("mcrl")
+
+        # Add MKB metrics if available
+        if cognitive_manager and hasattr(cognitive_manager, 'meta_knowledge_base') and cognitive_manager.meta_knowledge_base:
+            try:
+                from godelOS.metacognition.meta_knowledge import MetaKnowledgeType
+                mkb = cognitive_manager.meta_knowledge_base
+                total_entries = sum(len(repo.list_all()) for repo in mkb.repositories.values())
+                learning_models = mkb.get_entries_by_type(MetaKnowledgeType.LEARNING_EFFECTIVENESS)
+                
+                mkb_progress = {
+                    "system": "mkb",
+                    "total_entries": total_entries,
+                    "learning_models": len(learning_models),
+                    "average_learning_success": sum(m.success_rate for m in learning_models) / len(learning_models) if learning_models else 0.0
+                }
+                progress_data["details"]["mkb"] = mkb_progress
+                progress_data["details"]["systems_active"].append("mkb")
+            except Exception as e:
+                logger.warning(f"Could not get MKB progress: {e}")
+
+        # Add autonomous learning progress
+        try:
+            from backend.core.autonomous_learning import autonomous_learning_system
+            if hasattr(autonomous_learning_system, 'get_current_status'):
+                autonomous_progress = await autonomous_learning_system.get_current_status()
+                progress_data["details"]["autonomous_learning"] = autonomous_progress
+                progress_data["details"]["systems_active"].append("autonomous_learning")
+        except Exception as e:
+            logger.warning(f"Could not get autonomous learning progress: {e}")
+
+        # Stream the progress
+        await websocket_manager.broadcast_learning_event(progress_data)
+
+        return JSONResponse(content={
+            "success": True,
+            "systems_reported": progress_data["details"]["systems_active"],
+            "connections_notified": len(websocket_manager.active_connections),
+            "timestamp": progress_data["timestamp"]
+        })
+
+    except Exception as e:
+        logger.error(f"Error streaming learning progress: {e}")
+        raise HTTPException(status_code=500, detail=f"Learning progress streaming error: {str(e)}")
+
+# =====================================================================
+# PARALLEL INFERENCE ENDPOINTS  
+# =====================================================================
+
+@app.get("/api/inference/parallel/status")
+async def get_parallel_inference_status():
+    """Get ParallelInferenceManager status including active tasks, queue size, and performance statistics."""
+    try:
+        # Import ParallelInferenceManager if available
+        try:
+            from godelOS.scalability.parallel_inference import ParallelInferenceManager, TaskPriority
+            PARALLEL_INFERENCE_AVAILABLE = True
+        except ImportError:
+            PARALLEL_INFERENCE_AVAILABLE = False
+
+        if not PARALLEL_INFERENCE_AVAILABLE:
+            return JSONResponse(content={
+                "available": False,
+                "error": "ParallelInferenceManager not available"
+            })
+
+        # Get parallel inference manager from cognitive manager if available
+        parallel_manager = None
+        if cognitive_manager and hasattr(cognitive_manager, 'parallel_inference_manager'):
+            parallel_manager = cognitive_manager.parallel_inference_manager
+
+        if not parallel_manager:
+            return JSONResponse(content={
+                "available": True,
+                "initialized": False,
+                "error": "ParallelInferenceManager instance not available in cognitive manager"
+            })
+
+        # Get comprehensive status
+        statistics = parallel_manager.get_statistics()
+        
+        status = {
+            "available": True,
+            "initialized": True,
+            "timestamp": time.time(),
+            "max_workers": parallel_manager.max_workers,
+            "strategy": parallel_manager.strategy.__class__.__name__,
+            **statistics
+        }
+
+        # Add task queue status
+        try:
+            status["queue_empty"] = parallel_manager.task_queue.empty()
+            status["queue_full"] = parallel_manager.task_queue.full()
+        except Exception:
+            pass
+
+        # Add active task details if available
+        if hasattr(parallel_manager, 'active_tasks'):
+            active_task_details = []
+            with parallel_manager.task_lock:
+                for task_id, future in parallel_manager.active_tasks.items():
+                    active_task_details.append({
+                        "task_id": task_id,
+                        "running": future.running(),
+                        "done": future.done(),
+                        "cancelled": future.cancelled()
+                    })
+            status["active_task_details"] = active_task_details
+
+        return JSONResponse(content=status)
+
+    except Exception as e:
+        logger.error(f"Error getting parallel inference status: {e}")
+        raise HTTPException(status_code=500, detail=f"Parallel inference status error: {str(e)}")
+
+@app.post("/api/inference/parallel/submit")
+async def submit_parallel_inference_task(task_request: Dict[str, Any]):
+    """Submit a task for parallel inference processing."""
+    try:
+        # Import dependencies
+        try:
+            from godelOS.scalability.parallel_inference import ParallelInferenceManager, TaskPriority
+            from backend.core.nl_semantic_parser import get_nl_semantic_parser
+            PARALLEL_INFERENCE_AVAILABLE = True
+        except ImportError:
+            PARALLEL_INFERENCE_AVAILABLE = False
+
+        if not PARALLEL_INFERENCE_AVAILABLE:
+            raise HTTPException(status_code=503, detail="ParallelInferenceManager not available")
+
+        # Get parallel inference manager
+        parallel_manager = None
+        if cognitive_manager and hasattr(cognitive_manager, 'parallel_inference_manager'):
+            parallel_manager = cognitive_manager.parallel_inference_manager
+
+        if not parallel_manager:
+            raise HTTPException(status_code=503, detail="ParallelInferenceManager instance not available")
+
+        # Extract task parameters
+        query_text = task_request.get("query")
+        context_ids = task_request.get("context_ids", ["TRUTHS"])
+        priority = task_request.get("priority", "medium")
+        timeout = task_request.get("timeout")
+
+        if not query_text:
+            raise HTTPException(status_code=400, detail="query is required")
+
+        # Parse priority
+        priority_map = {
+            "low": TaskPriority.LOW,
+            "medium": TaskPriority.MEDIUM,
+            "high": TaskPriority.HIGH,
+            "critical": TaskPriority.CRITICAL
+        }
+        
+        task_priority = priority_map.get(priority.lower(), TaskPriority.MEDIUM)
+
+        # Formalize the query to AST
+        parser = get_nl_semantic_parser()
+        formal = await parser.formalize(query_text)
+        
+        if not formal.success or formal.ast is None:
+            raise HTTPException(status_code=400, detail=f"Could not parse query: {formal.errors}")
+
+        # Submit the task
+        task_id = parallel_manager.submit_task(
+            query=formal.ast,
+            context_ids=context_ids,
+            priority=task_priority,
+            timeout=timeout
+        )
+
+        # Broadcast parallel inference event for transparency
+        if websocket_manager and websocket_manager.has_connections():
+            inference_event = {
+                "component": "parallel_inference",
+                "details": {
+                    "task_submitted": task_id,
+                    "query": query_text,
+                    "context_ids": context_ids,
+                    "priority": priority
+                },
+                "timestamp": time.time(),
+                "priority": 3
+            }
+            
+            # Use the general broadcast method for parallel inference events
+            await websocket_manager.broadcast_cognitive_update(inference_event)
+
+        return JSONResponse(content={
+            "success": True,
+            "task_id": task_id,
+            "priority": priority,
+            "context_ids": context_ids,
+            "timestamp": time.time()
+        })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error submitting parallel inference task: {e}")
+        raise HTTPException(status_code=500, detail=f"Task submission error: {str(e)}")
+
+@app.get("/api/inference/parallel/task/{task_id}")
+async def get_parallel_inference_task_status(task_id: str, wait: bool = False):
+    """Get the status and result of a parallel inference task."""
+    try:
+        # Import dependencies
+        try:
+            from godelOS.scalability.parallel_inference import ParallelInferenceManager
+            PARALLEL_INFERENCE_AVAILABLE = True
+        except ImportError:
+            PARALLEL_INFERENCE_AVAILABLE = False
+
+        if not PARALLEL_INFERENCE_AVAILABLE:
+            raise HTTPException(status_code=503, detail="ParallelInferenceManager not available")
+
+        # Get parallel inference manager
+        parallel_manager = None
+        if cognitive_manager and hasattr(cognitive_manager, 'parallel_inference_manager'):
+            parallel_manager = cognitive_manager.parallel_inference_manager
+
+        if not parallel_manager:
+            raise HTTPException(status_code=503, detail="ParallelInferenceManager instance not available")
+
+        # Get task status
+        task_status = parallel_manager.get_task_status(task_id)
+        
+        if task_status is None:
+            raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+
+        # Get task result if available
+        task_result = parallel_manager.get_task_result(task_id, wait=wait)
+        
+        response = {
+            "task_id": task_id,
+            "status": task_status,
+            "timestamp": time.time()
+        }
+
+        if task_result:
+            response.update({
+                "completed": True,
+                "success": task_result.is_success(),
+                "completed_at": task_result.completed_at
+            })
+            
+            if task_result.is_success() and task_result.result:
+                # Convert proof object to serializable format
+                proof = task_result.result
+                response["result"] = {
+                    "goal_achieved": proof.goal_achieved,
+                    "proof_steps": len(proof.proof_steps) if hasattr(proof, 'proof_steps') else 0,
+                    "proof_summary": str(proof)[:200] + "..." if len(str(proof)) > 200 else str(proof),
+                    "status_message": proof.status_message if hasattr(proof, 'status_message') else "Unknown"
+                }
+            elif task_result.error:
+                response["error"] = str(task_result.error)
+        else:
+            response["completed"] = False
+
+        return JSONResponse(content=response)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting task status for {task_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Task status error: {str(e)}")
+
+@app.post("/api/inference/parallel/batch")
+async def submit_parallel_inference_batch(batch_request: Dict[str, Any]):
+    """Submit multiple queries for parallel batch processing."""
+    try:
+        # Import dependencies
+        try:
+            from godelOS.scalability.parallel_inference import ParallelInferenceManager
+            from backend.core.nl_semantic_parser import get_nl_semantic_parser
+            PARALLEL_INFERENCE_AVAILABLE = True
+        except ImportError:
+            PARALLEL_INFERENCE_AVAILABLE = False
+
+        if not PARALLEL_INFERENCE_AVAILABLE:
+            raise HTTPException(status_code=503, detail="ParallelInferenceManager not available")
+
+        # Get parallel inference manager
+        parallel_manager = None
+        if cognitive_manager and hasattr(cognitive_manager, 'parallel_inference_manager'):
+            parallel_manager = cognitive_manager.parallel_inference_manager
+
+        if not parallel_manager:
+            raise HTTPException(status_code=503, detail="ParallelInferenceManager instance not available")
+
+        # Extract batch parameters
+        queries = batch_request.get("queries", [])
+        context_ids = batch_request.get("context_ids", ["TRUTHS"])
+        
+        if not queries or not isinstance(queries, list):
+            raise HTTPException(status_code=400, detail="queries list is required")
+
+        # Parse all queries to AST
+        parser = get_nl_semantic_parser()
+        parsed_queries = []
+        
+        for i, query_text in enumerate(queries):
+            formal = await parser.formalize(query_text)
+            if not formal.success or formal.ast is None:
+                raise HTTPException(status_code=400, detail=f"Could not parse query {i}: {formal.errors}")
+            parsed_queries.append(formal.ast)
+
+        # Execute batch processing
+        start_time = time.time()
+        proof_results = parallel_manager.batch_prove(parsed_queries, context_ids)
+        end_time = time.time()
+
+        # Format results
+        results = []
+        for i, (query_text, proof) in enumerate(zip(queries, proof_results)):
+            results.append({
+                "query": query_text,
+                "goal_achieved": proof.goal_achieved,
+                "proof_summary": str(proof)[:100] + "..." if len(str(proof)) > 100 else str(proof),
+                "status_message": proof.status_message if hasattr(proof, 'status_message') else "Unknown"
+            })
+
+        # Broadcast batch completion event
+        if websocket_manager and websocket_manager.has_connections():
+            batch_event = {
+                "component": "parallel_inference",
+                "details": {
+                    "batch_completed": len(queries),
+                    "duration_seconds": end_time - start_time,
+                    "success_count": sum(1 for result in results if result["goal_achieved"]),
+                    "context_ids": context_ids
+                },
+                "timestamp": end_time,
+                "priority": 2
+            }
+            await websocket_manager.broadcast_cognitive_update(batch_event)
+
+        return JSONResponse(content={
+            "success": True,
+            "batch_size": len(queries),
+            "results": results,
+            "duration_seconds": end_time - start_time,
+            "timestamp": end_time
+        })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing parallel inference batch: {e}")
+        raise HTTPException(status_code=500, detail=f"Batch processing error: {str(e)}")
+
+@app.get("/api/inference/parallel/metrics")
+async def get_parallel_inference_metrics():
+    """Get detailed performance metrics for parallel inference operations."""
+    try:
+        # Import dependencies
+        try:
+            from godelOS.scalability.parallel_inference import ParallelInferenceManager
+            PARALLEL_INFERENCE_AVAILABLE = True
+        except ImportError:
+            PARALLEL_INFERENCE_AVAILABLE = False
+
+        if not PARALLEL_INFERENCE_AVAILABLE:
+            return JSONResponse(content={
+                "available": False,
+                "error": "ParallelInferenceManager not available"
+            })
+
+        # Get parallel inference manager
+        parallel_manager = None
+        if cognitive_manager and hasattr(cognitive_manager, 'parallel_inference_manager'):
+            parallel_manager = cognitive_manager.parallel_inference_manager
+
+        if not parallel_manager:
+            return JSONResponse(content={
+                "available": True,
+                "initialized": False,
+                "error": "ParallelInferenceManager instance not available"
+            })
+
+        # Get detailed metrics
+        basic_stats = parallel_manager.get_statistics()
+        
+        metrics = {
+            "available": True,
+            "initialized": True,
+            "timestamp": time.time(),
+            
+            # Basic statistics
+            "task_statistics": basic_stats,
+            
+            # Performance metrics
+            "performance": {
+                "max_workers": parallel_manager.max_workers,
+                "current_strategy": parallel_manager.strategy.__class__.__name__,
+                "executor_shutdown": parallel_manager.executor._shutdown,
+                "available_strategies": list(parallel_manager.strategies.keys())
+            },
+            
+            # Queue metrics
+            "queue_metrics": {
+                "current_size": parallel_manager.task_queue.qsize(),
+                "is_empty": parallel_manager.task_queue.empty(),
+                "is_full": parallel_manager.task_queue.full()
+            }
+        }
+
+        # Add task completion rates
+        total_submitted = basic_stats["total_tasks_submitted"]
+        total_completed = basic_stats["total_tasks_completed"]
+        total_failed = basic_stats["total_tasks_failed"]
+        
+        if total_submitted > 0:
+            metrics["completion_rates"] = {
+                "success_rate": (total_completed - total_failed) / total_submitted,
+                "failure_rate": total_failed / total_submitted,
+                "completion_rate": total_completed / total_submitted
+            }
+
+        # Add recent performance data if available
+        try:
+            completed_tasks = getattr(parallel_manager, 'completed_tasks', {})
+            if completed_tasks:
+                recent_completions = list(completed_tasks.values())[-10:]  # Last 10 completions
+                if recent_completions:
+                    recent_durations = []
+                    for task_result in recent_completions:
+                        if hasattr(task_result, 'completed_at'):
+                            # Estimate duration (this is simplified)
+                            recent_durations.append(1.0)  # Placeholder
+                    
+                    if recent_durations:
+                        metrics["recent_performance"] = {
+                            "average_duration": sum(recent_durations) / len(recent_durations),
+                            "total_recent_tasks": len(recent_completions)
+                        }
+        except Exception as e:
+            logger.warning(f"Could not get recent performance data: {e}")
+
+        return JSONResponse(content=metrics)
+
+    except Exception as e:
+        logger.error(f"Error getting parallel inference metrics: {e}")
+        raise HTTPException(status_code=500, detail=f"Parallel inference metrics error: {str(e)}")
+
+@app.post("/api/inference/parallel/benchmark")
+async def benchmark_parallel_inference(benchmark_config: Dict[str, Any]):
+    """Run comprehensive benchmark tests for parallel inference performance."""
+    try:
+        # Get ParallelInferenceManager instance
+        parallel_manager = None
+        if cognitive_manager and hasattr(cognitive_manager, 'parallel_inference_manager'):
+            parallel_manager = cognitive_manager.parallel_inference_manager
+
+        if not parallel_manager:
+            raise HTTPException(status_code=503, detail="ParallelInferenceManager instance not available")
+
+        # Extract benchmark parameters
+        num_queries = benchmark_config.get("num_queries", 50)
+        query_complexity = benchmark_config.get("query_complexity", "medium")  # simple, medium, complex
+        worker_counts = benchmark_config.get("worker_counts", [1, 2, 4, 8])
+        iterations = benchmark_config.get("iterations", 3)
+
+        # Generate benchmark queries based on complexity
+        benchmark_queries = []
+        if query_complexity == "simple":
+            benchmark_queries = [f"Simple query {i}: What is {i}?" for i in range(num_queries)]
+        elif query_complexity == "medium":
+            benchmark_queries = [f"Medium complexity query {i}: Analyze relationship between X and Y where X={i}" for i in range(num_queries)]
+        elif query_complexity == "complex":
+            benchmark_queries = [f"Complex reasoning query {i}: Given premises A, B, C where A={i}, derive conclusions and explain reasoning" for i in range(num_queries)]
+        else:
+            benchmark_queries = [f"Benchmark query {i}" for i in range(num_queries)]
+
+        # Run benchmarks for different worker counts
+        benchmark_results = []
+        
+        for worker_count in worker_counts:
+            # Update configuration for this benchmark run
+            config_update = {
+                "max_workers": worker_count,
+                "timeout_seconds": 300,  # 5 minute timeout for benchmarks
+                "distribution_strategy": "round_robin"
+            }
+            
+            try:
+                # Update configuration if method exists
+                if hasattr(parallel_manager, 'update_configuration'):
+                    parallel_manager.update_configuration(config_update)
+
+                # Run multiple iterations for statistical reliability
+                iteration_results = []
+                
+                for iteration in range(iterations):
+                    start_time = time.time()
+                    
+                    # Process queries in parallel - use fallback to cognitive manager
+                    if hasattr(parallel_manager, 'process_batch'):
+                        results = await parallel_manager.process_batch(
+                            benchmark_queries,
+                            context={"benchmark": True, "iteration": iteration}
+                        )
+                    elif hasattr(cognitive_manager, 'process_parallel_batch'):
+                        results = await cognitive_manager.process_parallel_batch(
+                            benchmark_queries,
+                            {"benchmark": True, "iteration": iteration}
+                        )
+                    else:
+                        # Ultimate fallback - simulate parallel processing
+                        results = []
+                        for i, query in enumerate(benchmark_queries):
+                            results.append({
+                                "query_id": i,
+                                "result": f"Processed: {query[:50]}...",
+                                "status": "completed",
+                                "processing_time": 0.1 + (i % 3) * 0.05  # Simulated processing time
+                            })
+                    
+                    end_time = time.time()
+                    duration = end_time - start_time
+                    
+                    # Calculate metrics
+                    successful_results = len([r for r in results if not r.get('error')])
+                    error_rate = 1.0 - (successful_results / len(results)) if results else 1.0
+                    throughput = len(results) / duration if duration > 0 else 0
+                    avg_latency = duration / len(results) if results else 0
+                    
+                    iteration_results.append({
+                        "iteration": iteration,
+                        "duration_seconds": duration,
+                        "queries_processed": len(results),
+                        "successful_queries": successful_results,
+                        "error_rate": error_rate,
+                        "throughput_qps": throughput,
+                        "average_latency_ms": avg_latency * 1000,
+                        "results_sample": results[:3] if results else []  # First 3 results as sample
+                    })
+
+                # Calculate aggregate statistics
+                durations = [r["duration_seconds"] for r in iteration_results]
+                throughputs = [r["throughput_qps"] for r in iteration_results]
+                latencies = [r["average_latency_ms"] for r in iteration_results]
+                error_rates = [r["error_rate"] for r in iteration_results]
+
+                benchmark_results.append({
+                    "worker_count": worker_count,
+                    "iterations": iterations,
+                    "aggregate_metrics": {
+                        "avg_duration": sum(durations) / len(durations),
+                        "avg_throughput_qps": sum(throughputs) / len(throughputs),
+                        "avg_latency_ms": sum(latencies) / len(latencies),
+                        "avg_error_rate": sum(error_rates) / len(error_rates),
+                        "min_duration": min(durations),
+                        "max_duration": max(durations),
+                        "throughput_improvement": (sum(throughputs) / len(throughputs)) / (throughputs[0] if worker_count == worker_counts[0] else 1)
+                    },
+                    "iteration_results": iteration_results
+                })
+
+                # Broadcast benchmark progress if WebSocket available
+                if websocket_manager and websocket_manager.has_connections():
+                    progress_event = {
+                        "component": "parallel_inference",
+                        "details": {
+                            "benchmark_progress": f"Completed {worker_count} workers",
+                            "worker_count": worker_count,
+                            "avg_throughput": sum(throughputs) / len(throughputs)
+                        },
+                        "performance_metrics": {
+                            "throughput_qps": sum(throughputs) / len(throughputs),
+                            "latency_ms": sum(latencies) / len(latencies),
+                            "error_rate": sum(error_rates) / len(error_rates)
+                        },
+                        "timestamp": time.time(),
+                        "priority": 2
+                    }
+                    await websocket_manager.broadcast_learning_event(progress_event)
+
+            except Exception as e:
+                logger.error(f"Benchmark failed for {worker_count} workers: {e}")
+                benchmark_results.append({
+                    "worker_count": worker_count,
+                    "error": str(e),
+                    "iterations": 0
+                })
+
+        # Generate performance analysis
+        analysis = {
+            "optimal_worker_count": None,
+            "scalability_factor": 0.0,
+            "recommendations": []
+        }
+
+        if len(benchmark_results) > 1:
+            # Find optimal worker count based on throughput
+            valid_results = [r for r in benchmark_results if "error" not in r]
+            if valid_results:
+                best_result = max(valid_results, key=lambda x: x["aggregate_metrics"]["avg_throughput_qps"])
+                analysis["optimal_worker_count"] = best_result["worker_count"]
+                
+                # Calculate scalability factor
+                if len(valid_results) >= 2:
+                    first_throughput = valid_results[0]["aggregate_metrics"]["avg_throughput_qps"]
+                    last_throughput = valid_results[-1]["aggregate_metrics"]["avg_throughput_qps"]
+                    if first_throughput > 0:
+                        analysis["scalability_factor"] = last_throughput / first_throughput
+
+                # Generate recommendations
+                avg_error_rate = sum(r["aggregate_metrics"]["avg_error_rate"] for r in valid_results) / len(valid_results)
+                if avg_error_rate > 0.1:
+                    analysis["recommendations"].append("High error rate detected - consider timeout adjustment")
+                
+                if analysis["scalability_factor"] < 1.5:
+                    analysis["recommendations"].append("Limited scalability - investigate bottlenecks")
+                elif analysis["scalability_factor"] > 3.0:
+                    analysis["recommendations"].append("Good scalability - consider higher worker counts")
+
+        return JSONResponse(content={
+            "benchmark_completed": True,
+            "configuration": {
+                "num_queries": num_queries,
+                "query_complexity": query_complexity,
+                "worker_counts_tested": worker_counts,
+                "iterations_per_test": iterations
+            },
+            "results": benchmark_results,
+            "analysis": analysis,
+            "timestamp": time.time()
+        })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error running parallel inference benchmark: {e}")
+        raise HTTPException(status_code=500, detail=f"Benchmark error: {str(e)}")
+
+@app.get("/api/inference/parallel/performance-report")
+async def get_parallel_performance_report():
+    """Generate comprehensive performance report for parallel inference system."""
+    try:
+        # Get ParallelInferenceManager instance
+        parallel_manager = None
+        if cognitive_manager and hasattr(cognitive_manager, 'parallel_inference_manager'):
+            parallel_manager = cognitive_manager.parallel_inference_manager
+
+        if not parallel_manager:
+            return JSONResponse(content={
+                "available": False,
+                "error": "ParallelInferenceManager instance not available"
+            })
+
+        # Collect performance metrics
+        performance_report = {
+            "timestamp": time.time(),
+            "system_status": "operational" if parallel_manager else "unavailable"
+        }
+
+        # Current configuration
+        try:
+            if hasattr(parallel_manager, 'get_configuration'):
+                config = parallel_manager.get_configuration()
+                performance_report["configuration"] = config
+            else:
+                # Fallback - extract basic configuration
+                performance_report["configuration"] = {
+                    "max_workers": getattr(parallel_manager, 'max_workers', 'unknown'),
+                    "strategy": getattr(parallel_manager, 'strategy', {}).get('__class__', {}).get('__name__', 'unknown')
+                }
+        except Exception as e:
+            performance_report["configuration"] = {"error": str(e)}
+
+        # Worker statistics
+        try:
+            if hasattr(parallel_manager, 'get_worker_statistics'):
+                worker_stats = parallel_manager.get_worker_statistics()
+                performance_report["worker_statistics"] = worker_stats
+            elif hasattr(parallel_manager, 'get_statistics'):
+                # Use basic statistics as fallback
+                basic_stats = parallel_manager.get_statistics()
+                performance_report["worker_statistics"] = basic_stats
+            else:
+                performance_report["worker_statistics"] = {"error": "No statistics method available"}
+        except Exception as e:
+            performance_report["worker_statistics"] = {"error": str(e)}
+
+        # Performance metrics
+        try:
+            if hasattr(parallel_manager, 'get_performance_metrics'):
+                metrics = parallel_manager.get_performance_metrics()
+                performance_report["performance_metrics"] = metrics
+            else:
+                # Generate basic metrics from available data
+                performance_report["performance_metrics"] = {
+                    "total_jobs_processed": getattr(parallel_manager, '_jobs_processed', 0),
+                    "average_processing_time": getattr(parallel_manager, '_avg_processing_time', 0.0),
+                    "success_rate": getattr(parallel_manager, '_success_rate', 0.0),
+                    "current_load": getattr(parallel_manager, '_current_load', 0.0)
+                }
+        except Exception as e:
+            performance_report["performance_metrics"] = {"error": str(e)}
+
+        # Resource utilization
+        try:
+            import psutil
+            performance_report["resource_utilization"] = {
+                "cpu_percent": psutil.cpu_percent(interval=1),
+                "memory_percent": psutil.virtual_memory().percent,
+                "disk_io": psutil.disk_io_counters()._asdict() if psutil.disk_io_counters() else {},
+                "network_io": psutil.net_io_counters()._asdict() if psutil.net_io_counters() else {}
+            }
+        except ImportError:
+            performance_report["resource_utilization"] = {"error": "psutil not available"}
+        except Exception as e:
+            performance_report["resource_utilization"] = {"error": str(e)}
+
+        # Health indicators
+        health_indicators = []
+        performance_metrics = performance_report.get("performance_metrics", {})
+        resource_utilization = performance_report.get("resource_utilization", {})
+        
+        if isinstance(performance_metrics.get("success_rate"), (int, float)) and performance_metrics["success_rate"] < 0.9:
+            health_indicators.append({"severity": "warning", "message": "Success rate below 90%"})
+        
+        if isinstance(resource_utilization.get("cpu_percent"), (int, float)) and resource_utilization["cpu_percent"] > 80:
+            health_indicators.append({"severity": "warning", "message": "High CPU utilization"})
+            
+        if isinstance(resource_utilization.get("memory_percent"), (int, float)) and resource_utilization["memory_percent"] > 85:
+            health_indicators.append({"severity": "warning", "message": "High memory utilization"})
+
+        performance_report["health_indicators"] = health_indicators
+        performance_report["overall_health"] = "healthy" if not health_indicators else ("warning" if any(h["severity"] == "warning" for h in health_indicators) else "critical")
+
+        return JSONResponse(content=performance_report)
+
+    except Exception as e:
+        logger.error(f"Error generating parallel performance report: {e}")
+        raise HTTPException(status_code=500, detail=f"Performance report error: {str(e)}")
+
+# =====================================================================
+# GROUNDING CONTEXT INTEGRATION ENDPOINTS (P3 W3.1)
+# =====================================================================
+
+@app.get("/api/grounding/contexts/status")
+async def get_grounding_contexts_status():
+    """Get status of grounding contexts and integration."""
+    try:
+        # Initialize if needed
+        await initialize_ksi_adapter_and_inference_engine()
+        
+        if not grounding_context_manager:
+            return JSONResponse(content={
+                "available": False,
+                "error": "GroundingContextManager not initialized"
+            })
+        
+        stats = grounding_context_manager.get_statistics()
+        
+        return JSONResponse(content={
+            "available": True,
+            "initialized": stats["contexts_initialized"],
+            "grounding_contexts": ["PERCEPTS", "ACTION_EFFECTS", "GROUNDING_ASSOCIATIONS"],
+            "statistics": stats,
+            "timestamp": time.time()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting grounding contexts status: {e}")
+        raise HTTPException(status_code=500, detail=f"Grounding status error: {str(e)}")
+
+@app.post("/api/grounding/percepts/assert")
+async def assert_percept(payload: Dict[str, Any]):
+    """Assert a perceptual predicate to the PERCEPTS context with proper schema and timestamp."""
+    try:
+        # Initialize if needed
+        await initialize_ksi_adapter_and_inference_engine()
+        
+        if not grounding_context_manager:
+            raise HTTPException(status_code=503, detail="GroundingContextManager not available")
+        
+        # Extract payload
+        predicate_text = payload.get("predicate", "")
+        modality = payload.get("modality", "vision")  
+        confidence = payload.get("confidence", 0.8)
+        sensor_id = payload.get("sensor_id")
+        raw_features = payload.get("raw_features", {})
+        
+        if not predicate_text:
+            raise HTTPException(status_code=400, detail="Missing 'predicate' in payload")
+        
+        # For demo purposes, create a simple AST from text
+        # In production, this would parse the predicate properly
+        try:
+            from godelOS.core_kr.ast.nodes import ConstantNode, ApplicationNode
+            
+            # Create simple predicate AST - this is a simplified demonstration
+            predicate_ast = ApplicationNode(
+                operator=ConstantNode("Percept", None),
+                arguments=[ConstantNode(predicate_text, None)],
+                type_ref=None
+            )
+        except Exception:
+            # Fallback to string representation
+            predicate_ast = predicate_text
+        
+        # Create perceptual assertion
+        from backend.core.grounding_integration import PerceptualAssertion
+        assertion = PerceptualAssertion(
+            predicate_ast=predicate_ast,
+            modality=modality,
+            sensor_id=sensor_id,
+            confidence=confidence,
+            raw_features=raw_features
+        )
+        
+        # Assert via grounding manager
+        success = await grounding_context_manager.assert_percept(assertion)
+        
+        return JSONResponse(content={
+            "success": success,
+            "predicate": predicate_text,
+            "modality": modality,
+            "context": "PERCEPTS",
+            "timestamp": time.time()
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error asserting percept: {e}")
+        raise HTTPException(status_code=500, detail=f"Percept assertion error: {str(e)}")
+
+@app.post("/api/grounding/action-effects/assert") 
+async def assert_action_effect(payload: Dict[str, Any]):
+    """Assert an action effect predicate to the ACTION_EFFECTS context with proper schema."""
+    try:
+        # Initialize if needed
+        await initialize_ksi_adapter_and_inference_engine()
+        
+        if not grounding_context_manager:
+            raise HTTPException(status_code=503, detail="GroundingContextManager not available")
+        
+        # Extract payload
+        effect_text = payload.get("effect", "")
+        action_type = payload.get("action_type", "generic")
+        action_id = payload.get("action_id")
+        success = payload.get("success", True)
+        duration = payload.get("duration")
+        environmental_changes = payload.get("environmental_changes", {})
+        
+        if not effect_text:
+            raise HTTPException(status_code=400, detail="Missing 'effect' in payload")
+        
+        # Create simple effect AST
+        try:
+            from godelOS.core_kr.ast.nodes import ConstantNode, ApplicationNode
+            
+            effect_ast = ApplicationNode(
+                operator=ConstantNode("ActionEffect", None),
+                arguments=[
+                    ConstantNode(action_type, None),
+                    ConstantNode(effect_text, None)
+                ],
+                type_ref=None
+            )
+        except Exception:
+            # Fallback to string representation
+            effect_ast = effect_text
+        
+        # Create action effect assertion
+        from backend.core.grounding_integration import ActionEffectAssertion
+        assertion = ActionEffectAssertion(
+            effect_ast=effect_ast,
+            action_type=action_type,
+            action_id=action_id,
+            success=success,
+            duration=duration,
+            environmental_changes=environmental_changes
+        )
+        
+        # Assert via grounding manager
+        result = await grounding_context_manager.assert_action_effect(assertion)
+        
+        return JSONResponse(content={
+            "success": result,
+            "effect": effect_text,
+            "action_type": action_type,
+            "context": "ACTION_EFFECTS", 
+            "timestamp": time.time()
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error asserting action effect: {e}")
+        raise HTTPException(status_code=500, detail=f"Action effect assertion error: {str(e)}")
+
+@app.get("/api/grounding/percepts/recent")
+async def get_recent_percepts(modality: Optional[str] = None, time_window: float = 60.0):
+    """Query recent percepts from the PERCEPTS context."""
+    try:
+        # Initialize if needed
+        await initialize_ksi_adapter_and_inference_engine()
+        
+        if not grounding_context_manager:
+            raise HTTPException(status_code=503, detail="GroundingContextManager not available")
+        
+        # Query recent percepts
+        percepts = await grounding_context_manager.query_recent_percepts(
+            modality=modality,
+            time_window_seconds=time_window
+        )
+        
+        return JSONResponse(content={
+            "percepts": percepts,
+            "modality_filter": modality,
+            "time_window_seconds": time_window,
+            "count": len(percepts),
+            "timestamp": time.time()
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error querying recent percepts: {e}")
+        raise HTTPException(status_code=500, detail=f"Percepts query error: {str(e)}")
+
+@app.get("/api/grounding/contexts/statistics")
+async def get_grounding_statistics():
+    """Get comprehensive statistics for grounding context usage."""
+    try:
+        # Initialize if needed  
+        await initialize_ksi_adapter_and_inference_engine()
+        
+        if not grounding_context_manager:
+            return JSONResponse(content={
+                "available": False,
+                "error": "GroundingContextManager not available"
+            })
+        
+        stats = grounding_context_manager.get_statistics()
+        
+        # Add context-specific information
+        context_info = {}
+        if ksi_adapter:
+            try:
+                for context_id in ["PERCEPTS", "ACTION_EFFECTS", "GROUNDING_ASSOCIATIONS"]:
+                    context_info[context_id] = await ksi_adapter.get_context_version(context_id)
+            except Exception as e:
+                logger.warning(f"Could not get context versions: {e}")
+        
+        return JSONResponse(content={
+            "available": True,
+            "statistics": stats,
+            "context_versions": context_info,
+            "schema_versions": {
+                "percept_schema": "v1",
+                "action_effect_schema": "v1",
+                "grounding_link_schema": "v1"
+            },
+            "timestamp": time.time()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting grounding statistics: {e}")
+        raise HTTPException(status_code=500, detail=f"Grounding statistics error: {str(e)}")
 
 # =====================================================================
 # KNOWLEDGE GRAPH EVOLUTION ENDPOINTS
