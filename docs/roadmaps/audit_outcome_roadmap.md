@@ -534,12 +534,18 @@ All P0 work items (KSI Adapter, E2E endpoints, unified event schema) are complet
 - [✅] **WebSocket Streaming**: Real-time parallel processing updates and benchmark progress streaming
 - [✅] **Graceful Degradation**: Fallback patterns to sequential processing when parallel manager unavailable
 
-**W2.1 Persistent KB Decision (⏳ ANALYSIS REQUIRED):**
-- [📊] **Architecture Analysis**: `godelOS/scalability/persistent_kb.py` (1189 lines) contains:
-  - PersistentKBBackend, SQLiteKBBackend, FileBasedKBBackend implementations
-  - Full persistence layer with backup/migration capabilities
-- [⏳] **Decision Point**: Enable persistent KB routing vs KSI-only architecture
-- [⏳] **Integration Requirements**: If enabled, implement router integration with KSI contexts and version consistency  
+**W2.1 Persistent KB Decision (✅ COMPLETE - DEFERRED):**
+- [�] **ADR-001 Created**: Architectural Decision Record documenting deferral rationale
+- [✅] **Architecture Analysis Complete**: Current KSIAdapter provides required "single source of truth"
+  - Context versioning implemented ✅  
+  - Event broadcasting operational ✅
+  - Metadata normalization enforced ✅
+  - Cache invalidation hooks available ✅
+- [✅] **Decision**: DEFER persistent KB routing in favor of P3/P4 user-facing functionality
+  - Current in-memory approach sufficient for development and demonstrations
+  - Persistence can be added later as backend swap without API changes
+  - Resources better focused on grounding, ontology, and frontend transparency
+- [📋] **Future Path**: Persistence integration scheduled for post-P4 when system architecture stabilized  
 
 🎯 **P2 W2.3 Learning Integration Status: COMPLETE**
 - ✅ MetaControlRLModule fully integrated with backend API layer
@@ -561,6 +567,13 @@ All P0 work items (KSI Adapter, E2E endpoints, unified event schema) are complet
 - ✅ Performance monitoring with benchmarking capabilities, resource utilization tracking
 - ✅ WebSocket streaming integration for real-time parallel processing updates
 - ✅ Enhanced CognitiveManager with `process_parallel_batch()` method and proper initialization
+
+🎯 **P2 STATUS: ✅ COMPLETE - All Three Workstreams Resolved**
+- ✅ **W2.3 Learning Integration**: Complete with MCRL + MKB API integration and real-time streaming
+- ✅ **W2.2 Parallel Inference**: Complete with full API layer, performance monitoring, and benchmarking  
+- ✅ **W2.1 Persistence Decision**: Complete with documented architectural decision (DEFERRED with rationale)
+
+**MILESTONE M3 ACHIEVED**: P2 Persistence, Parallel Inference, Learning Integration phase complete. Ready to proceed to P3 Grounding/Ontology or P4 Frontend Transparency work.
 
 🎯 **P2 STATUS: MAJOR PROGRESS - Two of Three Workstreams Complete**
 - ✅ **W2.3 Learning Integration**: Complete with MCRL + MKB API integration and real-time streaming
