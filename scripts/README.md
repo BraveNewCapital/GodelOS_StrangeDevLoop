@@ -331,3 +331,40 @@ Planned improvements for the maintenance scripts:
 ---
 
 *These scripts are maintained as part of the GödelOS project. For issues or feature requests, please file a GitHub issue with the `maintenance` label.*
+
+# Scripts
+
+Operational and developer scripts. Most require the Python venv and/or running services.
+
+## Common tasks
+
+- generate_test_results.py — produce JSON summary of pytest runs into test-output/
+- serve_test_viewer.py — serve a lightweight HTML viewer for test results
+- unified_test_runner.py — run spec-aligned suites and selected subsets
+- demo_test_runner_modes.py — showcase different test runner modes
+- setup_python_path.py — helper to set PYTHONPATH for ad-hoc runs
+- simple_test_runner.py — minimal runner for quick smoke tests
+- test_server_manager.py — utilities to start/stop or probe test servers
+
+## Usage
+
+Always activate the venv first:
+
+```bash
+source godelos_venv/bin/activate
+```
+
+Examples:
+
+```bash
+# Generate pytest report JSON
+python scripts/generate_test_results.py
+
+# Serve the test results viewer
+python scripts/serve_test_viewer.py
+
+# Run unified test runner (spec-aligned)
+python scripts/unified_test_runner.py --suite spec-aligned
+```
+
+See each script's --help for options.
