@@ -307,3 +307,10 @@ backend/data/vector_db/
 .godelos_cli_state
 data/
 artifacts
+
+# Repo tidy additions
+# Hyphenated test output folders
+/test-output/
+/test-results/
+# Root Playwright artifacts
+/playwright-report/
