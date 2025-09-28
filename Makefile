@@ -21,19 +21,20 @@ start:
 front-only:
 	cd svelte-frontend && npm run dev
 
+
 # Spec-aligned tests (marked)
- test-spec:
+test-spec:
 	$(PYTEST) -m spec_aligned -v
 
 # Create test-output/ JSON using our script
- test-results:
+test-results:
 	$(PY) scripts/generate_test_results.py
 
 # Serve a lightweight HTML viewer for test-output/
- test-viewer:
+test-viewer:
 	$(PY) scripts/serve_test_viewer.py
 
 # Run unified test runner with a specific suite
 # Usage: make unified-runner SUITE=spec-aligned
- unified-runner:
+unified-runner:
 	$(PY) scripts/unified_test_runner.py --suite $(SUITE)
