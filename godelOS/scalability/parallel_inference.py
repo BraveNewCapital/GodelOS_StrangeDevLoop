@@ -250,19 +250,19 @@ class PriorityBasedStrategy(WorkDistributionStrategy):
         """
         if num_workers <= 0:
             raise ValueError("Number of workers must be positive")
-        
+
         # Sort tasks by priority (higher priority first)
-        sorted_tasks = sorted(tasks, reverse=True)
-        
+        sorted_tasks = sorted(tasks)
+
         # Initialize empty task lists for each worker
         worker_tasks: List[List[InferenceTask]] = [[] for _ in range(num_workers)]
-        
+
         # Distribute tasks to balance the load
         for task in sorted_tasks:
             # Find the worker with the fewest tasks
             min_tasks_worker = min(range(num_workers), key=lambda i: len(worker_tasks[i]))
             worker_tasks[min_tasks_worker].append(task)
-        
+
         return worker_tasks
 
 

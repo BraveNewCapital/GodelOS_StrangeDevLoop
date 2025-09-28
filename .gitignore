@@ -306,3 +306,4 @@ godelos_data/imports/
 backend/data/vector_db/
 .godelos_cli_state
 data/
+artifacts

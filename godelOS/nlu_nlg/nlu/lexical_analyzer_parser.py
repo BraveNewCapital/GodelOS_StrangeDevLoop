@@ -53,6 +53,9 @@ class Token:
     
     # Reference to parent sentence
     sent_idx: Optional[int] = None
+
+    # Dependency head index (token this token depends on)
+    head_idx: Optional[int] = None
     
     @classmethod
     def from_spacy_token(cls, token: SpacyToken, sent_idx: Optional[int] = None) -> 'Token':
@@ -87,7 +90,8 @@ class Token:
             is_title=token.is_title,
             is_sent_start=token.is_sent_start,
             morphology=token.morph.to_dict(),
-            sent_idx=sent_idx
+            sent_idx=sent_idx,
+            head_idx=token.head.i if token.head is not None else None
         )
 
 
@@ -308,29 +312,47 @@ class LexicalAnalyzerParser:
         # If the token is the head token itself, return True
         if token.i == head_token.i:
             return True
-        
-        # Find the token's head
-        head_idx = None
-        for t in all_tokens:
-            if t.i == token.i:
-                # Find the head of this token
-                for h in all_tokens:
-                    if h.i == t.i - int(t.dep.split('_')[0]) if '_' in t.dep else 0:
-                        head_idx = h.i
-                        break
-                break
-        
-        # If the token's head is the head_token, return True
-        if head_idx is not None and head_idx == head_token.i:
-            return True
-        
-        # If the token's head is None, return False
+
+        # Determine the head index via stored metadata or heuristic fallbacks
+        head_idx = getattr(token, "head_idx", None)
+
+        if head_idx is None:
+            head_idx = self._infer_head_index(token, all_tokens)
+
         if head_idx is None:
             return False
-        
-        # Recursively check if the token's head is dependent on the head_token
-        for t in all_tokens:
-            if t.i == head_idx:
-                return self._is_dependent_on(t, head_token, all_tokens)
-        
-        return False
+
+        if head_idx == head_token.i:
+            return True
+
+        parent = next((t for t in all_tokens if t.i == head_idx), None)
+        if parent is None or parent.i == token.i:
+            return False
+
+        return self._is_dependent_on(parent, head_token, all_tokens)
+
+    def _infer_head_index(self, token: Token, all_tokens: List[Token]) -> Optional[int]:
+        """Infer a plausible head index when explicit dependency metadata is absent."""
+
+        # Noun and pronoun roles typically attach to the nearest verb/root
+        if token.dep in {"nsubj", "csubj", "dobj", "obj", "iobj", "dative", "agent", "attr", "oprd"}:
+            verb_candidates = [t for t in all_tokens if t.pos in {"VERB", "AUX"} or t.dep == "ROOT"]
+            if verb_candidates:
+                return min(verb_candidates, key=lambda t: abs(t.i - token.i)).i
+
+        if token.dep == "prep":
+            for candidate in reversed(all_tokens[:token.i]):
+                if candidate.pos in {"VERB", "AUX"} or candidate.dep == "ROOT":
+                    return candidate.i
+
+        if token.dep == "pobj":
+            for candidate in reversed(all_tokens[:token.i]):
+                if candidate.dep == "prep":
+                    return candidate.i
+
+        if token.dep in {"neg", "aux"}:
+            verb_candidates = [t for t in all_tokens if t.pos in {"VERB", "AUX"} or t.dep == "ROOT"]
+            if verb_candidates:
+                return min(verb_candidates, key=lambda t: abs(t.i - token.i)).i
+
+        return None

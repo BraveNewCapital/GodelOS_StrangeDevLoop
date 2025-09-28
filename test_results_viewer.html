@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GödelOS Test Results Viewer</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+            --bg-gradient: radial-gradient(circle at top, rgba(67,97,238,0.25), transparent),
+                             radial-gradient(circle at bottom, rgba(237,100,166,0.2), transparent);
+            --surface: rgba(17, 25, 40, 0.6);
+            --surface-alt: rgba(255, 255, 255, 0.85);
+            --card-border: rgba(255, 255, 255, 0.18);
+            --border-strong: rgba(255, 255, 255, 0.35);
+            --glass-blur: blur(20px);
+            --text-primary: #f8fbff;
+            --text-muted: #c7d2fe;
+            --accent: #7f9cf5;
+            --accent-soft: rgba(127, 156, 245, 0.25);
+            --passed: #34d399;
+            --failed: #f87171;
+            --skipped: #fbbf24;
+            --error: #fb7185;
+        }
+
+        body {
+            margin: 0;
+            font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+            min-height: 100vh;
+            background: #0f172a;
+            background-image: var(--bg-gradient);
+            color: var(--text-primary);
+            display: flex;
+            justify-content: center;
+            padding: 32px 16px 48px;
+            box-sizing: border-box;
+        }
+
+        .app-shell {
+            width: min(1200px, 100%);
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        header {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        header h1 {
+            font-size: clamp(1.8rem, 2vw + 1rem, 2.6rem);
+            margin: 0;
+            font-weight: 700;
+            letter-spacing: -0.03em;
+        }
+
+        header p {
+            margin: 0;
+            color: var(--text-muted);
+            max-width: 680px;
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+        }
+
+        .summary-card {
+            backdrop-filter: var(--glass-blur);
+            background: var(--surface);
+            border: 1px solid var(--card-border);
+            border-radius: 20px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .summary-card::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, rgba(255,255,255,0.12), transparent 60%);
+            pointer-events: none;
+        }
+
+        .card-title {
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: rgba(255,255,255,0.65);
+        }
+
+        .card-value {
+            font-size: 2.1rem;
+            font-weight: 700;
+        }
+
+        .card-caption {
+            font-size: 0.85rem;
+            color: rgba(255,255,255,0.6);
+        }
+
+        .controls-panel {
+            display: grid;
+            gap: 20px;
+        }
+
+        .upload-zone {
+            position: relative;
+            border: 1px dashed rgba(127,156,245,0.5);
+            border-radius: 24px;
+            padding: 32px;
+            background: rgba(15, 23, 42, 0.45);
+            backdrop-filter: var(--glass-blur);
+            display: grid;
+            place-items: center;
+            text-align: center;
+            transition: border-color 0.25s ease, transform 0.25s ease;
+        }
+
+        .upload-zone.dragover {
+            border-color: #c4b5fd;
+            transform: translateY(-4px);
+        }
+
+        .upload-zone input[type="file"] {
+            display: none;
+        }
+
+        .upload-cta {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            color: rgba(255,255,255,0.85);
+            font-size: 0.95rem;
+        }
+
+        .upload-cta span {
+            color: var(--accent);
+            font-weight: 600;
+            text-decoration: underline;
+            cursor: pointer;
+        }
+
+        .controls-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .search-box {
+            flex: 1 1 280px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            backdrop-filter: var(--glass-blur);
+            background: rgba(15, 23, 42, 0.55);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 12px 16px;
+        }
+
+        .search-box input {
+            flex: 1;
+            border: none;
+            background: transparent;
+            color: inherit;
+            font-size: 1rem;
+            outline: none;
+        }
+
+        .filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .filter-chip {
+            border: 1px solid var(--card-border);
+            background: rgba(255,255,255,0.05);
+            color: inherit;
+            border-radius: 999px;
+            padding: 8px 16px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .filter-chip.active {
+            background: var(--accent);
+            border-color: rgba(255,255,255,0.6);
+            color: #0f172a;
+            transform: translateY(-2px);
+        }
+
+        .filter-count {
+            background: rgba(15,23,42,0.15);
+            color: inherit;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 0.75rem;
+        }
+
+        .results-meta {
+            font-size: 0.9rem;
+            color: rgba(255,255,255,0.6);
+        }
+
+        .suite-container {
+            display: grid;
+            gap: 16px;
+        }
+
+        details.suite-card {
+            border-radius: 20px;
+            background: rgba(15, 23, 42, 0.55);
+            border: 1px solid rgba(255,255,255,0.12);
+            backdrop-filter: var(--glass-blur);
+            overflow: hidden;
+        }
+
+        details.suite-card[open] {
+            border-color: rgba(127, 156, 245, 0.45);
+        }
+
+        summary.suite-summary {
+            list-style: none;
+            cursor: pointer;
+            padding: 20px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+        }
+
+        summary.suite-summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .suite-title {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .suite-title h3 {
+            margin: 0;
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+
+        .suite-title span {
+            font-size: 0.85rem;
+            color: rgba(255,255,255,0.55);
+        }
+
+        .suite-metrics {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .metric-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 999px;
+            font-size: 0.85rem;
+            background: rgba(255,255,255,0.08);
+        }
+
+        .metric-pill[data-status="passed"] { color: var(--passed); }
+        .metric-pill[data-status="failed"] { color: var(--failed); }
+        .metric-pill[data-status="skipped"] { color: var(--skipped); }
+        .metric-pill[data-status="error"] { color: var(--error); }
+
+        .tests-list {
+            display: grid;
+            gap: 10px;
+            padding: 0 24px 24px;
+        }
+
+        .test-row {
+            display: grid;
+            grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto;
+            gap: 12px;
+            align-items: center;
+            padding: 14px 18px;
+            border-radius: 16px;
+            background: rgba(15, 23, 42, 0.55);
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .test-row:hover {
+            border-color: rgba(127,156,245,0.45);
+        }
+
+        .test-name {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .test-name h4 {
+            margin: 0;
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .test-name span {
+            font-size: 0.85rem;
+            color: rgba(255,255,255,0.6);
+            word-break: break-all;
+        }
+
+        .status-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border-radius: 999px;
+            padding: 6px 14px;
+            font-size: 0.88rem;
+            font-weight: 600;
+        }
+
+        .status-chip[data-status="passed"] {
+            background: rgba(52,211,153,0.15);
+            color: var(--passed);
+        }
+
+        .status-chip[data-status="failed"] {
+            background: rgba(248,113,113,0.15);
+            color: var(--failed);
+        }
+
+        .status-chip[data-status="skipped"] {
+            background: rgba(251,191,36,0.15);
+            color: var(--skipped);
+        }
+
+        .status-chip[data-status="error"] {
+            background: rgba(251,113,133,0.15);
+            color: var(--error);
+        }
+
+        .duration {
+            font-variant-numeric: tabular-nums;
+            font-size: 0.9rem;
+            color: rgba(255,255,255,0.65);
+        }
+
+        .message {
+            grid-column: 1 / -1;
+            background: rgba(248,113,113,0.08);
+            border-left: 3px solid rgba(248,113,113,0.65);
+            padding: 10px 14px;
+            border-radius: 12px;
+            font-size: 0.88rem;
+            color: rgba(255,255,255,0.8);
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 48px 24px;
+            border-radius: 24px;
+            background: rgba(15,23,42,0.45);
+            border: 1px dashed rgba(127,156,245,0.4);
+            color: rgba(255,255,255,0.7);
+        }
+
+        footer {
+            text-align: center;
+            font-size: 0.85rem;
+            color: rgba(255,255,255,0.45);
+            margin-top: 16px;
+        }
+
+        @media (max-width: 768px) {
+            body {
+                padding: 24px 10px 32px;
+            }
+
+            .test-row {
+                grid-template-columns: 1fr;
+                gap: 10px;
+            }
+
+            .test-row .duration {
+                justify-self: flex-start;
+            }
+
+            summary.suite-summary {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .suite-metrics {
+                width: 100%;
+                justify-content: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="app-shell">
+        <header>
+            <h1>🧠 GödelOS Test Results Viewer</h1>
+            <p>Drag & drop a pytest JSON report or any supported results file to explore pass rates, durations, and diagnostic information in a gorgeous, interactive dashboard.</p>
+        </header>
+
+        <section class="summary-grid" aria-label="Test suite summary">
+            <article class="summary-card" data-metric="total">
+                <span class="card-title">Total Tests</span>
+                <span class="card-value" id="metric-total">0</span>
+                <span class="card-caption" id="metric-total-caption">Awaiting data</span>
+            </article>
+            <article class="summary-card" data-metric="passed">
+                <span class="card-title">Passed ✅</span>
+                <span class="card-value" id="metric-passed">0</span>
+                <span class="card-caption" id="metric-passrate">0% pass rate</span>
+            </article>
+            <article class="summary-card" data-metric="failed">
+                <span class="card-title">Failed ❌</span>
+                <span class="card-value" id="metric-failed">0</span>
+                <span class="card-caption" id="metric-failed-caption">No failures yet</span>
+            </article>
+            <article class="summary-card" data-metric="duration">
+                <span class="card-title">Execution Time ⏱️</span>
+                <span class="card-value" id="metric-duration">0.00s</span>
+                <span class="card-caption" id="metric-duration-caption">Average 0.00s</span>
+            </article>
+        </section>
+
+        <section class="controls-panel" aria-label="Interaction controls">
+            <div class="upload-zone" id="dropZone" role="button" tabindex="0" aria-label="Upload test results JSON">
+                <div class="upload-cta">
+                    <strong>📁 Drop a JSON test results file here</strong>
+                    <small>Supports pytest-json-report and custom formats</small>
+                    <span id="filePickerTrigger">Browse files</span>
+                </div>
+                <input id="fileInput" type="file" accept="application/json,.json" aria-hidden="true" />
+            </div>
+
+            <div class="controls-row">
+                <label class="search-box" for="searchInput">
+                    <span>🔍</span>
+                    <input id="searchInput" type="search" placeholder="Search test name, file path, or message" autocomplete="off" />
+                </label>
+                <div class="filters" id="filterBar" role="group" aria-label="Filter by test status">
+                    <button class="filter-chip active" data-status="all">All<span class="filter-count">0</span></button>
+                    <button class="filter-chip" data-status="passed">Passed<span class="filter-count">0</span></button>
+                    <button class="filter-chip" data-status="failed">Failed<span class="filter-count">0</span></button>
+                    <button class="filter-chip" data-status="skipped">Skipped<span class="filter-count">0</span></button>
+                    <button class="filter-chip" data-status="error">Errors<span class="filter-count">0</span></button>
+                </div>
+            </div>
+
+            <div class="results-meta" id="resultsMeta">Load a results file to get started.</div>
+        </section>
+
+        <section class="suite-container" id="suiteContainer" aria-live="polite"></section>
+
+        <div class="empty-state" id="emptyState">
+            <p>No test data loaded yet.</p>
+            <p>Generate a JSON report with <code>pytest --json-report</code> and drop it above to explore the results.</p>
+        </div>
+
+        <footer>
+            Crafted for GödelOS · Supports pytest-json-report, simple arrays, and custom <code>{results: []}</code> payloads.
+        </footer>
+    </main>
+
+    <script>
+        class TestResultsViewer {
+            constructor() {
+                this.tests = [];
+                this.filtered = [];
+                this.summary = { total: 0, passed: 0, failed: 0, skipped: 0, error: 0, duration: 0, avgDuration: 0 };
+                this.activeStatus = "all";
+                this.searchQuery = "";
+                this.elements = this.cacheDom();
+                this.bindEvents();
+                this.loadSampleData();
+            }
+
+            cacheDom() {
+                return {
+                    dropZone: document.getElementById("dropZone"),
+                    fileInput: document.getElementById("fileInput"),
+                    filePickerTrigger: document.getElementById("filePickerTrigger"),
+                    searchInput: document.getElementById("searchInput"),
+                    filterBar: document.getElementById("filterBar"),
+                    resultsMeta: document.getElementById("resultsMeta"),
+                    suiteContainer: document.getElementById("suiteContainer"),
+                    emptyState: document.getElementById("emptyState"),
+                    metrics: {
+                        total: document.getElementById("metric-total"),
+                        totalCaption: document.getElementById("metric-total-caption"),
+                        passed: document.getElementById("metric-passed"),
+                        passRate: document.getElementById("metric-passrate"),
+                        failed: document.getElementById("metric-failed"),
+                        failedCaption: document.getElementById("metric-failed-caption"),
+                        duration: document.getElementById("metric-duration"),
+                        durationCaption: document.getElementById("metric-duration-caption"),
+                    },
+                    filterButtons: Array.from(document.querySelectorAll(".filter-chip")),
+                };
+            }
+
+            bindEvents() {
+                const { dropZone, fileInput, filePickerTrigger, searchInput, filterBar } = this.elements;
+
+                filePickerTrigger.addEventListener("click", () => fileInput.click());
+                dropZone.addEventListener("click", () => fileInput.click());
+                dropZone.addEventListener("keydown", (event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        fileInput.click();
+                    }
+                });
+
+                ["dragenter", "dragover"].forEach((evt) => {
+                    dropZone.addEventListener(evt, (event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        dropZone.classList.add("dragover");
+                    });
+                });
+
+                ["dragleave", "dragend", "drop"].forEach((evt) => {
+                    dropZone.addEventListener(evt, (event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        dropZone.classList.remove("dragover");
+                    });
+                });
+
+                dropZone.addEventListener("drop", (event) => {
+                    const file = event.dataTransfer?.files?.[0];
+                    if (file) {
+                        this.handleFile(file);
+                    }
+                });
+
+                fileInput.addEventListener("change", (event) => {
+                    const file = event.target.files?.[0];
+                    if (file) {
+                        this.handleFile(file);
+                        fileInput.value = "";
+                    }
+                });
+
+                searchInput.addEventListener("input", (event) => {
+                    this.searchQuery = event.target.value.trim().toLowerCase();
+                    this.applyFilters();
+                });
+
+                filterBar.addEventListener("click", (event) => {
+                    const button = event.target.closest(".filter-chip");
+                    if (!button) return;
+                    this.elements.filterButtons.forEach((btn) => btn.classList.remove("active"));
+                    button.classList.add("active");
+                    this.activeStatus = button.dataset.status;
+                    this.applyFilters();
+                });
+            }
+
+            async loadSampleData() {
+                try {
+                    const response = await fetch("sample_test_results.json", { cache: "no-store" });
+                    if (!response.ok) return;
+                    const data = await response.json();
+                    this.ingestData(data, "sample_test_results.json");
+                } catch (error) {
+                    console.debug("No bundled sample data available", error);
+                }
+            }
+
+            handleFile(file) {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    try {
+                        const parsed = JSON.parse(reader.result);
+                        this.ingestData(parsed, file.name);
+                    } catch (error) {
+                        alert("Unable to parse JSON file. Please ensure the file is valid JSON.");
+                        console.error("JSON parse error", error);
+                    }
+                };
+                reader.readAsText(file);
+            }
+
+            ingestData(rawData, sourceLabel = "") {
+                const normalized = this.normalizePayload(rawData);
+                this.tests = normalized.tests;
+                this.summary = normalized.summary;
+                this.resultsSource = sourceLabel;
+                this.applyFilters(true);
+                this.updateSummary();
+                this.updateFilterBadges();
+            }
+
+            normalizePayload(data) {
+                const tests = [];
+                let rawTests = [];
+
+                if (Array.isArray(data)) {
+                    rawTests = data;
+                } else if (Array.isArray(data.tests)) {
+                    rawTests = data.tests;
+                } else if (Array.isArray(data.results)) {
+                    rawTests = data.results;
+                }
+
+                const coerceStatus = (value) => {
+                    if (typeof value === "boolean") {
+                        return value ? "passed" : "failed";
+                    }
+                    const normalized = (value ?? "").toString().toLowerCase();
+                    if (["passed", "success", "ok"].includes(normalized)) return "passed";
+                    if (["failed", "failure", "fail", "xfail", "xfailed"].includes(normalized)) return "failed";
+                    if (["skipped", "skip", "xpass", "xpassed"].includes(normalized)) return "skipped";
+                    if (["error", "err", "broken"].includes(normalized)) return "error";
+                    return "unknown";
+                };
+
+                const parseDuration = (value) => {
+                    if (typeof value === "number" && Number.isFinite(value)) {
+                        return value;
+                    }
+                    if (typeof value === "string") {
+                        const trimmed = value.trim();
+                        const match = trimmed.match(/([\d.]+)/);
+                        return match ? Number(match[1]) || 0 : 0;
+                    }
+                    return 0;
+                };
+
+                const deriveSuite = (entry) => {
+                    if (entry.suite) return entry.suite;
+                    const nodeId = entry.nodeid || entry.nodeId || entry.id || "";
+                    if (nodeId.includes("::")) {
+                        return nodeId.split("::")[0];
+                    }
+                    if (entry.file) {
+                        return entry.file.split(/[\\/]/).slice(0, -1).join("/") || entry.file;
+                    }
+                    return "Ungrouped";
+                };
+
+                rawTests.forEach((item, index) => {
+                    const status = coerceStatus(item.outcome ?? item.status ?? item.state ?? "");
+                    const nodeid = item.nodeid || item.nodeId || item.id || item.name || `test_${index + 1}`;
+                    const name = item.name || (nodeid.includes("::") ? nodeid.split("::").pop() : nodeid);
+                    const file = item.file || (nodeid.includes("::") ? nodeid.split("::")[0] : "");
+                    const suite = deriveSuite(item);
+                    const duration = parseDuration(item.duration ?? item.time ?? item.call?.duration ?? item.setup?.duration ?? item.teardown?.duration ?? 0);
+                    const message = item.message || item.error || item.longrepr || item.call?.longrepr || "";
+
+                    tests.push({
+                        id: `${suite}::${name || nodeid}`,
+                        nodeid,
+                        name,
+                        suite,
+                        file,
+                        status,
+                        duration,
+                        message,
+                        raw: item,
+                    });
+                });
+
+                if (data && data.execution_results && typeof data.execution_results === "object") {
+                    Object.entries(data.execution_results).forEach(([category, suiteResults]) => {
+                        if (!suiteResults || typeof suiteResults !== "object") return;
+
+                        Object.entries(suiteResults).forEach(([testKey, result]) => {
+                            if (!result || typeof result !== "object") return;
+
+                            const info = result.test_info || {};
+                            const statusCandidate = result.status ?? result.outcome ?? result.state ?? (typeof result.passed === "boolean" ? result.passed : "");
+                            let status = coerceStatus(statusCandidate);
+                            if (status === "unknown" && typeof result.passed === "boolean") {
+                                status = result.passed ? "passed" : (result.error || result.stderr ? "error" : "failed");
+                            }
+                            if (status === "unknown" && (result.error || result.stderr)) {
+                                status = "error";
+                            }
+
+                            const relativePath = info.relative_path || info.relativePath || "";
+                            const suiteSegments = relativePath ? relativePath.split("/").slice(0, -1).join("/") : "";
+                            let normalizedSegments = suiteSegments;
+                            if (category && normalizedSegments.startsWith(`${category}/`)) {
+                                normalizedSegments = normalizedSegments.slice(category.length + 1);
+                            }
+                            const suiteLabelParts = [category, normalizedSegments].filter(Boolean);
+                            const suite = suiteLabelParts.length ? suiteLabelParts.join(" / ") : deriveSuite({
+                                suite: info.suite,
+                                file: info.file || testKey,
+                                nodeid: relativePath || testKey,
+                            });
+
+                            const nodeid = relativePath ? `${relativePath}::${info.name || ""}`.replace(/::$/, "") : info.nodeid || testKey;
+                            const name = info.name || result.name || testKey.split(/[\\/]/).pop();
+                            const file = info.file || testKey;
+                            const duration = parseDuration(result.duration ?? result.test_duration ?? result.runtime ?? result.elapsed ?? 0);
+                            const diagnostics = [result.error, result.stderr, result.stdout, result.message]
+                                .filter(Boolean)
+                                .join("\n\n")
+                                .trim();
+
+                            tests.push({
+                                id: `${suite}::${name || nodeid}`,
+                                nodeid: nodeid || name || testKey,
+                                name: name || nodeid || testKey,
+                                suite,
+                                file,
+                                status,
+                                duration,
+                                message: diagnostics,
+                                raw: result,
+                            });
+                        });
+                    });
+                }
+
+                if (!tests.length) {
+                    console.warn("Unsupported payload shape", data);
+                }
+
+                const summary = this.computeSummary(tests);
+                return { tests, summary };
+            }
+
+            computeSummary(tests) {
+                const summary = { total: tests.length, passed: 0, failed: 0, skipped: 0, error: 0, duration: 0, avgDuration: 0 };
+                tests.forEach((test) => {
+                    if (summary[test.status] !== undefined) {
+                        summary[test.status] += 1;
+                    }
+                    summary.duration += test.duration;
+                });
+                summary.avgDuration = tests.length ? summary.duration / tests.length : 0;
+                return summary;
+            }
+
+            applyFilters(isInitial = false) {
+                if (!this.tests.length) {
+                    this.filtered = [];
+                    this.renderSuites();
+                    this.updateMeta("Load a results file to get started.");
+                    this.toggleEmptyState(true);
+                    return;
+                }
+
+                this.filtered = this.tests.filter((test) => {
+                    const matchesStatus = this.activeStatus === "all" || test.status === this.activeStatus;
+                    const matchesSearch = !this.searchQuery || [test.name, test.nodeid, test.file, test.message]
+                        .join(" \u2022 ")
+                        .toLowerCase()
+                        .includes(this.searchQuery);
+                    return matchesStatus && matchesSearch;
+                });
+
+                const statusLabel = this.activeStatus === "all" ? "all statuses" : `${this.activeStatus} tests`;
+                const message = `${this.filtered.length} of ${this.tests.length} tests shown (${statusLabel}${this.searchQuery ? `, matching "${this.searchQuery}"` : ""}).`;
+                this.updateMeta(message);
+                this.toggleEmptyState(!this.filtered.length);
+                this.renderSuites(isInitial);
+            }
+
+            groupBySuite(tests) {
+                return tests.reduce((acc, test) => {
+                    const key = test.suite || "Ungrouped";
+                    if (!acc[key]) {
+                        acc[key] = [];
+                    }
+                    acc[key].push(test);
+                    return acc;
+                }, {});
+            }
+
+            renderSuites(isInitial = false) {
+                const container = this.elements.suiteContainer;
+                container.innerHTML = "";
+
+                if (!this.filtered.length) {
+                    return;
+                }
+
+                const suites = this.groupBySuite(this.filtered);
+                const fragment = document.createDocumentFragment();
+
+                Object.entries(suites)
+                    .sort(([nameA], [nameB]) => nameA.localeCompare(nameB))
+                    .forEach(([suiteName, tests]) => {
+                        const suiteSummary = this.computeSummary(tests);
+                        const details = document.createElement("details");
+                        details.className = "suite-card";
+                        if (isInitial) {
+                            details.open = true;
+                        }
+
+                        const summary = document.createElement("summary");
+                        summary.className = "suite-summary";
+                        summary.innerHTML = `
+                            <div class="suite-title">
+                                <h3>${suiteName || "Ungrouped"}</h3>
+                                <span>${tests.length} test${tests.length === 1 ? "" : "s"}</span>
+                            </div>
+                            <div class="suite-metrics">
+                                ${this.renderMetricPill("passed", suiteSummary.passed)}
+                                ${this.renderMetricPill("failed", suiteSummary.failed)}
+                                ${this.renderMetricPill("skipped", suiteSummary.skipped)}
+                                ${this.renderMetricPill("error", suiteSummary.error)}
+                                <span class="metric-pill">⏱️ ${suiteSummary.duration.toFixed(2)}s</span>
+                            </div>
+                        `;
+
+                        const list = document.createElement("div");
+                        list.className = "tests-list";
+
+                        tests
+                            .sort((a, b) => a.status.localeCompare(b.status) || a.name.localeCompare(b.name))
+                            .forEach((test) => {
+                                const row = document.createElement("article");
+                                row.className = "test-row";
+                                row.dataset.status = test.status;
+                                row.innerHTML = `
+                                    <div class="test-name">
+                                        <h4>${this.decorateStatus(test.status)} ${test.name}</h4>
+                                        <span>${test.nodeid || test.file || ""}</span>
+                                    </div>
+                                    <div class="status-chip" data-status="${test.status}">
+                                        ${this.statusIcon(test.status)}
+                                        <span>${test.status.toUpperCase()}</span>
+                                    </div>
+                                    <div class="duration">${test.duration ? `${test.duration.toFixed(3)}s` : "&mdash;"}</div>
+                                    ${test.message ? `<div class="message">${this.escapeHtml(test.message)}</div>` : ""}
+                                `;
+                                list.appendChild(row);
+                            });
+
+                        details.append(summary, list);
+                        fragment.appendChild(details);
+                    });
+
+                container.appendChild(fragment);
+            }
+
+            renderMetricPill(status, count) {
+                return `<span class="metric-pill" data-status="${status}">${this.statusIcon(status)} ${count}</span>`;
+            }
+
+            updateMeta(message) {
+                this.elements.resultsMeta.textContent = message;
+            }
+
+            toggleEmptyState(show) {
+                this.elements.emptyState.style.display = show ? "block" : "none";
+            }
+
+            updateSummary() {
+                const { metrics } = this.elements;
+                const { total, passed, failed, skipped, error, duration, avgDuration } = this.summary;
+                const passRate = total ? ((passed / total) * 100).toFixed(1) : "0.0";
+                const failedCaption = failed ? `${failed} test${failed === 1 ? "" : "s"} need attention` : "No failures 🎉";
+
+                metrics.total.textContent = total;
+                metrics.totalCaption.textContent = `${passed} passed, ${failed} failed, ${skipped} skipped, ${error} errors`;
+                metrics.passed.textContent = passed;
+                metrics.passRate.textContent = `${passRate}% pass rate`;
+                metrics.failed.textContent = failed;
+                metrics.failedCaption.textContent = failedCaption;
+                metrics.duration.textContent = `${duration.toFixed(2)}s`;
+                metrics.durationCaption.textContent = `Average ${avgDuration.toFixed(3)}s per test`;
+            }
+
+            updateFilterBadges() {
+                const counts = this.computeSummary(this.tests);
+                const map = {
+                    all: counts.total,
+                    passed: counts.passed,
+                    failed: counts.failed,
+                    skipped: counts.skipped,
+                    error: counts.error,
+                };
+                this.elements.filterButtons.forEach((button) => {
+                    const status = button.dataset.status;
+                    const countEl = button.querySelector(".filter-count");
+                    if (countEl) {
+                        countEl.textContent = map[status] ?? 0;
+                    }
+                });
+            }
+
+            decorateStatus(status) {
+                const icons = {
+                    passed: "✅",
+                    failed: "❌",
+                    skipped: "⚠️",
+                    error: "💥",
+                    unknown: "❔",
+                };
+                return icons[status] || icons.unknown;
+            }
+
+            statusIcon(status) {
+                const iconMap = {
+                    passed: "✅",
+                    failed: "❌",
+                    skipped: "⚠️",
+                    error: "💥",
+                    unknown: "❔",
+                };
+                return `<span>${iconMap[status] || iconMap.unknown}</span>`;
+            }
+
+            escapeHtml(value) {
+                return value
+                    .toString()
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#039;");
+            }
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            new TestResultsViewer();
+        });
+    </script>
+</body>
+</html>

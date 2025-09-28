@@ -17,10 +17,15 @@ import time
 import json
 import os
 import uuid
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple, Union, Callable
-import numpy as np
 from datetime import datetime
+
+try:
+    import numpy as np  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover
+    np = None  # type: ignore[assignment]
 
 from godelOS.core_kr.knowledge_store.interface import KnowledgeStoreInterface
 from godelOS.core_kr.type_system.manager import TypeSystemManager
@@ -167,6 +172,8 @@ class PrototypeModel(GroundingModel):
         prototype = {}
         
         # Compute average for each feature
+        categorical_counts: Dict[str, Dict[str, int]] = {}
+
         for key in all_keys:
             # Collect values for this feature
             values = []
@@ -183,9 +190,12 @@ class PrototypeModel(GroundingModel):
                 prototype[key] = sum(values) / len(values)
             elif all(isinstance(v, str) for v in values):
                 # Categorical feature - use most common value
-                from collections import Counter
                 counter = Counter(values)
                 prototype[key] = counter.most_common(1)[0][0]
+                categorical_counts[key] = dict(counter)
+
+        if categorical_counts:
+            prototype["_categorical_counts"] = categorical_counts
         
         return prototype
     
@@ -203,8 +213,9 @@ class PrototypeModel(GroundingModel):
         if not sub_symbolic_representation or not input_data:
             return 0.0
         
-        # Compute similarity based on shared features
-        shared_keys = set(sub_symbolic_representation.keys()) & set(input_data.keys())
+        # Compute similarity based on shared features (exclude metadata keys)
+        prototype_keys = {key for key in sub_symbolic_representation.keys() if not str(key).startswith("_")}
+        shared_keys = prototype_keys & set(input_data.keys())
         if not shared_keys:
             return 0.0
         
@@ -246,9 +257,11 @@ class PrototypeModel(GroundingModel):
         """
         if not sub_symbolic_representation:
             return new_example.copy()
-        
-        # Create a copy of the prototype
+
+        # Create a copy of the prototype and ensure categorical counts metadata is independent
         updated_prototype = sub_symbolic_representation.copy()
+        counts_store = updated_prototype.get("_categorical_counts") or {}
+        counts_store = {feature: dict(counts) for feature, counts in counts_store.items()}
         
         # Update each feature in the new example
         for key, value in new_example.items():
@@ -262,13 +275,20 @@ class PrototypeModel(GroundingModel):
                     # and use a weighted average
                     updated_prototype[key] = (proto_value + value) / 2
                 elif isinstance(proto_value, str) and isinstance(value, str):
-                    # For categorical features, keep existing value
-                    # In a more sophisticated implementation, we might track frequencies
-                    # and use the most common value
-                    pass
+                    counter = Counter(counts_store.get(key, {}))
+                    counter[value] += 1
+                    counts_store[key] = dict(counter)
+                    updated_prototype[key] = counter.most_common(1)[0][0]
             else:
                 # Add new feature
                 updated_prototype[key] = value
+                if isinstance(value, str):
+                    counts_store[key] = {value: 1}
+
+        if not counts_store:
+            updated_prototype.pop("_categorical_counts", None)
+        else:
+            updated_prototype["_categorical_counts"] = counts_store
         
         return updated_prototype
 
@@ -352,7 +372,7 @@ class ActionEffectModel(GroundingModel):
         prototype_model = PrototypeModel(self.modality)
         updated_effect_prototype = prototype_model.update(
             sub_symbolic_representation["effect_prototype"],
-            new_example.get("effect", {})
+            new_example
         )
         
         return {
@@ -501,6 +521,10 @@ class SymbolGroundingAssociator:
                         learning_focus_symbols.add(symbol.name)
                     elif isinstance(symbol, ApplicationNode) and isinstance(symbol.operator, ConstantNode):
                         learning_focus_symbols.add(symbol.operator.name)
+                        # Also add arguments that are ConstantNodes
+                        for arg in symbol.arguments:
+                            if isinstance(arg, ConstantNode):
+                                learning_focus_symbols.add(arg.name)
             learning_focus_symbols = list(learning_focus_symbols)
         
         logger.info(f"Learning groundings for {len(learning_focus_symbols)} symbols")
@@ -523,11 +547,24 @@ class SymbolGroundingAssociator:
         relevant_experiences = []
         for trace in self.experience_buffer:
             for symbol in trace.active_symbols_in_kb:
-                if (isinstance(symbol, ConstantNode) and symbol.name == symbol_ast_id) or \
-                   (isinstance(symbol, ApplicationNode) and isinstance(symbol.operator, ConstantNode) and 
-                    symbol.operator.name == symbol_ast_id):
+                # Check if this is a matching ConstantNode
+                if isinstance(symbol, ConstantNode) and symbol.name == symbol_ast_id:
                     relevant_experiences.append(trace)
                     break
+                # Check if this is an ApplicationNode with matching operator
+                elif isinstance(symbol, ApplicationNode) and isinstance(symbol.operator, ConstantNode) and \
+                     symbol.operator.name == symbol_ast_id:
+                    relevant_experiences.append(trace)
+                    break
+                # Check if this is an ApplicationNode with matching argument
+                elif isinstance(symbol, ApplicationNode):
+                    for arg in symbol.arguments:
+                        if isinstance(arg, ConstantNode) and arg.name == symbol_ast_id:
+                            relevant_experiences.append(trace)
+                            break
+                    else:
+                        continue  # Only executed if the inner loop didn't break
+                    break  # This break is for the outer loop when we found a match
         
         if not relevant_experiences:
             logger.debug(f"No relevant experiences found for symbol {symbol_ast_id}")

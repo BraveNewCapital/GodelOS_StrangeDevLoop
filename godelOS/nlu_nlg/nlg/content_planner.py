@@ -191,7 +191,7 @@ class ContentPlanner:
         # Default to statement
         return MessageType.STATEMENT
     
-    def _process_node(self, node: AST_Node, message_spec: MessageSpecification) -> None:
+    def _process_node(self, node: AST_Node, message_spec: MessageSpecification) -> List[str]:
         """
         Process an AST node to extract content elements.
         
@@ -199,7 +199,7 @@ class ContentPlanner:
             node: The AST node to process
             message_spec: The message specification to update
         """
-        # Generate a unique ID for this content element
+        created_ids: List[str] = []
         element_id = f"element_{len(message_spec.main_content) + len(message_spec.supporting_content)}"
         
         if isinstance(node, ConstantNode):
@@ -211,6 +211,7 @@ class ContentPlanner:
                 properties={"name": node.name, "value": node.value}
             )
             message_spec.add_main_content(element)
+            created_ids.append(element_id)
         
         elif isinstance(node, VariableNode):
             # Create a content element for the variable
@@ -221,6 +222,7 @@ class ContentPlanner:
                 properties={"name": node.name}
             )
             message_spec.add_supporting_content(element)
+            created_ids.append(element_id)
         
         elif isinstance(node, ApplicationNode):
             # Create a content element for the application
@@ -231,12 +233,14 @@ class ContentPlanner:
                 properties={"operator": self._get_operator_name(node.operator)}
             )
             message_spec.add_main_content(element)
-            
-            # Process the arguments
-            for i, arg in enumerate(node.arguments):
-                arg_element_id = f"{element_id}_arg_{i}"
-                self._process_node(arg, message_spec)
-                message_spec.add_discourse_relation("argument", element_id, arg_element_id)
+            created_ids.append(element_id)
+
+            # Process the arguments and record their IDs
+            for arg in node.arguments:
+                argument_ids = self._process_node(arg, message_spec)
+                for arg_id in argument_ids:
+                    message_spec.add_discourse_relation("argument", element_id, arg_id)
+                created_ids.extend(argument_ids)
         
         elif isinstance(node, QuantifierNode):
             # Create a content element for the quantifier
@@ -247,6 +251,7 @@ class ContentPlanner:
                 properties={"quantifier_type": node.quantifier_type}
             )
             message_spec.add_main_content(element)
+            created_ids.append(element_id)
             
             # Process the bound variables
             for i, var in enumerate(node.bound_variables):
@@ -259,11 +264,13 @@ class ContentPlanner:
                 )
                 message_spec.add_supporting_content(var_element)
                 message_spec.add_discourse_relation("binding", element_id, var_element_id)
+                created_ids.append(var_element_id)
             
             # Process the scope
-            scope_element_id = f"{element_id}_scope"
-            self._process_node(node.scope, message_spec)
-            message_spec.add_discourse_relation("scope", element_id, scope_element_id)
+            scope_ids = self._process_node(node.scope, message_spec)
+            for scope_id in scope_ids:
+                message_spec.add_discourse_relation("scope", element_id, scope_id)
+            created_ids.extend(scope_ids)
         
         elif isinstance(node, ConnectiveNode):
             # Create a content element for the connective
@@ -274,12 +281,14 @@ class ContentPlanner:
                 properties={"connective_type": node.connective_type}
             )
             message_spec.add_main_content(element)
+            created_ids.append(element_id)
             
             # Process the operands
-            for i, op in enumerate(node.operands):
-                op_element_id = f"{element_id}_op_{i}"
-                self._process_node(op, message_spec)
-                message_spec.add_discourse_relation("operand", element_id, op_element_id)
+            for op in node.operands:
+                operand_ids = self._process_node(op, message_spec)
+                for operand_id in operand_ids:
+                    message_spec.add_discourse_relation("operand", element_id, operand_id)
+                created_ids.extend(operand_ids)
         
         elif isinstance(node, ModalOpNode):
             # Create a content element for the modal operator
@@ -290,17 +299,22 @@ class ContentPlanner:
                 properties={"modal_operator": node.modal_operator}
             )
             message_spec.add_main_content(element)
+            created_ids.append(element_id)
             
             # Process the proposition
-            prop_element_id = f"{element_id}_prop"
-            self._process_node(node.proposition, message_spec)
-            message_spec.add_discourse_relation("proposition", element_id, prop_element_id)
+            proposition_ids = self._process_node(node.proposition, message_spec)
+            for prop_id in proposition_ids:
+                message_spec.add_discourse_relation("proposition", element_id, prop_id)
+            created_ids.extend(proposition_ids)
             
             # Process the agent or world if present
             if node.agent_or_world:
-                agent_element_id = f"{element_id}_agent"
-                self._process_node(node.agent_or_world, message_spec)
-                message_spec.add_discourse_relation("agent", element_id, agent_element_id)
+                agent_ids = self._process_node(node.agent_or_world, message_spec)
+                for agent_id in agent_ids:
+                    message_spec.add_discourse_relation("agent", element_id, agent_id)
+                created_ids.extend(agent_ids)
+
+        return created_ids
     
     def _get_operator_name(self, operator: AST_Node) -> str:
         """

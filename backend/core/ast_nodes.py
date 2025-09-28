@@ -65,6 +65,26 @@ class AST_Node(ABC):
             raise AttributeError(f"Cannot delete from frozen object: {name}")
         super().__delattr__(name)
 
+    def with_metadata(self, **kwargs) -> 'AST_Node':
+        """Return a copy of this node with metadata updated using keyword pairs."""
+        new_metadata = dict(self.metadata or {})
+        new_metadata.update(kwargs)
+        return self.with_updated_metadata(new_metadata)
+
+    @abstractmethod
+    def with_updated_metadata(self, metadata: Dict[str, Any]) -> 'AST_Node':
+        """Return a copy of this node using the provided metadata dictionary."""
+
+    def _copy_runtime_attributes(self, new_node: 'AST_Node') -> 'AST_Node':
+        """Copy runtime-assigned attributes (e.g., types) onto the cloned node."""
+        for attr, value in self.__dict__.items():
+            if attr in {'node_id', 'metadata', '_frozen'}:
+                continue
+            if hasattr(new_node, attr):
+                continue
+            object.__setattr__(new_node, attr, value)
+        return new_node
+
 
 class ConstantNode(AST_Node):
     """
@@ -96,6 +116,15 @@ class ConstantNode(AST_Node):
         type_str = f": {getattr(self, 'type', '')}" if hasattr(self, 'type') and self.type else ""
         return f"{spaces}Constant({self.name}{value_str}){type_str}"
 
+    def with_updated_metadata(self, metadata: Dict[str, Any]) -> 'ConstantNode':
+        new_node = ConstantNode(
+            self.name,
+            value=self.value,
+            node_id=self.node_id,
+            metadata=dict(metadata or {}),
+        )
+        return self._copy_runtime_attributes(new_node)
+
 
 class VariableNode(AST_Node):
     """
@@ -126,6 +155,15 @@ class VariableNode(AST_Node):
         spaces = "  " * indent
         type_str = f": {getattr(self, 'type', '')}" if hasattr(self, 'type') and self.type else ""
         return f"{spaces}Variable({self.name}#{self.var_id}){type_str}"
+
+    def with_updated_metadata(self, metadata: Dict[str, Any]) -> 'VariableNode':
+        new_node = VariableNode(
+            self.name,
+            self.var_id,
+            node_id=self.node_id,
+            metadata=dict(metadata or {}),
+        )
+        return self._copy_runtime_attributes(new_node)
 
 
 class ApplicationNode(AST_Node):
@@ -167,6 +205,15 @@ class ApplicationNode(AST_Node):
                 lines.append(arg._pretty_print_impl(indent + 3))
         
         return "\n".join(lines)
+
+    def with_updated_metadata(self, metadata: Dict[str, Any]) -> 'ApplicationNode':
+        new_node = ApplicationNode(
+            self.operator,
+            list(self.arguments),
+            node_id=self.node_id,
+            metadata=dict(metadata or {}),
+        )
+        return self._copy_runtime_attributes(new_node)
 
 
 class QuantifierNode(AST_Node):
@@ -211,6 +258,16 @@ class QuantifierNode(AST_Node):
             lines.append(self.scope._pretty_print_impl(indent + 2))
         
         return "\n".join(lines)
+
+    def with_updated_metadata(self, metadata: Dict[str, Any]) -> 'QuantifierNode':
+        new_node = QuantifierNode(
+            self.quantifier_type,
+            list(self.bound_variables),
+            scope=self.scope,
+            node_id=self.node_id,
+            metadata=dict(metadata or {}),
+        )
+        return self._copy_runtime_attributes(new_node)
 
 
 class ConnectiveNode(AST_Node):
@@ -260,6 +317,15 @@ class ConnectiveNode(AST_Node):
             lines.append(operand._pretty_print_impl(indent + 3))
         
         return "\n".join(lines)
+
+    def with_updated_metadata(self, metadata: Dict[str, Any]) -> 'ConnectiveNode':
+        new_node = ConnectiveNode(
+            self.connective_type,
+            list(self.operands),
+            node_id=self.node_id,
+            metadata=dict(metadata or {}),
+        )
+        return self._copy_runtime_attributes(new_node)
 
 
 class ModalOpNode(AST_Node):
@@ -314,6 +380,16 @@ class ModalOpNode(AST_Node):
         
         return "\n".join(lines)
 
+    def with_updated_metadata(self, metadata: Dict[str, Any]) -> 'ModalOpNode':
+        new_node = ModalOpNode(
+            self.modal_operator,
+            agent_or_world=self.agent_or_world,
+            proposition=self.proposition,
+            node_id=self.node_id,
+            metadata=dict(metadata or {}),
+        )
+        return self._copy_runtime_attributes(new_node)
+
 
 class LambdaNode(AST_Node):
     """
@@ -356,6 +432,15 @@ class LambdaNode(AST_Node):
         
         return "\n".join(lines)
 
+    def with_updated_metadata(self, metadata: Dict[str, Any]) -> 'LambdaNode':
+        new_node = LambdaNode(
+            list(self.bound_variables),
+            body=self.body,
+            node_id=self.node_id,
+            metadata=dict(metadata or {}),
+        )
+        return self._copy_runtime_attributes(new_node)
+
 
 class DefinitionNode(AST_Node):
     """
@@ -392,6 +477,16 @@ class DefinitionNode(AST_Node):
             lines.append(self.definition_body_ast._pretty_print_impl(indent + 2))
         
         return "\n".join(lines)
+
+    def with_updated_metadata(self, metadata: Dict[str, Any]) -> 'DefinitionNode':
+        new_node = DefinitionNode(
+            self.defined_symbol_name,
+            defined_symbol_type=self.defined_symbol_type,
+            definition_body_ast=self.definition_body_ast,
+            node_id=self.node_id,
+            metadata=dict(metadata or {}),
+        )
+        return self._copy_runtime_attributes(new_node)
 
 
 # Utility classes and functions

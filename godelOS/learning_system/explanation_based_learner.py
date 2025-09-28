@@ -10,6 +10,8 @@ variables while ensuring the derived rules remain valid and operational.
 """
 
 import logging
+import time
+import uuid
 from typing import Dict, List, Optional, Set, Tuple, Any, DefaultDict
 from dataclasses import dataclass, field
 from collections import defaultdict
@@ -153,6 +155,72 @@ class ExplanationBasedLearner:
         
         logger.info(f"Generated logic template: {logic_template}")
         return logic_template
+
+    def export_template(self, template: AST_Node, proof_object: ProofObject,
+                        context_id: str = "LEARNED_TEMPLATES") -> Dict[str, Any]:
+        """Persist a learned template with provenance metadata.
+
+        The method enriches the template with a unique identifier and provenance
+        information, stores a lightweight representation in the knowledge store,
+        and returns a summary payload for downstream consumers.
+        """
+
+        timestamp = time.time()
+
+        # Ensure the target context exists
+        if context_id not in self.ksi.list_contexts():
+            try:
+                self.ksi.create_context(context_id)
+            except Exception:
+                # Context may have been created concurrently; ignore
+                pass
+
+        template_metadata = template.metadata
+        template_id = template_metadata.get("template_id")
+        if not template_id:
+            template_id = f"template-{uuid.uuid4()}"
+
+        entity_id = f"template:{template_id}"
+        proof_id = f"proof:{uuid.uuid4()}"
+
+        # Enrich template with metadata for transparency
+        provenance = {
+            "source": "ExplanationBasedLearner",
+            "proof_id": proof_id,
+            "context_id": context_id,
+            "created_at": timestamp,
+            "goal": str(proof_object.conclusion_ast) if proof_object.conclusion_ast else None,
+            "status": proof_object.status_message or ("Proved" if proof_object.goal_achieved else "Failed")
+        }
+        enriched_template = template.with_metadata(template_id=template_id, provenance=provenance)
+
+        # Persist template summary into the auxiliary knowledge store structures
+        self.ksi.add_entity(entity_id)
+        self.ksi.add_property(entity_id, "representation", str(enriched_template))
+        self.ksi.add_property(entity_id, "goal", provenance["goal"])
+        self.ksi.add_property(entity_id, "context_id", context_id)
+        self.ksi.add_property(entity_id, "created_at", timestamp)
+        self.ksi.add_property(entity_id, "status", provenance["status"])
+
+        if proof_object.inference_engine_used:
+            self.ksi.add_property(entity_id, "engine", proof_object.inference_engine_used)
+
+        # Persist proof summary
+        self.ksi.add_entity(proof_id)
+        self.ksi.add_property(proof_id, "goal", provenance["goal"])
+        self.ksi.add_property(proof_id, "steps", len(proof_object.proof_steps))
+        self.ksi.add_property(proof_id, "time_taken_ms", proof_object.time_taken_ms)
+        self.ksi.add_property(proof_id, "resources", proof_object.resources_consumed or {})
+
+        self.ksi.add_relation(entity_id, "derived_from", proof_id, metadata={"exported_at": timestamp})
+
+        return {
+            "template": enriched_template,
+            "template_id": template_id,
+            "entity_id": entity_id,
+            "proof_id": proof_id,
+            "provenance": provenance
+        }
     
     def _extract_explanation(self, proof_object: ProofObject) -> Dict[int, ProofStepNode]:
         """

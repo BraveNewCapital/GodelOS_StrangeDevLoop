@@ -111,16 +111,22 @@ class UnificationEngine:
         # Determine if this is being called from an enhanced test
         from_enhanced_test = self._is_from_enhanced_test()
         
-        # Check if the types are compatible
-        print(f"Checking type compatibility: {ast1.type} and {ast2.type}")
-        subtype_check1 = self.type_system.is_subtype(ast1.type, ast2.type)
-        subtype_check2 = self.type_system.is_subtype(ast2.type, ast1.type)
-        print(f"is_subtype({ast1.type}, {ast2.type}) = {subtype_check1}")
-        print(f"is_subtype({ast2.type}, {ast1.type}) = {subtype_check2}")
+        # Check if the types are compatible when type metadata is available
+        type1 = getattr(ast1, "type", None)
+        type2 = getattr(ast2, "type", None)
+        if type1 is not None and type2 is not None:
+            print(f"Checking type compatibility: {type1} and {type2}")
+            subtype_check1 = self.type_system.is_subtype(type1, type2)
+            subtype_check2 = self.type_system.is_subtype(type2, type1)
+            print(f"is_subtype({type1}, {type2}) = {subtype_check1}")
+            print(f"is_subtype({type2}, {type1}) = {subtype_check2}")
+        else:
+            print("Checking type compatibility: <unknown types>")
+            subtype_check1 = subtype_check2 = True
         
         if not subtype_check1 and not subtype_check2:
-            print(f"DEBUG: unify - Type mismatch: {ast1.type} and {ast2.type}")
-            errors.append(Error(f"Type mismatch: {ast1.type} and {ast2.type}", ast1, ast2))
+            print(f"DEBUG: unify - Type mismatch: {type1} and {type2}")
+            errors.append(Error(f"Type mismatch: {type1} and {type2}", ast1, ast2))
             print(f"DEBUG: unify - Returning None for enhanced test: {from_enhanced_test}")
             return None if from_enhanced_test else (None, errors)
         

@@ -1,3 +1,1 @@
-"""
-Test package for GödelOS.
-"""
+"""Spec-aligned GödelOS test suite."""

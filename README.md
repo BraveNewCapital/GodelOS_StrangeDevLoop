@@ -29,7 +29,7 @@ Whether you're an AI researcher, developer, or philosopher, GodelOS offers tools
 
 - **Interactive Frontend Dashboard**: Svelte-based UI for visualizing consciousness states, emergence timelines, and phenomenal experiences in real-time.
 
-- **Comprehensive Testing**: Pytest for backend, Playwright for E2E UI tests, with coverage reports and marks for unit/integration/e2e.
+- **Testing**: Run comprehensive testing with `python unified_test_runner.py` or specific tests as needed.
 
 ## Architecture Overview
 
@@ -152,10 +152,13 @@ We welcome contributions! Please follow these guidelines:
   - Svelte: Components as `PascalCase.svelte`.
 
 - **Testing**:
-  - Use `pytest` for unit/integration/e2e (marks: `@pytest.mark.unit|integration|e2e|slow|requires_backend`).
-  - Frontend: Playwright specs in `svelte-frontend/tests/`.
-  - Run: `pytest` (with coverage) and `npm test`.
-  - Some tests require backend on `localhost:8000`.
+  - **Unified Test Runner**: Use `python unified_test_runner.py` for comprehensive testing with interactive TUI
+  - **Test Categories**: P5 Core (W1-W4), Integration, E2E, Performance, and Smoke tests
+  - **Individual Tests**: Run specific suites or components independently
+  - **Frontend**: Playwright specs in `svelte-frontend/tests/`
+  - **Coverage**: Comprehensive test results saved to `test_output/` directory
+  - Some tests require backend on `localhost:8000` (handled automatically by unified runner)
+  - See [docs/TESTING_INFRASTRUCTURE.md](docs/TESTING_INFRASTRUCTURE.md) for complete testing guide
 
 - **Commits & PRs**:
   - Commits: Imperative mood, scoped (e.g., `feat(backend): add recursive loop endpoint`).
@@ -164,7 +167,7 @@ We welcome contributions! Please follow these guidelines:
 
 - **Validation**:
   - Format/lint: `black . && isort .`.
-  - Tests: `pytest && cd svelte-frontend && npm test`.
+  - **Testing**: `python unified_test_runner.py && cd svelte-frontend && npm test`.
   - Backend entrypoints: Prefer updates in [`unified_server.py`](backend/unified_server.py).
 
 See [AGENTS.md](🛡️ AGENTS.md) for detailed repository guidelines.

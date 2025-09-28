@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Set, Tuple, Any, DefaultDict
 import uuid
 import threading
 from collections import defaultdict
+import itertools
 from abc import ABC, abstractmethod
 
 from godelOS.core_kr.ast.nodes import AST_Node, VariableNode, ConstantNode, ApplicationNode
@@ -399,8 +400,10 @@ class InMemoryKnowledgeStore(KnowledgeStoreBackend):
             statement: The statement to index
             context_id: The context of the statement
         """
-        # Index by type
-        self._type_index[statement.type.name][context_id].add(statement)
+        # Index by type when available
+        type_name = getattr(getattr(statement, "type", None), "name", None)
+        if type_name:
+            self._type_index[type_name][context_id].add(statement)
         
         # Index ApplicationNodes by predicate name and constants
         if isinstance(statement, ApplicationNode):
@@ -424,8 +427,9 @@ class InMemoryKnowledgeStore(KnowledgeStoreBackend):
             context_id: The context of the statement
         """
         # Remove from type index
-        if statement.type.name in self._type_index and context_id in self._type_index[statement.type.name]:
-            self._type_index[statement.type.name][context_id].discard(statement)
+        type_name = getattr(getattr(statement, "type", None), "name", None)
+        if type_name and type_name in self._type_index and context_id in self._type_index[type_name]:
+            self._type_index[type_name][context_id].discard(statement)
         
         # Remove from predicate index
         if isinstance(statement, ApplicationNode) and isinstance(statement.operator, ConstantNode):
@@ -465,8 +469,10 @@ class InMemoryKnowledgeStore(KnowledgeStoreBackend):
                 return self._predicate_index[predicate_name][context_id]
         
         # If the pattern has a specific type, use the type index
-        if pattern.type.name in self._type_index and context_id in self._type_index[pattern.type.name]:
-            return self._type_index[pattern.type.name][context_id]
+        pattern_type = getattr(pattern, "type", None)
+        type_name = getattr(pattern_type, "name", None)
+        if type_name and type_name in self._type_index and context_id in self._type_index[type_name]:
+            return self._type_index[type_name][context_id]
         
         # If no indexes apply, return all statements in the context
         return self._statements[context_id]
@@ -628,6 +634,15 @@ class KnowledgeStoreInterface:
         self._backend.create_context("TRUTHS", None, "truths")
         self._backend.create_context("BELIEFS", None, "beliefs")
         self._backend.create_context("HYPOTHETICAL", None, "hypothetical")
+
+        # Lightweight entity graph storage for auxiliary operations
+        self._entity_lock = threading.RLock()
+        self._entities: Set[str] = set()
+        self._entity_properties: DefaultDict[str, DefaultDict[str, List[Any]]] = defaultdict(lambda: defaultdict(list))
+        self._relations: List[Dict[str, Any]] = []
+        self._text_documents: List[Dict[str, Any]] = []
+        self._structured_documents: List[Dict[str, Any]] = []
+        self._relation_id_counter = itertools.count(1)
     
     def add_statement(self, statement_ast: AST_Node, context_id: str = "TRUTHS", 
                      metadata: Optional[Dict[str, Any]] = None) -> bool:
@@ -793,3 +808,121 @@ class KnowledgeStoreInterface:
             self.cache_manager.put(cache_key, result)
         
         return result
+
+    # ------------------------------------------------------------------
+    # Lightweight entity/property/relation operations used by high-level modules
+    # ------------------------------------------------------------------
+
+    def add_entity(self, entity_id: str) -> None:
+        """Add an entity record to the auxiliary store."""
+        with self._entity_lock:
+            self._entities.add(entity_id)
+
+    def remove_entity(self, entity_id: str) -> None:
+        """Remove an entity and its associated data from the auxiliary store."""
+        with self._entity_lock:
+            self._entities.discard(entity_id)
+            self._entity_properties.pop(entity_id, None)
+            self._relations = [rel for rel in self._relations if rel["source"] != entity_id and rel["target"] != entity_id]
+
+    def add_property(self, entity_id: str, property_name: str, value: Any) -> None:
+        """Attach a property value to an entity."""
+        with self._entity_lock:
+            self._entities.add(entity_id)
+            self._entity_properties[entity_id][property_name].append(value)
+
+    def get_entity_properties(self, entity_id: str) -> Dict[str, List[Any]]:
+        """Retrieve all property values for an entity."""
+        with self._entity_lock:
+            properties = self._entity_properties.get(entity_id)
+            if not properties:
+                return {}
+            return {key: values.copy() for key, values in properties.items()}
+
+    def add_relation(self, source: str, relation_type: str, target: str,
+                     confidence: float = 1.0, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Create a relation between two entities."""
+        relation = {
+            "id": f"rel:{next(self._relation_id_counter)}",
+            "source": source,
+            "relation": relation_type,
+            "target": target,
+            "confidence": confidence,
+            "metadata": metadata or {}
+        }
+        with self._entity_lock:
+            self._entities.add(source)
+            self._entities.add(target)
+            self._relations.append(relation)
+        return relation
+
+    def get_relation(self, source: str, relation_type: str, target: str) -> Optional[Dict[str, Any]]:
+        """Fetch a specific relation by endpoints."""
+        with self._entity_lock:
+            for relation in self._relations:
+                if (relation["source"] == source and
+                        relation["relation"] == relation_type and
+                        relation["target"] == target):
+                    return relation.copy()
+        return None
+
+    def get_relations_from(self, source: str, relation_type: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Return relations that originate from the given entity."""
+        with self._entity_lock:
+            matches = [rel.copy() for rel in self._relations if rel["source"] == source]
+        if relation_type:
+            matches = [rel for rel in matches if rel["relation"] == relation_type]
+        return matches
+
+    def get_entity_relations(self, entity_id: str) -> List[Dict[str, Any]]:
+        """Return relations where the entity appears as source or target."""
+        with self._entity_lock:
+            return [rel.copy() for rel in self._relations if rel["source"] == entity_id or rel["target"] == entity_id]
+
+    # ------------------------------------------------------------------
+    # Ad-hoc retrieval helpers used by contextualized retriever
+    # ------------------------------------------------------------------
+
+    def index_text_document(self, content: str, score: float = 0.5, metadata: Optional[Dict[str, Any]] = None) -> None:
+        """Register a text snippet for simple keyword-based search."""
+        doc = {
+            "content": content,
+            "score": score,
+            "metadata": metadata or {}
+        }
+        self._text_documents.append(doc)
+
+    def clear_indexed_text(self) -> None:
+        """Remove all indexed text documents."""
+        self._text_documents.clear()
+
+    def search_text(self, text: str, filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """Perform a naive substring search across indexed documents."""
+        query = text.lower()
+        results = []
+        for doc in self._text_documents:
+            if query in doc["content"].lower():
+                if filters and any(doc.get(key) != value for key, value in filters.items() if key in doc):
+                    continue
+                results.append(doc.copy())
+        return results
+
+    def register_structured_result(self, data: Dict[str, Any]) -> None:
+        """Register a structured retrieval document for later querying."""
+        self._structured_documents.append(data.copy())
+
+    def clear_structured_results(self) -> None:
+        """Clear structured retrieval documents."""
+        self._structured_documents.clear()
+
+    def query(self, query: Dict[str, Any], filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """Execute a simple structured query against registered documents."""
+        if not isinstance(query, dict):
+            return []
+        results = []
+        for item in self._structured_documents:
+            if all(item.get(key) == value for key, value in query.items()):
+                if filters and any(item.get(key) != value for key, value in filters.items()):
+                    continue
+                results.append(item.copy())
+        return results

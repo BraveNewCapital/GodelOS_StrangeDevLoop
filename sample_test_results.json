@@ -1,0 +1,94 @@
+{
+  "metadata": {
+    "suite": "GödelOS Demo",
+    "generated_at": "2025-01-13T12:00:00Z",
+    "tool": "pytest-json-report"
+  },
+  "results": [
+    {
+      "suite": "tests/backend/test_cognitive_manager.py",
+      "name": "test_process_query_handles_simple_input",
+      "nodeid": "tests/backend/test_cognitive_manager.py::test_process_query_handles_simple_input",
+      "status": "passed",
+      "duration": 0.412,
+      "file": "tests/backend/test_cognitive_manager.py"
+    },
+    {
+      "suite": "tests/backend/test_cognitive_manager.py",
+      "name": "test_process_query_handles_empty_input",
+      "nodeid": "tests/backend/test_cognitive_manager.py::test_process_query_handles_empty_input",
+      "status": "failed",
+      "duration": 0.135,
+      "message": "AssertionError: Expected ValidationError when query is empty",
+      "file": "tests/backend/test_cognitive_manager.py"
+    },
+    {
+      "suite": "tests/backend/test_consciousness_engine.py",
+      "name": "test_assess_consciousness_state_returns_expected_shape",
+      "nodeid": "tests/backend/test_consciousness_engine.py::test_assess_consciousness_state_returns_expected_shape",
+      "status": "passed",
+      "duration": 0.982,
+      "file": "tests/backend/test_consciousness_engine.py"
+    },
+    {
+      "suite": "tests/backend/test_unified_server.py",
+      "name": "test_query_endpoint_streams_events",
+      "nodeid": "tests/backend/test_unified_server.py::test_query_endpoint_streams_events",
+      "status": "error",
+      "duration": 0.215,
+      "message": "WebSocketDisconnect: code=1006 (connection closed abnormally [internal]), no reason",
+      "file": "tests/backend/test_unified_server.py"
+    },
+    {
+      "suite": "tests/frontend/test_dashboard.py",
+      "name": "test_transparency_dashboard_loads_panels",
+      "nodeid": "tests/frontend/test_dashboard.py::test_transparency_dashboard_loads_panels",
+      "status": "passed",
+      "duration": 0.671,
+      "file": "tests/frontend/test_dashboard.py"
+    },
+    {
+      "suite": "tests/frontend/test_dashboard.py",
+      "name": "test_transparency_dashboard_handles_missing_data",
+      "nodeid": "tests/frontend/test_dashboard.py::test_transparency_dashboard_handles_missing_data",
+      "status": "skipped",
+      "duration": 0.0,
+      "message": "Skipped: requires running frontend dev server",
+      "file": "tests/frontend/test_dashboard.py"
+    },
+    {
+      "suite": "tests/integration/test_alignment_flow.py",
+      "name": "test_alignment_flow_generates_goal_graph",
+      "nodeid": "tests/integration/test_alignment_flow.py::test_alignment_flow_generates_goal_graph",
+      "status": "passed",
+      "duration": 1.734,
+      "file": "tests/integration/test_alignment_flow.py"
+    },
+    {
+      "suite": "tests/integration/test_alignment_flow.py",
+      "name": "test_alignment_flow_handles_timeout",
+      "nodeid": "tests/integration/test_alignment_flow.py::test_alignment_flow_handles_timeout",
+      "status": "failed",
+      "duration": 1.205,
+      "message": "RuntimeError: Timed out waiting for cognitive alignment",
+      "file": "tests/integration/test_alignment_flow.py"
+    },
+    {
+      "suite": "tests/e2e/test_full_system.py",
+      "name": "test_full_system_happy_path",
+      "nodeid": "tests/e2e/test_full_system.py::test_full_system_happy_path",
+      "status": "passed",
+      "duration": 3.582,
+      "file": "tests/e2e/test_full_system.py"
+    },
+    {
+      "suite": "tests/e2e/test_full_system.py",
+      "name": "test_full_system_handles_invalid_goal",
+      "nodeid": "tests/e2e/test_full_system.py::test_full_system_handles_invalid_goal",
+      "status": "error",
+      "duration": 2.413,
+      "message": "ValueError: Received malformed phenomenal experience payload",
+      "file": "tests/e2e/test_full_system.py"
+    }
+  ]
+}

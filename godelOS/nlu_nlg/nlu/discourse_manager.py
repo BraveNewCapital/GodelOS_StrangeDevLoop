@@ -513,9 +513,6 @@ class DiscourseStateManager:
         # This is a simplified implementation of dialogue state tracking
         # For a more sophisticated approach, we would use a more complex model
         
-        # Update the turn count
-        self.context.dialogue_state.turn_count += 1
-        
         # Try to determine the topic of the utterance
         topic = self._determine_topic(parse_output, isr)
         if topic:

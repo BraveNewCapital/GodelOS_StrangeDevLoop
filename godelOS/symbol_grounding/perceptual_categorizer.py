@@ -632,6 +632,13 @@ class PerceptualCategorizer:
                         
                         # Extract features for this object
                         features = self._extract_object_features(modality, obj_data)
+                        # Preserve spatial metadata needed for relation reasoning
+                        if "distance" in obj_data:
+                            features.setdefault("distance", obj_data["distance"])
+                        if "angle" in obj_data:
+                            features.setdefault("angle", obj_data["angle"])
+                        if "object_type" in obj_data:
+                            features.setdefault("object_type", obj_data["object_type"])
                         
                         # Store features for this object
                         object_features[obj_id] = features

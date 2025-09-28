@@ -243,6 +243,27 @@ class StrategySelector:
             "very_complex": 1000
         }
     
+    def _iter_children(self, ast: AST_Node) -> List[AST_Node]:
+        """Safely iterate over an AST node's children regardless of implementation detail."""
+        children_attr = getattr(ast, "children", None)
+        if callable(children_attr):
+            try:
+                children = children_attr()
+            except TypeError:
+                # Some nodes expose children() requiring arguments; fall back to empty.
+                return []
+        elif children_attr is None:
+            return []
+        else:
+            children = children_attr
+
+        if children is None:
+            return []
+        if isinstance(children, (list, tuple, set)):
+            return list(children)
+        # Fallback for generators/other iterables
+        return list(children)
+
     def analyze_goal(self, goal_ast: AST_Node, context_asts: Set[AST_Node]) -> Dict[str, Any]:
         """Analyze goal structure and complexity."""
         analysis = {
@@ -335,9 +356,7 @@ class StrategySelector:
         """Check if AST contains modal operators."""
         if isinstance(ast, ModalOpNode):
             return True
-        if hasattr(ast, 'children'):
-            return any(self._has_modal_operators(child) for child in ast.children)
-        return False
+        return any(self._has_modal_operators(child) for child in self._iter_children(ast))
     
     def _has_arithmetic(self, ast: AST_Node) -> bool:
         """Check if AST contains arithmetic operations."""
@@ -346,9 +365,7 @@ class StrategySelector:
                 arith_ops = {'+', '-', '*', '/', '<', '>', '<=', '>=', '=', '!='}
                 if ast.function.name in arith_ops:
                     return True
-        if hasattr(ast, 'children'):
-            return any(self._has_arithmetic(child) for child in ast.children)
-        return False
+        return any(self._has_arithmetic(child) for child in self._iter_children(ast))
     
     def _has_constraints(self, ast: AST_Node) -> bool:
         """Check if AST contains constraint expressions."""
@@ -360,8 +377,7 @@ class StrategySelector:
         count = 0
         if isinstance(ast, QuantifierNode):
             count += 1
-        if hasattr(ast, 'children'):
-            count += sum(self._count_quantifiers(child) for child in ast.children)
+        count += sum(self._count_quantifiers(child) for child in self._iter_children(ast))
         return count
     
     def _count_variables(self, ast: AST_Node) -> int:
@@ -374,15 +390,16 @@ class StrategySelector:
         """Collect all variable names in AST."""
         if isinstance(ast, VariableNode):
             variables.add(ast.name)
-        elif hasattr(ast, 'children'):
-            for child in ast.children:
+        else:
+            for child in self._iter_children(ast):
                 self._collect_variables(child, variables)
     
     def _calculate_depth(self, ast: AST_Node) -> int:
         """Calculate maximum depth of AST."""
-        if not hasattr(ast, 'children') or not ast.children:
+        children = self._iter_children(ast)
+        if not children:
             return 1
-        return 1 + max(self._calculate_depth(child) for child in ast.children)
+        return 1 + max(self._calculate_depth(child) for child in children)
     
     def _build_goal_type_rules(self) -> Dict[GoalType, Dict[str, Any]]:
         """Build rules for goal type classification."""
@@ -436,6 +453,13 @@ class InferenceCoordinator:
         self.executor = ThreadPoolExecutor(max_workers=executor_threads)
         self.websocket_manager = websocket_manager  # P5 W4.4 enhancement
         
+        # Initialize parser for KSI statement conversion
+        self.parser = None
+        try:
+            self.parser = FormalLogicParser()
+        except Exception as e:
+            logger.warning(f"Could not initialize FormalLogicParser: {e}")
+        
         # Coordinator statistics
         self.stats = {
             "total_goals": 0,
@@ -463,6 +487,129 @@ class InferenceCoordinator:
         if name in self.provers:
             del self.provers[name]
             logger.info(f"Unregistered prover: {name}")
+    
+    def _convert_ksi_statement_to_ast(self, statement: Union[str, Dict[str, Any]]) -> Optional[AST_Node]:
+        """
+        Convert a KSI statement to an AST node.
+        
+        Args:
+            statement: KSI statement (string formula or dict with metadata)
+            
+        Returns:
+            AST_Node or None if conversion fails
+        """
+        try:
+            # Handle different statement formats
+            formula_str = None
+            metadata = {}
+            
+            if isinstance(statement, str):
+                formula_str = statement
+            elif isinstance(statement, dict):
+                # KSI statements may have structure like:
+                # {"formula": "...", "confidence": 0.9, "source": "...", ...}
+                formula_str = statement.get('formula') or statement.get('content') or str(statement)
+                metadata = {k: v for k, v in statement.items() if k not in ['formula', 'content']}
+            else:
+                # Try to convert to string
+                formula_str = str(statement)
+            
+            if not formula_str:
+                logger.warning(f"Empty formula in KSI statement: {statement}")
+                return None
+            
+            # Use parser if available
+            if self.parser:
+                ast_node = self.parser.parse(formula_str)
+                
+                # Attach metadata if available
+                if metadata and hasattr(ast_node, '__dict__'):
+                    ast_node._ksi_metadata = metadata
+                
+                return ast_node
+            else:
+                # Fallback: create a simple constant node
+                # This is a simplified representation when parser is unavailable
+                logger.debug(f"Parser unavailable, creating ConstantNode for: {formula_str}")
+                node = ConstantNode(formula_str, "Statement")
+                if metadata:
+                    node._ksi_metadata = metadata
+                return node
+                
+        except Exception as e:
+            logger.warning(f"Failed to convert KSI statement to AST: {statement}, error: {e}")
+            return None
+    
+    async def _retrieve_context_from_ksi(self, context_ids: List[str]) -> Set[AST_Node]:
+        """
+        Retrieve and convert context statements from KSI adapter.
+        
+        Args:
+            context_ids: List of context IDs to retrieve
+            
+        Returns:
+            Set of AST nodes representing the context
+        """
+        context_asts = set()
+        
+        if not self.ksi_adapter or not context_ids:
+            return context_asts
+        
+        for context_id in context_ids:
+            try:
+                # Query KSI for statements in this context
+                ksi_results = await self.ksi_adapter.query_statements(
+                    query_ast=None,  # Query all statements in context
+                    context_ids=[context_id],
+                    metadata=ContextMetadata(
+                        domain="inference",
+                        confidence_threshold=0.5,  # Include lower confidence statements
+                        include_inferred=True  # Include previously inferred statements
+                    )
+                )
+                
+                # Convert each KSI result to AST
+                for result in ksi_results:
+                    # KSI results may be in different formats depending on implementation
+                    if isinstance(result, tuple) and len(result) >= 2:
+                        # Format: (statement, similarity_score) or (statement, metadata, score)
+                        statement = result[0]
+                        similarity = result[1] if len(result) > 1 else 1.0
+                        
+                        # Only include high-confidence statements
+                        if similarity >= 0.5:
+                            ast_node = self._convert_ksi_statement_to_ast(statement)
+                            if ast_node:
+                                # Store similarity score in metadata
+                                if not hasattr(ast_node, '_ksi_metadata'):
+                                    ast_node._ksi_metadata = {}
+                                ast_node._ksi_metadata['similarity'] = similarity
+                                ast_node._ksi_metadata['context_id'] = context_id
+                                context_asts.add(ast_node)
+                    elif isinstance(result, dict):
+                        # Direct dictionary format from KSI
+                        ast_node = self._convert_ksi_statement_to_ast(result)
+                        if ast_node:
+                            if not hasattr(ast_node, '_ksi_metadata'):
+                                ast_node._ksi_metadata = {}
+                            ast_node._ksi_metadata['context_id'] = context_id
+                            context_asts.add(ast_node)
+                    else:
+                        # Try direct conversion
+                        ast_node = self._convert_ksi_statement_to_ast(result)
+                        if ast_node:
+                            if not hasattr(ast_node, '_ksi_metadata'):
+                                ast_node._ksi_metadata = {}
+                            ast_node._ksi_metadata['context_id'] = context_id
+                            context_asts.add(ast_node)
+                
+                logger.debug(f"Retrieved {len(context_asts)} statements from context {context_id}")
+                
+            except Exception as e:
+                logger.error(f"Error retrieving context {context_id} from KSI: {e}")
+                continue
+        
+        return context_asts
     
     async def prove_goal(self, 
                         goal_ast: AST_Node,
@@ -500,14 +647,10 @@ class InferenceCoordinator:
                 all_context.update(context_asts)
             
             if context_ids and self.ksi_adapter:
-                for context_id in context_ids:
-                    ksi_results = await self.ksi_adapter.query_statements(
-                        query_ast=None,  # Query all statements in context
-                        context_ids=[context_id]
-                    )
-                    # Convert KSI results to AST nodes (would need proper conversion)
-                    # For now, placeholder
-                    logger.debug(f"Retrieved {len(ksi_results)} statements from context {context_id}")
+                # Retrieve and convert KSI statements to AST nodes
+                ksi_context = await self._retrieve_context_from_ksi(context_ids)
+                all_context.update(ksi_context)
+                logger.info(f"Total context size after KSI retrieval: {len(all_context)} statements")
             
             # Track active proof
             self.active_proofs[proof_id] = {
@@ -693,85 +836,80 @@ class InferenceCoordinator:
         
         logger.info("InferenceCoordinator shutdown complete")
 
+    async def _stream_proof_step(self, proof_id: str, step_number: int, step_data: Dict[str, Any]):
+        """Stream individual proof steps to interested observers (transparency requirement)."""
+        if not self.websocket_manager:
+            return
+
+        try:
+            step_info = {
+                "step_number": step_number,
+                "proof_id": proof_id,
+                "inference_type": step_data.get("inference_type", "unknown"),
+                "premises": step_data.get("premises", []),
+                "conclusion": step_data.get("conclusion", ""),
+                "justification": step_data.get("justification", ""),
+                "confidence": step_data.get("confidence", 0.8),
+                "modal_operators_used": step_data.get("modal_operators_used", []),
+            }
+
+            if hasattr(self.websocket_manager, "broadcast_inference_step"):
+                await self.websocket_manager.broadcast_inference_step(step_info)
+            else:
+                logger.debug("WebSocket manager does not support inference step streaming")
+        except Exception as exc:  # pragma: no cover - transparency hooks best effort
+            logger.debug(f"Failed to stream proof step: {exc}")
+
+    async def _stream_proof_completion(self, proof_id: str, proof_result: ProofObject, time_taken_ms: float):
+        """Stream proof completion details for real-time transparency dashboards."""
+        if not self.websocket_manager:
+            return
+
+        try:
+            completion_data = {
+                "proof_id": proof_id,
+                "success": proof_result.status == ProofStatus.SUCCESS,
+                "goal_achieved": proof_result.status == ProofStatus.SUCCESS,
+                "total_steps": len(getattr(proof_result, "proof_steps", [])),
+                "processing_time_ms": time_taken_ms,
+                "strategy_used": getattr(proof_result, "strategy_used", "unknown"),
+                "modal_reasoning_used": any(
+                    "modal" in str(step).lower() for step in getattr(proof_result, "proof_steps", [])
+                ),
+                "status_message": getattr(proof_result, "status_message", str(proof_result.status.value)),
+                "confidence_score": getattr(proof_result, "confidence", 0.8),
+            }
+
+            if hasattr(self.websocket_manager, "broadcast_proof_completion"):
+                await self.websocket_manager.broadcast_proof_completion(completion_data)
+            else:
+                logger.debug("WebSocket manager does not support proof completion streaming")
+        except Exception as exc:  # pragma: no cover - transparency hooks best effort
+            logger.debug(f"Failed to stream proof completion: {exc}")
+
+    async def _stream_modal_analysis(self, modal_data: Dict[str, Any]):
+        """Stream modal reasoning analytics if the websocket manager exposes the hook."""
+        if not self.websocket_manager:
+            return
+
+        try:
+            if hasattr(self.websocket_manager, "broadcast_modal_analysis"):
+                await self.websocket_manager.broadcast_modal_analysis(modal_data)
+            else:
+                logger.debug("WebSocket manager does not support modal analysis streaming")
+        except Exception as exc:  # pragma: no cover - transparency hooks best effort
+            logger.debug(f"Failed to stream modal analysis: {exc}")
+
+    def set_websocket_manager(self, websocket_manager):
+        """Install a websocket manager for transparency streaming."""
+        self.websocket_manager = websocket_manager
+        logger.info("✅ WebSocket manager set for P5 inference streaming")
+
 
 # Example usage and testing
 if __name__ == "__main__":
     import asyncio
-    
-    # =====================================================================
-    # P5 W4.4 STREAMING TRANSPARENCY METHODS
-    # =====================================================================
-    
-    async def _stream_proof_step(self, proof_id: str, step_number: int, step_data: Dict[str, Any]):
-        """Stream individual proof step for real-time transparency"""
-        if not self.websocket_manager:
-            return
-        
-        try:
-            step_info = {
-                'step_number': step_number,
-                'proof_id': proof_id,
-                'inference_type': step_data.get('inference_type', 'unknown'),
-                'premises': step_data.get('premises', []),
-                'conclusion': step_data.get('conclusion', ''),
-                'justification': step_data.get('justification', ''),
-                'confidence': step_data.get('confidence', 0.8),
-                'modal_operators_used': step_data.get('modal_operators_used', [])
-            }
-            
-            if hasattr(self.websocket_manager, 'broadcast_inference_step'):
-                await self.websocket_manager.broadcast_inference_step(step_info)
-            else:
-                logger.debug("WebSocket manager does not support inference step streaming")
-                
-        except Exception as e:
-            logger.debug(f"Failed to stream proof step: {e}")
-    
-    async def _stream_proof_completion(self, proof_id: str, proof_result: ProofObject, time_taken_ms: float):
-        """Stream proof completion for transparency"""
-        if not self.websocket_manager:
-            return
-        
-        try:
-            completion_data = {
-                'proof_id': proof_id,
-                'success': proof_result.status == ProofStatus.SUCCESS,
-                'goal_achieved': proof_result.status == ProofStatus.SUCCESS,
-                'total_steps': len(getattr(proof_result, 'proof_steps', [])),
-                'processing_time_ms': time_taken_ms,
-                'strategy_used': getattr(proof_result, 'strategy_used', 'unknown'),
-                'modal_reasoning_used': any('modal' in str(step).lower() for step in getattr(proof_result, 'proof_steps', [])),
-                'status_message': getattr(proof_result, 'status_message', str(proof_result.status.value)),
-                'confidence_score': getattr(proof_result, 'confidence', 0.8)
-            }
-            
-            if hasattr(self.websocket_manager, 'broadcast_proof_completion'):
-                await self.websocket_manager.broadcast_proof_completion(completion_data)
-            else:
-                logger.debug("WebSocket manager does not support proof completion streaming")
-                
-        except Exception as e:
-            logger.debug(f"Failed to stream proof completion: {e}")
-    
-    async def _stream_modal_analysis(self, modal_data: Dict[str, Any]):
-        """Stream modal reasoning analysis for transparency"""
-        if not self.websocket_manager:
-            return
-        
-        try:
-            if hasattr(self.websocket_manager, 'broadcast_modal_analysis'):
-                await self.websocket_manager.broadcast_modal_analysis(modal_data)
-            else:
-                logger.debug("WebSocket manager does not support modal analysis streaming")
-                
-        except Exception as e:
-            logger.debug(f"Failed to stream modal analysis: {e}")
-    
-    def set_websocket_manager(self, websocket_manager):
-        """Set the WebSocket manager for streaming transparency"""
-        self.websocket_manager = websocket_manager
-        logger.info("✅ WebSocket manager set for P5 inference streaming")
-    
+
     async def test_inference_coordinator():
         """Test the InferenceCoordinator implementation."""
         logger.info("Testing InferenceCoordinator")

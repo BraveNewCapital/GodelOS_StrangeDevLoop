@@ -217,6 +217,10 @@ class SimAgent:
     agent_id: str
     pose: Pose = field(default_factory=Pose)
     sensors: List[SensorInstance] = field(default_factory=list)
+    actuators: List[ActuatorInstance] = field(default_factory=list)
+    internal_state: Dict[str, Any] = field(default_factory=dict)
+
+
 class WorldState:
     """
     Represents the state of the simulated world.
@@ -243,6 +247,10 @@ class WorldState:
             The ID of the added object
         """
         self.objects[obj.object_id] = obj
+        logger.debug(
+            "WorldState: added object id=%s type=%s pose=(%.3f,%.3f,%.3f)",
+            obj.object_id, obj.object_type, obj.pose.x, obj.pose.y, obj.pose.z,
+        )
         return obj.object_id
     
     def add_agent(self, agent: SimAgent) -> str:
@@ -256,6 +264,12 @@ class WorldState:
             The ID of the added agent
         """
         self.agents[agent.agent_id] = agent
+        logger.debug(
+            "WorldState: added agent id=%s sensors=%d actuators=%d",
+            agent.agent_id,
+            len(getattr(agent, 'sensors', [])),
+            len(getattr(agent, 'actuators', [])),
+        )
         return agent.agent_id
     
     def get_object(self, object_id: str) -> Optional[SimObject]:
@@ -293,6 +307,7 @@ class WorldState:
             True if the object was removed, False if it wasn't found
         """
         if object_id in self.objects:
+            logger.debug("WorldState: removed object id=%s", object_id)
             del self.objects[object_id]
             return True
         return False
@@ -308,6 +323,7 @@ class WorldState:
             True if the agent was removed, False if it wasn't found
         """
         if agent_id in self.agents:
+            logger.debug("WorldState: removed agent id=%s", agent_id)
             del self.agents[agent_id]
             return True
         return False
@@ -365,6 +381,9 @@ class PhysicsEngine:
             world_state: The current world state
             delta_t: The time step
         """
+        logger.debug(
+            "PhysicsEngine.update: delta_t=%.4f objects=%d", delta_t, len(world_state.objects)
+        )
         # Clear previous collision pairs
         self.collision_pairs.clear()
         
@@ -396,6 +415,10 @@ class PhysicsEngine:
             obj.pose.x += vx * delta_t
             obj.pose.y += vy * delta_t
             obj.pose.z += vz * delta_t
+            logger.debug(
+                "PhysicsEngine: obj=%s v=(%.3f,%.3f,%.3f) a=(%.3f,%.3f,%.3f) new_pos=(%.3f,%.3f,%.3f)",
+                obj_id, vx, vy, vz, ax, ay, az, obj.pose.x, obj.pose.y, obj.pose.z
+            )
             
             # Update object properties
             obj.physical_properties["velocity"] = (vx, vy, vz)
@@ -436,41 +459,39 @@ class PhysicsEngine:
                 if distance < radius1 + radius2:
                     # Record collision
                     self.collision_pairs.add((obj1.object_id, obj2.object_id))
+                    logger.debug("PhysicsEngine: collision detected between %s and %s (distance=%.3f)", obj1.object_id, obj2.object_id, distance)
                     
+                    # Calculate separation vector and overlap (used in all branches)
+                    dx = obj1.pose.x - obj2.pose.x
+                    dy = obj1.pose.y - obj2.pose.y
+                    dz = obj1.pose.z - obj2.pose.z
+                    length = math.sqrt(dx*dx + dy*dy + dz*dz) or 1.0
+                    ndx = dx / length
+                    ndy = dy / length
+                    ndz = dz / length
+                    overlap = (radius1 + radius2) - distance
+
                     # Simplified collision response (just separate the objects)
                     if not obj1.physical_properties.get("static", False) and not obj2.physical_properties.get("static", False):
-                        # Calculate separation vector
-                        dx = obj1.pose.x - obj2.pose.x
-                        dy = obj1.pose.y - obj2.pose.y
-                        dz = obj1.pose.z - obj2.pose.z
+                        # Separate objects equally
+                        obj1.pose.x += ndx * overlap * 0.5
+                        obj1.pose.y += ndy * overlap * 0.5
+                        obj1.pose.z += ndz * overlap * 0.5
                         
-                        # Normalize
-                        length = math.sqrt(dx*dx + dy*dy + dz*dz) or 1.0
-                        dx /= length
-                        dy /= length
-                        dz /= length
-                        
-                        # Calculate overlap
-                        overlap = (radius1 + radius2) - distance
-                        
-                        # Separate objects
-                        obj1.pose.x += dx * overlap * 0.5
-                        obj1.pose.y += dy * overlap * 0.5
-                        obj1.pose.z += dz * overlap * 0.5
-                        
-                        obj2.pose.x -= dx * overlap * 0.5
-                        obj2.pose.y -= dy * overlap * 0.5
-                        obj2.pose.z -= dz * overlap * 0.5
-                    elif obj1.physical_properties.get("static", False):
+                        obj2.pose.x -= ndx * overlap * 0.5
+                        obj2.pose.y -= ndy * overlap * 0.5
+                        obj2.pose.z -= ndz * overlap * 0.5
+                        logger.debug("PhysicsEngine: separated %s and %s by overlap=%.3f", obj1.object_id, obj2.object_id, overlap)
+                    elif obj1.physical_properties.get("static", False) and not obj2.physical_properties.get("static", False):
                         # Only move obj2 if obj1 is static
-                        obj2.pose.x -= dx * overlap
-                        obj2.pose.y -= dy * overlap
-                        obj2.pose.z -= dz * overlap
-                    elif obj2.physical_properties.get("static", False):
+                        obj2.pose.x -= ndx * overlap
+                        obj2.pose.y -= ndy * overlap
+                        obj2.pose.z -= ndz * overlap
+                    elif obj2.physical_properties.get("static", False) and not obj1.physical_properties.get("static", False):
                         # Only move obj1 if obj2 is static
-                        obj1.pose.x += dx * overlap
-                        obj1.pose.y += dy * overlap
-                        obj1.pose.z += dz * overlap
+                        obj1.pose.x += ndx * overlap
+                        obj1.pose.y += ndy * overlap
+                        obj1.pose.z += ndz * overlap
 
 class VisionSensor(SensorModel):
     """
@@ -1102,12 +1123,17 @@ class SimulatedEnvironment:
         )
         
         # Create object
+        physical_props = object_config.get("physical_properties") or {}
+        # Unless explicitly specified, treat newly added objects as static landmarks
+        physical_props = dict(physical_props)
+        physical_props.setdefault("static", True)
+
         obj = SimObject(
             object_id=object_id,
             object_type=object_type,
             pose=pose,
             visual_features=object_config.get("visual_features", {}),
-            physical_properties=object_config.get("physical_properties", {}),
+            physical_properties=physical_props,
             custom_state=object_config.get("custom_state", {})
         )
         

@@ -9,6 +9,7 @@ generality, or efficiency using evolutionary algorithms.
 import random
 import logging
 import copy
+import uuid
 from typing import List, Dict, Set, Tuple, Optional, Any, Callable
 from dataclasses import dataclass, field
 
@@ -316,13 +317,10 @@ class TemplateEvolutionModule:
         Returns:
             An AST_Node representing the query pattern
         """
-        # This is a simplified implementation
-        # In a real system, we would create a proper AST query pattern
-        # that matches the structure of how metrics are stored in the MKB
-        
-        # For now, return a dummy pattern
-        # In a real implementation, this would be a proper AST query
-        return None  # Placeholder
+        # Represent the query as a constant node keyed by template id so that
+        # knowledge store implementations can route requests deterministically.
+        string_type = self.type_system.get_type("String")
+        return ConstantNode(f"template_metrics::{template_id}", string_type)
     
     def _extract_metrics_from_query_results(self, query_results: List[Dict[VariableNode, AST_Node]], template_id: str) -> TemplatePerformanceMetrics:
         """
@@ -335,16 +333,50 @@ class TemplateEvolutionModule:
         Returns:
             A TemplatePerformanceMetrics object with the extracted metrics
         """
-        # This is a simplified implementation
-        # In a real system, we would parse the AST nodes to extract the metrics
-        
-        # For now, return default metrics
+        if not query_results:
+            return TemplatePerformanceMetrics(
+                template_id=template_id,
+                success_rate=0.5,
+                utility_score=0.5,
+                computational_cost=1.0,
+                times_used=5
+            )
+
+        # Allow knowledge store adapters to return lightweight dictionaries,
+        # falling back to defaults when structured metrics are unavailable.
+        first_result = query_results[0]
+
+        # Direct dictionary payload with numerical metrics
+        if isinstance(first_result, dict):
+            metric_keys = {"success_rate", "utility_score", "computational_cost", "times_used"}
+            if metric_keys.issubset(first_result.keys()):
+                return TemplatePerformanceMetrics(
+                    template_id=template_id,
+                    success_rate=float(first_result["success_rate"]),
+                    utility_score=float(first_result["utility_score"]),
+                    computational_cost=float(first_result["computational_cost"]),
+                    times_used=int(first_result["times_used"])
+                )
+            # Some knowledge store adapters may return VariableNode -> AST_Node mappings
+            # with the metrics encoded in metadata.
+            for value in first_result.values():
+                metadata = getattr(value, "metadata", {})
+                if metric_keys.issubset(metadata.keys()):
+                    return TemplatePerformanceMetrics(
+                        template_id=template_id,
+                        success_rate=float(metadata["success_rate"]),
+                        utility_score=float(metadata["utility_score"]),
+                        computational_cost=float(metadata["computational_cost"]),
+                        times_used=int(metadata["times_used"])
+                    )
+
+        # Fallback default when no structured metrics are available
         return TemplatePerformanceMetrics(
             template_id=template_id,
-            success_rate=0.5,  # Default value
-            utility_score=0.5,  # Default value
-            computational_cost=1.0,  # Default value
-            times_used=5  # Default value
+            success_rate=0.5,
+            utility_score=0.5,
+            computational_cost=1.0,
+            times_used=5
         )
     
     def _tournament_selection(self, population: List[AST_Node], fitness_scores: List[float]) -> AST_Node:
@@ -480,9 +512,13 @@ class TemplateEvolutionModule:
             mutation_type = random.choice(mutation_types)
             
             if mutation_type == "add_premise":
-                # Add a new premise (this would require access to available predicates)
-                # For now, we'll skip this or implement a simplified version
-                pass
+                premises = self._extract_premises(mutated)
+                if len(premises) < self.config.max_template_premises:
+                    new_premise = self._generate_new_premise(mutated, premises)
+                    if new_premise and not any(self._are_nodes_equivalent(new_premise, existing)
+                                               for existing in premises):
+                        premises.append(new_premise)
+                        mutated = self._update_template_premises(mutated, premises)
                 
             elif mutation_type == "remove_premise":
                 # Extract premises
@@ -515,16 +551,18 @@ class TemplateEvolutionModule:
                         mutated = self._update_template_premises(mutated, premises)
             
             elif mutation_type == "generalize_constant":
-                # Find a constant in the template and replace it with a variable
-                # This is a complex operation that would require traversing the AST
-                # For now, we'll implement a simplified version or skip
-                pass
+                constants = self._collect_nodes_from_premises(mutated, ConstantNode)
+                if constants:
+                    target_constant = random.choice(constants)
+                    replacement_variable = self._create_fresh_variable(target_constant.type, mutated)
+                    mutated = self._replace_node_instance(mutated, target_constant, replacement_variable)
                 
             elif mutation_type == "specialize_variable":
-                # Find a variable in the template and replace it with a constant
-                # This is a complex operation that would require traversing the AST
-                # For now, we'll implement a simplified version or skip
-                pass
+                variables = self._collect_nodes_from_premises(mutated, VariableNode)
+                if variables:
+                    target_variable = random.choice(variables)
+                    replacement_constant = self._create_fresh_constant(target_variable.type)
+                    mutated = self._replace_node_instance(mutated, target_variable, replacement_constant)
         
         return mutated
     
@@ -593,6 +631,119 @@ class TemplateEvolutionModule:
             operands=[body, conclusion],
             type_ref=conclusion.type
         )
+
+    def _generate_new_premise(self, template: AST_Node, existing_premises: List[AST_Node]) -> Optional[AST_Node]:
+        """
+        Create a new premise to inject during mutation.
+        """
+        if existing_premises:
+            candidate = copy.deepcopy(random.choice(existing_premises))
+            candidate = self._generalize_constant_in_subtree(candidate, template)
+            if any(self._are_nodes_equivalent(candidate, premise) for premise in existing_premises):
+                candidate = self._toggle_negation(candidate)
+            if any(self._are_nodes_equivalent(candidate, premise) for premise in existing_premises):
+                return None
+            return candidate
+        conclusion = (template.operands[1]
+                      if isinstance(template, ConnectiveNode) and len(template.operands) > 1
+                      else None)
+        boolean_type = self.type_system.get_type("Boolean") if self.type_system else None
+        type_ref = boolean_type or (conclusion.type if conclusion else None)
+        if type_ref is None:
+            logger.debug("Unable to determine type for autogenerated premise; skipping mutation")
+            return None
+        return ConstantNode(f"AUTO_PREMISE_{uuid.uuid4().hex[:8]}", type_ref)
+
+    def _collect_nodes_from_premises(self, template: AST_Node, node_type: type) -> List[AST_Node]:
+        premises = self._extract_premises(template)
+        collected: List[AST_Node] = []
+        for premise in premises:
+            collected.extend(self._collect_nodes_of_type(premise, node_type))
+        return collected
+
+    def _collect_nodes_of_type(self, node: AST_Node, target_type: type) -> List[AST_Node]:
+        collected: List[AST_Node] = []
+
+        def _visit(current: AST_Node) -> None:
+            if isinstance(current, target_type):
+                collected.append(current)
+            for child in self._iter_child_nodes(current):
+                _visit(child)
+
+        _visit(node)
+        return collected
+
+    def _iter_child_nodes(self, node: AST_Node) -> List[AST_Node]:
+        if isinstance(node, ConnectiveNode):
+            return list(node.operands)
+        if isinstance(node, ApplicationNode):
+            return [node.operator, *node.arguments]
+        return []
+
+    def _generalize_constant_in_subtree(self, node: AST_Node, template_root: AST_Node) -> AST_Node:
+        constants = self._collect_nodes_of_type(node, ConstantNode)
+        if not constants:
+            return node
+        target_constant = random.choice(constants)
+        fresh_variable = self._create_fresh_variable(target_constant.type, template_root)
+        return self._replace_node_instance(node, target_constant, fresh_variable)
+
+    def _toggle_negation(self, node: AST_Node) -> AST_Node:
+        if isinstance(node, ConnectiveNode) and node.connective_type == "NOT" and node.operands:
+            return copy.deepcopy(node.operands[0])
+        return self._negate_node(node)
+
+    def _replace_node_instance(self, root: AST_Node, target: AST_Node, replacement: AST_Node) -> AST_Node:
+        replaced, new_root = self._replace_node_recursive(root, target, replacement)
+        return new_root if replaced else root
+
+    def _replace_node_recursive(self, node: AST_Node, target: AST_Node, replacement: AST_Node) -> Tuple[bool, AST_Node]:
+        if node is target:
+            return True, replacement
+        if isinstance(node, ConnectiveNode):
+            new_operands = []
+            changed = False
+            for operand in node.operands:
+                operand_changed, new_operand = self._replace_node_recursive(operand, target, replacement)
+                if operand_changed:
+                    changed = True
+                new_operands.append(new_operand)
+            if changed:
+                return True, ConnectiveNode(node.connective_type, new_operands, node.type, node.metadata)
+            return False, node
+        if isinstance(node, ApplicationNode):
+            operator_changed, new_operator = self._replace_node_recursive(node.operator, target, replacement)
+            new_arguments = []
+            args_changed = False
+            for argument in node.arguments:
+                argument_changed, new_argument = self._replace_node_recursive(argument, target, replacement)
+                if argument_changed:
+                    args_changed = True
+                new_arguments.append(new_argument)
+            if operator_changed or args_changed:
+                return True, ApplicationNode(new_operator, new_arguments, node.type, node.metadata)
+            return False, node
+        return False, node
+
+    def _create_fresh_variable(self, type_ref: Any, root: AST_Node) -> VariableNode:
+        if type_ref is None and self.type_system:
+            type_ref = self.type_system.get_type("Entity") or self.type_system.get_type("Boolean")
+        if type_ref is None:
+            raise ValueError("Cannot generate variable without type information")
+        existing_ids = {var.var_id for var in self._collect_nodes_of_type(root, VariableNode)}
+        while True:
+            var_id = random.randint(1, 10**6)
+            if var_id not in existing_ids:
+                break
+        name = f"?v{var_id}"
+        return VariableNode(name, var_id, type_ref)
+
+    def _create_fresh_constant(self, type_ref: Any) -> ConstantNode:
+        if type_ref is None and self.type_system:
+            type_ref = self.type_system.get_type("Entity") or self.type_system.get_type("Boolean")
+        if type_ref is None:
+            raise ValueError("Cannot generate constant without type information")
+        return ConstantNode(f"AUTO_CONST_{uuid.uuid4().hex[:8]}", type_ref)
     
     def _is_negated(self, node: AST_Node) -> bool:
         """

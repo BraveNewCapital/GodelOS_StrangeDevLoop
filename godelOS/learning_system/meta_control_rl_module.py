@@ -10,9 +10,11 @@ allocating cognitive resources, and deciding when to trigger specific learning o
 self-modification routines.
 """
 
+import json
 import logging
+import os
 import random
-import numpy as np
+import numpy as np  # type: ignore
 from typing import List, Dict, Optional, Callable, Tuple, Any, Set, Union
 from dataclasses import dataclass, field
 from collections import deque
@@ -400,9 +402,32 @@ class MetaControlRLModule:
         Args:
             path: Path to save the model
         """
-        # In a real implementation, this would save the model weights
-        # to a file. For simplicity, we'll just log a message.
-        logger.info(f"Saving model to {path} (not implemented)")
+        data = {
+            "exploration_rate": self.exploration_rate,
+            "training_steps": self.training_steps,
+            "main_model": {key: value.tolist() for key, value in self.main_model.weights.items()},
+            "target_model": {key: value.tolist() for key, value in self.target_model.weights.items()},
+            "config": {
+                "learning_rate": self.config.learning_rate,
+                "discount_factor": self.config.discount_factor,
+                "exploration_rate": self.config.exploration_rate,
+                "exploration_decay": self.config.exploration_decay,
+                "min_exploration_rate": self.config.min_exploration_rate,
+                "batch_size": self.config.batch_size,
+                "target_update_frequency": self.config.target_update_frequency,
+                "replay_buffer_size": self.config.replay_buffer_size,
+                "hidden_layer_sizes": self.config.hidden_layer_sizes,
+            }
+        }
+
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+
+        logger.info(f"Saved meta-control RL policy to {path}")
     
     def load_model(self, path: str) -> None:
         """
@@ -411,9 +436,22 @@ class MetaControlRLModule:
         Args:
             path: Path to load the model from
         """
-        # In a real implementation, this would load the model weights
-        # from a file. For simplicity, we'll just log a message.
-        logger.info(f"Loading model from {path} (not implemented)")
+        if not os.path.exists(path):
+            logger.warning(f"Model file {path} does not exist; skipping load")
+            return
+
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        self.exploration_rate = float(data.get("exploration_rate", self.exploration_rate))
+        self.training_steps = int(data.get("training_steps", self.training_steps))
+
+        for key, value in data.get("main_model", {}).items():
+            self.main_model.weights[key] = np.array(value, dtype=np.float32)
+        for key, value in data.get("target_model", {}).items():
+            self.target_model.weights[key] = np.array(value, dtype=np.float32)
+
+        logger.info(f"Loaded meta-control RL policy from {path}")
     
     def get_action_space(self) -> List[MetaAction]:
         """

@@ -1,0 +1,224 @@
+{
+  "total_tests": 7,
+  "passed_tests": 3,
+  "failed_tests": 4,
+  "success_rate": 42.857142857142854,
+  "overall_success": false,
+  "timestamp": 1758998833.280721,
+  "test_results": {
+    "health": {
+      "status_code": 200,
+      "success": true,
+      "response": {
+        "status": "healthy",
+        "timestamp": "2025-09-28T01:47:13.244250",
+        "probe_timestamp": "2025-09-28T01:47:13.244250",
+        "services": {
+          "godelos": "active",
+          "llm_tools": "active",
+          "websockets": "0 connections"
+        },
+        "probes": {
+          "vector_database": {
+            "status": "unavailable",
+            "timestamp": 1758998833.2442648
+          },
+          "knowledge_pipeline": {
+            "status": "unavailable",
+            "timestamp": 1758998833.244266
+          },
+          "knowledge_ingestion": {
+            "status": "unavailable",
+            "timestamp": 1758998833.244266
+          },
+          "cognitive_manager": {
+            "initialized": true,
+            "active_sessions": 0,
+            "status": "healthy",
+            "timestamp": 1758998833.244266
+          },
+          "enhanced_apis": {
+            "available": false,
+            "status": "unavailable",
+            "timestamp": 1758998833.244267
+          },
+          "agentic_daemon_system": {
+            "available": true,
+            "status": "healthy",
+            "timestamp": 1758998833.244267
+          },
+          "knowledge_management_system": {
+            "available": true,
+            "status": "healthy",
+            "timestamp": 1758998833.244267
+          }
+        },
+        "version": "2.0.0"
+      }
+    },
+    "root": {
+      "status_code": 200,
+      "success": true,
+      "response": {
+        "name": "G\u00f6delOS Unified Cognitive API",
+        "version": "2.0.0",
+        "status": "operational",
+        "services": {
+          "godelos_integration": true,
+          "llm_integration": true,
+          "knowledge_services": false,
+          "enhanced_apis": false,
+          "websocket_streaming": true
+        },
+        "endpoints": {
+          "core": [
+            "/",
+            "/health",
+            "/api/health"
+          ],
+          "cognitive": [
+            "/cognitive/state",
+            "/api/cognitive/state"
+          ],
+          "llm": [
+            "/api/llm-chat/message",
+            "/api/llm-tools/test",
+            "/api/llm-tools/available"
+          ],
+          "streaming": [
+            "/ws/cognitive-stream"
+          ],
+          "enhanced": [],
+          "nl_logic": [
+            "/nlu/formalize",
+            "/api/nlu/formalize",
+            "/inference/prove",
+            "/api/inference/prove",
+            "/nlg/realize",
+            "/api/nlg/realize",
+            "/kr/query",
+            "/api/kr/query"
+          ]
+        },
+        "features": [
+          "Unified server architecture",
+          "Tool-based LLM integration",
+          "Real-time cognitive streaming",
+          "Advanced knowledge processing",
+          "Cognitive transparency",
+          "WebSocket live updates"
+        ]
+      }
+    },
+    "query": {
+      "status_code": 200,
+      "success": false,
+      "response": {
+        "response": "I received your query: 'What is consciousness?'. However, I'm currently running in fallback mode.",
+        "confidence": 0.5,
+        "reasoning_trace": null,
+        "sources": null,
+        "inference_time_ms": 0.20194053649902344,
+        "knowledge_used": []
+      },
+      "error": "Missing fields: ['reasoning_steps']"
+    },
+    "knowledge": {
+      "status_code": 405,
+      "success": false,
+      "response": "{\"detail\":\"Method Not Allowed\"}"
+    },
+    "cognitive_state": {
+      "status_code": 200,
+      "success": false,
+      "response": {
+        "version": "v1",
+        "systemHealth": {
+          "websocketConnection": 0.0,
+          "pipeline": 0.85,
+          "knowledgeStore": 0.92,
+          "vectorIndex": 0.88,
+          "_labels": {
+            "websocketConnection": "down",
+            "pipeline": "healthy",
+            "knowledgeStore": "healthy",
+            "vectorIndex": "healthy"
+          }
+        },
+        "manifestConsciousness": {
+          "attention": {
+            "intensity": 0.7,
+            "focus": [
+              "System monitoring"
+            ],
+            "coverage": 0.85
+          },
+          "awareness": {
+            "level": 0.8,
+            "breadth": 0.75
+          },
+          "metaReflection": {
+            "depth": 0.6,
+            "coherence": 0.85
+          },
+          "processMonitoring": {
+            "latency": 150.0,
+            "throughput": 0.9
+          }
+        },
+        "knowledgeStats": {
+          "totalConcepts": 0,
+          "totalConnections": 0,
+          "totalDocuments": 0
+        },
+        "manifest_consciousness": {
+          "attention": {
+            "intensity": 0.7,
+            "focus": [
+              "System monitoring"
+            ],
+            "coverage": 0.85
+          },
+          "awareness": {
+            "level": 0.8,
+            "breadth": 0.75
+          },
+          "metaReflection": {
+            "depth": 0.6,
+            "coherence": 0.85
+          },
+          "processMonitoring": {
+            "latency": 150.0,
+            "throughput": 0.9
+          }
+        }
+      },
+      "error": "Missing fields: ['agentic_processes', 'daemon_threads', 'timestamp']"
+    },
+    "transparency": {
+      "success": true,
+      "results": {
+        "configure": {
+          "status_code": 404,
+          "success": true,
+          "response": "{\"detail\":\"Not Found\"}"
+        },
+        "statistics": {
+          "status_code": 404,
+          "success": true,
+          "response": "{\"detail\":\"Not Found\"}"
+        },
+        "knowledge_graph_stats": {
+          "status_code": 404,
+          "success": true,
+          "response": "{\"detail\":\"Not Found\"}"
+        }
+      },
+      "summary": "3/3 endpoints accessible"
+    },
+    "websocket": {
+      "success": false,
+      "error": "BaseEventLoop.create_connection() got an unexpected keyword argument 'timeout'"
+    }
+  }
+}

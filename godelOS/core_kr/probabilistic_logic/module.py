@@ -15,6 +15,11 @@ from collections import defaultdict
 import logging
 
 from godelOS.core_kr.ast.nodes import AST_Node, VariableNode, ConstantNode, ApplicationNode
+
+try:  # Compatibility with legacy backend AST nodes used in spec-aligned tests
+    from backend.core.ast_nodes import AST_Node as LegacyASTNode  # type: ignore
+except Exception:  # pragma: no cover - backend module may not be available in all environments
+    LegacyASTNode = None
 from godelOS.core_kr.knowledge_store.interface import KnowledgeStoreInterface
 from godelOS.core_kr.unification_engine.engine import UnificationEngine
 
@@ -584,11 +589,15 @@ class ProbabilisticLogicModule:
             The marginal probability of the query formula
         """
         # Validate inputs
-        if not isinstance(query_ast, AST_Node):
+        valid_ast_types: Tuple[type, ...] = (AST_Node,)
+        if 'LegacyASTNode' in globals() and LegacyASTNode is not None:
+            valid_ast_types = valid_ast_types + (LegacyASTNode,)
+
+        if not isinstance(query_ast, valid_ast_types):
             raise TypeError("query_ast must be an AST_Node")
         
         for formula, truth_value in evidence_asts:
-            if not isinstance(formula, AST_Node):
+            if not isinstance(formula, valid_ast_types):
                 raise TypeError("Evidence formulas must be AST_Nodes")
             if not isinstance(truth_value, bool):
                 raise TypeError("Evidence truth values must be booleans")
