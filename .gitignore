@@ -249,7 +249,9 @@ backend/metacognition_modules/backups
 *_test_output*
 *_patch*
 *_patched*
+# Ignore stray test files, but keep proper test suite under tests/
 test_*.py
+!tests/**/test_*.py
 test_*.txt
 test_*.json
 final_field_test.py
