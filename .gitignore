@@ -283,7 +283,7 @@ simulate-*.sh
 run-*.sh
 
 # Duplicate files (originals should be in demo-data/)
-godelos_arxiv_paper_v2.pdf
+# godelos_arxiv_paper_v2.pdf
 
 # Log files
 *.log
