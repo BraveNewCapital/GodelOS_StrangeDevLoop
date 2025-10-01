@@ -618,7 +618,6 @@ class SelfModificationService:
                     "knowledge_items_created": metrics.get("knowledge_items_created", 0),
                     "gap_resolution_rate": gap_resolution_rate,
                 },
-            }
                 "cognitive_state": cognitive_state or {},
             }
 
@@ -971,15 +970,15 @@ class SelfModificationService:
 
     def _serialize_proposal(self, proposal: Dict[str, Any]) -> Dict[str, Any]:
         return {
-            "id": proposal["id"],
+            "id": proposal.get("proposal_id", proposal.get("id")),  # Support both keys
             "title": proposal["title"],
             "status": proposal["status"],
-            "priority": proposal["priority"],
-            "priority_rank": proposal["priority_rank"],
+            "priority": proposal.get("priority", proposal.get("priority_rank", 1)),  # Support both keys
+            "priority_rank": proposal.get("priority_rank", proposal.get("priority", 1)),  # Support both keys
             "risk_level": proposal["risk_level"],
             "confidence": proposal["confidence"],
             "expected_benefits": proposal["expected_benefits"],
-            "potential_risks": proposal["potential_risks"],
+            "potential_risks": proposal.get("potential_risks", {}),
             "monitoring_requirements": proposal.get("monitoring_requirements", []),
             "decision_log": proposal.get("decision_log", []),
             "created_at": proposal.get("created_at"),
