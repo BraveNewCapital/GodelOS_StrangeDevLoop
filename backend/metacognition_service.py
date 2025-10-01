@@ -346,6 +346,7 @@ class SelfModificationService:
                 except Exception as exc:  # pragma: no cover - defensive logging
                     logger.debug("Failed to pull cognitive state: %s", exc)
 
+            # Get real active sessions
             active_sessions = []
             if self.cognitive_manager and hasattr(self.cognitive_manager, "active_sessions"):
                 try:
@@ -366,6 +367,84 @@ class SelfModificationService:
             recursive_depth = state_dict.get("reflection_depth", 1)
             cognitive_load = state_dict.get("cognitive_load", 0.0)
 
+            # Get real resource metrics from last snapshot
+            metrics = self._last_metrics_snapshot
+            resource_util = {
+                "cpu": min(cognitive_load * 100, 100),  # Convert to percentage
+                "memory": 0.0,  # TODO: get real memory usage
+                "active_threads": metrics.get("active_sessions_count", 0),
+                "query_throughput": metrics.get("total_queries", 0),
+            }
+
+            # Calculate real daemon thread info from subsystems
+            daemon_threads = []
+            if cognitive_state:
+                subsystems = cognitive_state.get("subsystems", {})
+                for name, status in subsystems.items():
+                    daemon_threads.append({
+                        "name": name.replace("_", " ").title(),
+                        "status": "running" if status else "idle",
+                        "load": cognitive_load if status else 0.0
+                    })
+
+            # Add metrics collection daemon
+            daemon_threads.append({
+                "name": "Metrics Collection",
+                "status": "running" if self._metrics_collection_task and not self._metrics_collection_task.done() else "idle",
+                "load": 0.1  # Low overhead background task
+            })
+
+            # Generate agentic process info from active sessions
+            agentic_processes = []
+            for session in active_sessions:
+                agentic_processes.append({
+                    "name": f"{session['process_type']} - {session['session_id'][:8]}",
+                    "status": session["status"],
+                    "progress": 0.75 if session["status"] == "processing" else 1.0,
+                })
+
+            # Add metacognition cycle if running
+            if self.metacognition_manager and hasattr(self.metacognition_manager, "is_running"):
+                if self.metacognition_manager.is_running:
+                    phase = getattr(self.metacognition_manager, "current_phase", "monitoring")
+                    agentic_processes.append({
+                        "name": f"Metacognition Cycle ({phase})",
+                        "status": "active",
+                        "progress": 0.5,
+                    })
+
+            # Generate real alerts from metrics
+            alerts = []
+            
+            # Check for performance degradation
+            if metrics.get("total_queries", 0) > 0:
+                success_rate = metrics["successful_queries"] / metrics["total_queries"]
+                if success_rate < 0.7:
+                    alerts.append({
+                        "level": "warning" if success_rate > 0.5 else "error",
+                        "message": f"Query success rate dropped to {success_rate:.1%}",
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                    })
+            
+            # Check for high latency
+            if metrics.get("average_processing_time", 0) > 5.0:
+                alerts.append({
+                    "level": "warning",
+                    "message": f"Average query processing time elevated: {metrics['average_processing_time']:.2f}s",
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                })
+            
+            # Check for unresolved knowledge gaps
+            gap_resolution_rate = 0.0
+            if metrics.get("gaps_identified", 0) > 0:
+                gap_resolution_rate = metrics["gaps_resolved"] / metrics["gaps_identified"]
+                if gap_resolution_rate < 0.5:
+                    alerts.append({
+                        "level": "info",
+                        "message": f"Knowledge gap resolution rate: {gap_resolution_rate:.1%}",
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                    })
+
             live_payload = {
                 "timestamp": datetime.utcnow().isoformat() + "Z",
                 "current_query": active_sessions[-1]["query"] if active_sessions else None,
@@ -374,10 +453,19 @@ class SelfModificationService:
                     "reflection_depth": recursive_depth,
                     "self_awareness": state_dict.get("self_awareness_level", 0.0),
                 },
-                "agentic_processes": self._derive_agentic_processes(active_sessions, recursive_depth),
-                "daemon_threads": self._derive_daemon_threads(cognitive_load),
-                "resource_utilization": self._compute_resource_allocation(state_dict),
-                "alerts": self._derive_alerts(state_dict),
+                "agentic_processes": agentic_processes,
+                "daemon_threads": daemon_threads,
+                "resource_utilization": resource_util,
+                "alerts": alerts,
+                "cognitive_state": cognitive_state or {},
+                "performance_metrics": {
+                    "total_queries": metrics.get("total_queries", 0),
+                    "success_rate": success_rate if metrics.get("total_queries", 0) > 0 else 0.0,
+                    "avg_latency": metrics.get("average_processing_time", 0.0),
+                    "knowledge_items_created": metrics.get("knowledge_items_created", 0),
+                    "gap_resolution_rate": gap_resolution_rate,
+                },
+            }
                 "cognitive_state": cognitive_state or {},
             }
 
