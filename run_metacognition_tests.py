@@ -21,7 +21,13 @@ def run_command(cmd, description):
     print(f"  {description}")
     print(f"{'='*60}\n")
     
-    result = subprocess.run(cmd, shell=True)
+    # Set PYTHONPATH to include the project root
+    import os
+    env = os.environ.copy()
+    project_root = str(Path(__file__).parent)
+    env['PYTHONPATH'] = project_root + os.pathsep + env.get('PYTHONPATH', '')
+    
+    result = subprocess.run(cmd, shell=True, env=env)
     
     if result.returncode != 0:
         print(f"\n❌ {description} FAILED")
@@ -63,7 +69,7 @@ def main():
     args = parser.parse_args()
     
     # Determine test path
-    test_dir = Path(__file__).parent.parent / "tests" / "backend"
+    test_dir = Path(__file__).parent / "tests" / "backend"
     
     # Build pytest command
     pytest_cmd = ["pytest"]
@@ -84,18 +90,19 @@ def main():
     
     # Add markers
     if args.unit:
-        pytest_cmd.extend(["-m", "not integration and not requires_backend"])
+        pytest_cmd.extend(["-m", '"not integration and not requires_backend"'])
     elif args.integration:
-        pytest_cmd.extend(["-m", "integration or requires_backend"])
+        pytest_cmd.extend(["-m", '"integration or requires_backend"'])
     
     # Skip slow tests if requested
     if args.fast:
-        pytest_cmd.extend(["-m", "not slow"])
+        pytest_cmd.extend(["-m", '"not slow"'])
     
     # Add test files
     pytest_cmd.append(str(test_dir / "test_metacognition_service.py"))
     
-    if args.integration or not args.unit:
+    # Only add integration tests if explicitly requested or running all tests
+    if args.integration or (not args.unit and not args.integration):
         pytest_cmd.append(str(test_dir / "test_metacognition_integration.py"))
     
     # Run tests

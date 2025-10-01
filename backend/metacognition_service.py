@@ -798,21 +798,54 @@ class SelfModificationService:
         return capabilities
 
     def _build_capability_summary(self, capabilities: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
+        """Build capability summary with counts, averages, and learning priorities."""
         capabilities = list(capabilities)
         if not capabilities:
             return {
                 "total": 0,
                 "operational": 0,
                 "developing": 0,
+                "limited": 0,
                 "average_performance": 0.0,
+                "learning_priorities": [],
+                "recent_improvements_count": 0,
             }
 
+        # Count capabilities by status
+        operational = sum(1 for cap in capabilities if cap["status"] == "operational")
+        developing = sum(1 for cap in capabilities if cap["status"] == "developing")
+        limited = sum(1 for cap in capabilities if cap["status"] == "limited")
+        
+        # Calculate average performance
         avg = sum(cap["current_level"] for cap in capabilities) / len(capabilities)
+        
+        # Identify learning priorities (lowest performers that need attention)
+        sorted_by_level = sorted(capabilities, key=lambda c: c["current_level"])
+        learning_priorities = [
+            {
+                "name": cap["label"],  # Use "label" from capability dict
+                "current_level": cap["current_level"],
+                "status": cap["status"],
+                "priority_rank": idx + 1
+            }
+            for idx, cap in enumerate(sorted_by_level[:5])  # Top 5 priorities
+            if cap["current_level"] < 0.7  # Only include below-operational threshold
+        ]
+        
+        # Count recent improvements (capabilities with positive trend)
+        recent_improvements_count = sum(
+            1 for cap in capabilities 
+            if cap.get("trend") == "improving" or cap.get("trend") == "up"
+        )
+        
         return {
             "total": len(capabilities),
-            "operational": sum(1 for cap in capabilities if cap["status"] == "operational"),
-            "developing": sum(1 for cap in capabilities if cap["status"] == "developing"),
-            "average_performance": avg,
+            "operational": operational,
+            "developing": developing,
+            "limited": limited,
+            "average_performance": round(avg, 3),
+            "learning_priorities": learning_priorities,
+            "recent_improvements_count": recent_improvements_count,
         }
 
     def _compute_resource_allocation(
@@ -969,15 +1002,16 @@ class SelfModificationService:
         return upcoming
 
     def _serialize_proposal(self, proposal: Dict[str, Any]) -> Dict[str, Any]:
+        """Serialize proposal dict to API response format with safe defaults."""
         return {
             "id": proposal.get("proposal_id", proposal.get("id")),  # Support both keys
-            "title": proposal["title"],
-            "status": proposal["status"],
+            "title": proposal.get("title", "Untitled Proposal"),
+            "status": proposal.get("status", "pending"),
             "priority": proposal.get("priority", proposal.get("priority_rank", 1)),  # Support both keys
             "priority_rank": proposal.get("priority_rank", proposal.get("priority", 1)),  # Support both keys
-            "risk_level": proposal["risk_level"],
-            "confidence": proposal["confidence"],
-            "expected_benefits": proposal["expected_benefits"],
+            "risk_level": proposal.get("risk_level", "low"),
+            "confidence": proposal.get("confidence", 0.5),
+            "expected_benefits": proposal.get("expected_benefits", {}),
             "potential_risks": proposal.get("potential_risks", {}),
             "monitoring_requirements": proposal.get("monitoring_requirements", []),
             "decision_log": proposal.get("decision_log", []),

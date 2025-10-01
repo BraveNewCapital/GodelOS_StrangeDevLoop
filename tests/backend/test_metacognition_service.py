@@ -231,16 +231,19 @@ class TestCapabilityScoring:
         state = service._current_metacognitive_state()
         
         # Build history manually
+        # Note: _compute_capabilities will append a new improvement delta
+        # So we set "last" lower than the current level to create a positive delta
         service._capability_history["analogical_reasoning"] = {
             "baseline": 0.6,
-            "last": 0.65,
-            "improvements": [0.02, 0.03, 0.01, 0.02, 0.02],  # Avg > 0.01
+            "last": 0.60,  # Lower than current (0.65) so new delta will be positive
+            "improvements": [0.02, 0.03, 0.01, 0.02],  # Only 4, so with new delta we get 5
             "samples": [],
         }
         
         capabilities = service._compute_capabilities(state)
         analog_cap = next(c for c in capabilities if c["id"] == "analogical_reasoning")
         
+        # The trend should be "up" because avg of last 5 improvements > 0.01
         assert analog_cap["trend"] == "up"
 
 
