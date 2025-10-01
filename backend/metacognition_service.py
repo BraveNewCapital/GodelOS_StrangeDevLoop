@@ -103,10 +103,18 @@ class SelfModificationService:
     async def _collect_metrics_loop(self) -> None:
         """Background task that periodically collects metrics from cognitive_manager."""
         logger.info(f"Metrics collection loop started (interval: {self._collection_interval}s)")
+        cycle_count = 0
         while True:
             try:
                 await asyncio.sleep(self._collection_interval)
                 await self._collect_metrics_snapshot()
+                
+                cycle_count += 1
+                
+                # Auto-generate proposals every 5 cycles (every 2.5 minutes if interval is 30s)
+                if cycle_count % 5 == 0:
+                    await self._auto_generate_proposals()
+                    
             except asyncio.CancelledError:
                 logger.info("Metrics collection loop cancelled")
                 break
@@ -181,6 +189,151 @@ class SelfModificationService:
                 
         except Exception as exc:
             logger.error(f"Error collecting metrics snapshot: {exc}", exc_info=True)
+
+    async def _detect_capability_gaps(self, capabilities: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Detect performance gaps that need improvement."""
+        gaps = []
+        
+        for cap in capabilities:
+            # Check if capability is below operational threshold
+            if cap["current_level"] < 0.7:
+                gap_severity = "high" if cap["current_level"] < 0.4 else "medium"
+                gaps.append({
+                    "capability_id": cap["id"],
+                    "capability_label": cap["label"],
+                    "current_level": cap["current_level"],
+                    "target_level": 0.7,  # Operational threshold
+                    "gap": 0.7 - cap["current_level"],
+                    "severity": gap_severity,
+                    "trend": cap["trend"],
+                })
+        
+        # Check for declining capabilities
+        for cap in capabilities:
+            if cap["trend"] == "down" and cap["current_level"] < cap["baseline_level"]:
+                gaps.append({
+                    "capability_id": cap["id"],
+                    "capability_label": cap["label"],
+                    "current_level": cap["current_level"],
+                    "target_level": cap["baseline_level"],
+                    "gap": cap["baseline_level"] - cap["current_level"],
+                    "severity": "medium",
+                    "trend": "down",
+                    "reason": "Performance regression detected",
+                })
+        
+        return gaps
+
+    async def _generate_improvement_proposal(self, gap: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate a modification proposal to address a capability gap."""
+        proposal_id = f"prop_{int(time.time())}_{gap['capability_id']}"
+        
+        # Determine modification type based on gap
+        mod_type = "PARAMETER_TUNING"
+        if gap["severity"] == "high":
+            mod_type = "ALGORITHM_SELECTION"
+        elif gap.get("reason") == "Performance regression detected":
+            mod_type = "STRATEGY_ADAPTATION"
+        
+        # Calculate expected benefit
+        expected_delta = min(gap["gap"] * 0.7, 0.2)  # Conservative estimate
+        
+        # Map capability to system components
+        component_map = {
+            "analogical_reasoning": ["query_processor", "reasoning_engine"],
+            "knowledge_integration": ["knowledge_pipeline", "entity_linker"],
+            "creative_problem_solving": ["cognitive_manager", "reasoning_engine"],
+            "abstract_mathematics": ["logical_reasoning", "inference_engine"],
+            "visual_pattern_recognition": ["pattern_detector", "entity_recognition"],
+            "emotional_intelligence": ["context_analyzer", "intent_detector"],
+        }
+        
+        target_components = component_map.get(gap["capability_id"], ["cognitive_manager"])
+        
+        # Build proposal
+        proposal = {
+            "proposal_id": proposal_id,
+            "title": f"Improve {gap['capability_label']}",
+            "description": f"Address {gap['severity']} severity gap in {gap['capability_label']} "
+                          f"(current: {gap['current_level']:.2f}, target: {gap['target_level']:.2f})",
+            "modification_type": mod_type,
+            "target_components": target_components,
+            "rationale": f"Capability {gap['capability_id']} is {'declining' if gap['trend'] == 'down' else 'below operational threshold'}. "
+                        f"Gap of {gap['gap']:.2f} detected.",
+            "expected_benefits": {
+                "accuracy": expected_delta * 0.8,
+                "reliability": expected_delta * 0.6,
+                "capability_delta": {gap["capability_id"]: expected_delta},
+            },
+            "potential_risks": {
+                "stability": 0.1 if gap["severity"] == "high" else 0.05,
+                "performance": 0.05,
+            },
+            "risk_level": "moderate" if gap["severity"] == "high" else "low",
+            "priority_rank": 1 if gap["severity"] == "high" else 2,
+            "status": "pending",
+            "confidence": 0.7,
+            "estimated_duration_days": 3 if gap["severity"] == "high" else 1,
+            "created_at": datetime.utcnow().isoformat() + "Z",
+            "monitoring_requirements": [
+                f"Monitor {gap['capability_label']} level every hour",
+                f"Track {', '.join(target_components)} performance metrics",
+            ],
+        }
+        
+        return proposal
+
+    async def _auto_generate_proposals(self) -> None:
+        """Automatically generate proposals based on detected gaps."""
+        try:
+            # Get current capabilities
+            state_dict = self._current_metacognitive_state()
+            capabilities = self._compute_capabilities(state_dict)
+            
+            # Detect gaps
+            gaps = await self._detect_capability_gaps(capabilities)
+            
+            if not gaps:
+                logger.debug("No capability gaps detected, no proposals generated")
+                return
+            
+            logger.info(f"📊 Detected {len(gaps)} capability gaps")
+            
+            # Generate proposals for gaps
+            for gap in gaps:
+                # Check if we already have a proposal for this capability
+                existing = any(
+                    gap["capability_id"] in p.get("proposal_id", "")
+                    for p in self._proposals.values()
+                    if p.get("status") not in {"rejected", "completed"}
+                )
+                
+                if existing:
+                    logger.debug(f"Proposal already exists for {gap['capability_id']}, skipping")
+                    continue
+                
+                # Generate new proposal
+                proposal = await self._generate_improvement_proposal(gap)
+                self._proposals[proposal["proposal_id"]] = proposal
+                
+                logger.info(f"📝 Generated proposal: {proposal['title']} (risk: {proposal['risk_level']})")
+                
+                # Record timeline event
+                self._record_timeline_event(
+                    label=f"Proposal Generated: {proposal['title']}",
+                    category="proposal",
+                    impact={"expected_improvement": proposal["expected_benefits"].get("accuracy", 0.0)},
+                )
+                
+                # Broadcast to websocket
+                if self.websocket_manager:
+                    await self.websocket_manager.broadcast_metacognition_event({
+                        "type": "proposal_created",
+                        "proposal": self._serialize_proposal(proposal),
+                    })
+                    
+        except Exception as exc:
+            logger.error(f"Error auto-generating proposals: {exc}", exc_info=True)
 
     # ---------------------------------------------------------------------
     # Public API helpers
