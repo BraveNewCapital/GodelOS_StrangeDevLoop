@@ -187,7 +187,7 @@
     }
 </script>
 
-<div class="stream-monitor" class:compact={compactMode}>
+<div class="stream-monitor" class:compact={compactMode} data-testid="stream-of-consciousness-monitor">
     <!-- Modern Header -->
     <header class="monitor-header">
         <div class="header-left">
@@ -338,7 +338,7 @@
         {/if}
 
         <!-- Events Stream -->
-        <section class="events-section">
+    <section class="events-section" data-testid="stream-content">
             <div 
                 bind:this={eventContainer}
                 class="events-container"

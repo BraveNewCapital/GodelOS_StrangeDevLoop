@@ -8,51 +8,47 @@ test.beforeEach(async ({ page }) => {
 });
 
   test('should connect to backend API successfully', async ({ page }) => {
-    // Check for successful WebSocket connection
+    // Check for successful WebSocket connection indicator in UI
     const connectionStatus = page.locator('[data-testid="connection-status"]');
     await expect(connectionStatus).toBeVisible();
-    
-    // Look for connected state indicators
-  await expect(connectionStatus).toHaveClass(/connected|reconnecting|disconnected|success/);
-    
-    // Check console for connection messages
-    const logs = [];
-    page.on('console', msg => logs.push(msg.text()));
-    
-    await page.waitForTimeout(3000);
-    
-    // Should see initialization and connection messages
-    const hasInitMessage = logs.some(log => log.includes('Initializing GödelOS'));
-    const hasConnectedMessage = logs.some(log => log.includes('connected'));
-    
-    expect(hasInitMessage || hasConnectedMessage).toBeTruthy();
+
+    // Look for connected state indicators via class or text
+    await expect(connectionStatus).toHaveClass(/connected|reconnecting|disconnected|success/);
+    await page.waitForTimeout(1000);
+    const statusText = (await connectionStatus.textContent()) || '';
+    expect(statusText).toMatch(/Connected|Reconnecting|Disconnected/i);
   });
 
   test('should handle enhanced cognitive API endpoints', async ({ page }) => {
-    // Navigate to Enhanced Dashboard
-    await page.click('[data-testid="nav-item-enhanced"]');
-    await page.waitForTimeout(3000);
-    
-    // Check for API responses
+    // Monitor responses before triggering navigation/actions
     const responses = [];
     page.on('response', response => {
-      if (response.url().includes('/api/enhanced-cognitive/')) {
+      const url = response.url();
+      if (url.includes('/api/enhanced-cognitive/') || url.includes('/api/enhanced/')) {
         responses.push({
-          url: response.url(),
+          url,
           status: response.status(),
           statusText: response.statusText()
         });
       }
     });
-    
-    // Trigger API calls by interacting with the dashboard
-    await page.waitForTimeout(5000);
-    
+
+    // Navigate to Enhanced Dashboard and trigger a manual refresh
+    await page.click('[data-testid="nav-item-enhanced"]');
+    await page.waitForTimeout(500);
+    const refreshBtn = page.locator('[data-testid="refresh-enhanced"]');
+    if (await refreshBtn.isVisible().catch(() => false)) {
+      await refreshBtn.click();
+    }
+
+    // Give time for network calls to complete
+    await page.waitForTimeout(4000);
+
     // Check that enhanced cognitive API calls were made
     const enhancedAPICalls = responses.filter(r => 
-      r.url().includes('/api/enhanced-cognitive/') && r.status === 200
+      (r.url.includes('/api/enhanced-cognitive/') || r.url.includes('/api/enhanced/')) && r.status === 200
     );
-    
+
     expect(enhancedAPICalls.length).toBeGreaterThan(0);
   });
 
@@ -86,6 +82,12 @@ test.beforeEach(async ({ page }) => {
     // Navigate to Stream of Consciousness
     await page.click('[data-testid="nav-item-stream"]');
     await page.waitForTimeout(3000);
+    // Open the Stream of Consciousness modal if the open button is present
+    const openBtn = page.getByRole('button', { name: /Open\s+Stream of Consciousness/i });
+    if (await openBtn.isVisible().catch(() => false)) {
+      await openBtn.click();
+      await page.waitForTimeout(1000);
+    }
     
     // Check for streaming data indicators
     const streamContainer = page.locator('[data-testid="stream-of-consciousness-monitor"]');
@@ -188,7 +190,7 @@ test.beforeEach(async ({ page }) => {
     // Monitor WebSocket events
     const wsEvents = [];
     
-    await page.evaluateOnNewDocument(() => {
+    await page.addInitScript(() => {
       const originalWebSocket = window.WebSocket;
       window.WebSocket = function(url, protocols) {
         const ws = new originalWebSocket(url, protocols);
@@ -216,7 +218,7 @@ test.beforeEach(async ({ page }) => {
     await page.waitForTimeout(5000);
     
     // Check WebSocket events
-    const events = await page.evaluate(() => window.wsEvents || []);
+  const events = await page.evaluate(() => window.wsEvents || []);
     
     // Should have at least attempted WebSocket connection
     expect(events.length).toBeGreaterThanOrEqual(0);

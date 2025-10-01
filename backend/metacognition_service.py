@@ -46,9 +46,15 @@ class SelfModificationService:
 
         self._lock = asyncio.Lock()
         self._capability_history: Dict[str, Dict[str, Any]] = {}
-        self._proposals: Dict[str, Dict[str, Any]] = self._seed_initial_proposals()
-        self._timeline: List[Dict[str, Any]] = self._seed_evolution_timeline()
+        self._proposals: Dict[str, Dict[str, Any]] = {}  # Start with empty proposals - no mock data
+        self._timeline: List[Dict[str, Any]] = []  # Start with empty timeline - no mock data
         self._events: List[Dict[str, Any]] = []
+        
+        # Metrics collection state
+        self._metrics_collection_task: Optional[asyncio.Task] = None
+        self._collection_interval = 30  # seconds
+        self._last_metrics_snapshot: Dict[str, Any] = {}
+        self._baseline_metrics: Dict[str, Any] = {}
 
         # Attempt to bootstrap a richer metacognition manager when the full
         # GödelOS stack is present. Failures are logged but non-fatal so the
@@ -77,6 +83,104 @@ class SelfModificationService:
             logger.info("✅ MetacognitionManager initialized for self-modification service")
         except Exception as exc:  # pragma: no cover - optional dependency path
             logger.debug("MetacognitionManager unavailable: %s", exc)
+
+    async def start_monitoring(self) -> None:
+        """Start background metrics collection if not already running."""
+        if self._metrics_collection_task is None or self._metrics_collection_task.done():
+            self._metrics_collection_task = asyncio.create_task(self._collect_metrics_loop())
+            logger.info("🔄 Started metrics collection background task")
+
+    async def stop_monitoring(self) -> None:
+        """Stop background metrics collection."""
+        if self._metrics_collection_task and not self._metrics_collection_task.done():
+            self._metrics_collection_task.cancel()
+            try:
+                await self._metrics_collection_task
+            except asyncio.CancelledError:
+                pass
+            logger.info("⏹️  Stopped metrics collection background task")
+
+    async def _collect_metrics_loop(self) -> None:
+        """Background task that periodically collects metrics from cognitive_manager."""
+        logger.info(f"Metrics collection loop started (interval: {self._collection_interval}s)")
+        while True:
+            try:
+                await asyncio.sleep(self._collection_interval)
+                await self._collect_metrics_snapshot()
+            except asyncio.CancelledError:
+                logger.info("Metrics collection loop cancelled")
+                break
+            except Exception as exc:
+                logger.error(f"Error in metrics collection loop: {exc}", exc_info=True)
+                # Continue loop despite errors
+
+    async def _collect_metrics_snapshot(self) -> None:
+        """Collect a single metrics snapshot from cognitive_manager."""
+        if not self.cognitive_manager:
+            logger.debug("No cognitive_manager available for metrics collection")
+            return
+
+        try:
+            async with self._lock:
+                # Get current cognitive state
+                cognitive_state = await self.cognitive_manager.get_cognitive_state()
+                metrics = cognitive_state.get("processing_metrics", {})
+                
+                # Store current snapshot
+                self._last_metrics_snapshot = {
+                    "timestamp": time.time(),
+                    "total_queries": metrics.get("total_queries", 0),
+                    "successful_queries": metrics.get("successful_queries", 0),
+                    "average_processing_time": metrics.get("average_processing_time", 0.0),
+                    "knowledge_items_created": metrics.get("knowledge_items_created", 0),
+                    "gaps_identified": metrics.get("gaps_identified", 0),
+                    "gaps_resolved": metrics.get("gaps_resolved", 0),
+                    "active_sessions_count": len(self.cognitive_manager.active_sessions)
+                    if hasattr(self.cognitive_manager, "active_sessions") else 0,
+                }
+                
+                # Initialize baseline if not set
+                if not self._baseline_metrics:
+                    self._baseline_metrics = self._last_metrics_snapshot.copy()
+                    logger.info("📊 Baseline metrics initialized")
+                
+                # Calculate derived metrics
+                success_rate = 0.0
+                if self._last_metrics_snapshot["total_queries"] > 0:
+                    success_rate = (
+                        self._last_metrics_snapshot["successful_queries"] / 
+                        self._last_metrics_snapshot["total_queries"]
+                    )
+                
+                gap_resolution_rate = 0.0
+                if self._last_metrics_snapshot["gaps_identified"] > 0:
+                    gap_resolution_rate = (
+                        self._last_metrics_snapshot["gaps_resolved"] /
+                        self._last_metrics_snapshot["gaps_identified"]
+                    )
+                
+                # Update MetaKnowledgeBase if available
+                if self.metacognition_manager and hasattr(self.metacognition_manager, "meta_knowledge"):
+                    try:
+                        # Store performance data for capability assessment
+                        self.metacognition_manager.meta_knowledge.update_performance_data(
+                            "query_processing",
+                            {
+                                "success_rate": success_rate,
+                                "avg_latency": self._last_metrics_snapshot["average_processing_time"],
+                                "throughput": self._last_metrics_snapshot["total_queries"],
+                            }
+                        )
+                    except Exception as exc:
+                        logger.debug(f"Could not update MetaKnowledgeBase: {exc}")
+                
+                logger.debug(
+                    f"📊 Metrics collected: {self._last_metrics_snapshot['total_queries']} queries, "
+                    f"{success_rate:.1%} success rate, {self._last_metrics_snapshot['average_processing_time']:.2f}s avg"
+                )
+                
+        except Exception as exc:
+            logger.error(f"Error collecting metrics snapshot: {exc}", exc_info=True)
 
     # ---------------------------------------------------------------------
     # Public API helpers

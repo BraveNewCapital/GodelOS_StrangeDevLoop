@@ -19,7 +19,8 @@ export class GödelOSAPI {
           'Content-Type': 'application/json',
           ...options.headers
         },
-        signal: AbortSignal.timeout(options.timeout || 5000),
+         // Increase default GET timeout to better accommodate slower dev endpoints
+         signal: AbortSignal.timeout(options.timeout || 15000),
         ...options
       });
       
@@ -44,7 +45,8 @@ export class GödelOSAPI {
           ...options.headers
         },
         body: data ? JSON.stringify(data) : null,
-        signal: AbortSignal.timeout(options.timeout || 10000),
+         // Increase default POST timeout; callers can still override via options.timeout
+         signal: AbortSignal.timeout(options.timeout || 30000),
         ...options
       });
       
@@ -62,6 +64,31 @@ export class GödelOSAPI {
       console.error(`POST ${endpoint} failed:`, error);
       throw error;
     }
+  }
+
+  // --- Utility: simple retry with backoff for transient timeouts/network issues ---
+  static async withRetry(fn, { retries = 1, baseDelayMs = 300, onRetry = null } = {}) {
+    let lastErr;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        return await fn();
+      } catch (err) {
+        lastErr = err;
+        const msg = String(err?.message || err?.name || '');
+        const isTimeout = msg.includes('timed out') || err?.name === 'TimeoutError' || (typeof DOMException !== 'undefined' && err instanceof DOMException);
+        const isNetworkish = msg.includes('NetworkError') || err?.name === 'TypeError';
+        if (attempt < retries && (isTimeout || isNetworkish)) {
+          const delay = baseDelayMs * Math.pow(2, attempt);
+          if (onRetry) {
+            try { onRetry({ attempt: attempt + 1, delay, err }); } catch {}
+          }
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw lastErr;
   }
 
   // Knowledge Graph API - Use unified dynamic graph endpoint
@@ -307,7 +334,10 @@ export class GödelOSAPI {
   // Metacognition / Self-modification API helpers
   static async fetchMetacognitionCapabilities() {
     try {
-      return await this.get('/api/metacognition/capabilities');
+      return await this.withRetry(
+        () => this.get('/api/metacognition/capabilities', { timeout: 20000 }),
+        { retries: 1, baseDelayMs: 400 }
+      );
     } catch (error) {
       console.warn('Failed to fetch metacognition capabilities:', error);
       throw error;
@@ -319,7 +349,10 @@ export class GödelOSAPI {
       const endpoint = status
         ? `/api/metacognition/proposals?status=${encodeURIComponent(status)}`
         : '/api/metacognition/proposals';
-      return await this.get(endpoint);
+        return await this.withRetry(
+          () => this.get(endpoint, { timeout: 20000 }),
+          { retries: 1, baseDelayMs: 400 }
+        );
     } catch (error) {
       console.warn('Failed to fetch metacognition proposals:', error);
       throw error;
@@ -328,7 +361,10 @@ export class GödelOSAPI {
 
   static async fetchMetacognitionProposal(proposalId) {
     try {
-      return await this.get(`/api/metacognition/proposals/${proposalId}`);
+      return await this.withRetry(
+        () => this.get(`/api/metacognition/proposals/${proposalId}`, { timeout: 20000 }),
+        { retries: 1, baseDelayMs: 400 }
+      );
     } catch (error) {
       console.warn(`Failed to fetch proposal ${proposalId}:`, error);
       throw error;
@@ -337,7 +373,7 @@ export class GödelOSAPI {
 
   static async approveMetacognitionProposal(proposalId, actor = 'self_modification_ui') {
     try {
-      return await this.post(`/api/metacognition/proposals/${proposalId}/approve`, { actor });
+  return await this.post(`/api/metacognition/proposals/${proposalId}/approve`, { actor }, { timeout: 20000 });
     } catch (error) {
       console.error(`Failed to approve proposal ${proposalId}:`, error);
       throw error;
@@ -349,7 +385,7 @@ export class GödelOSAPI {
       return await this.post(`/api/metacognition/proposals/${proposalId}/reject`, {
         actor,
         reason
-      });
+      }, { timeout: 20000 });
     } catch (error) {
       console.error(`Failed to reject proposal ${proposalId}:`, error);
       throw error;
@@ -358,7 +394,11 @@ export class GödelOSAPI {
 
   static async simulateMetacognitionProposal(proposalId) {
     try {
-      return await this.post(`/api/metacognition/proposals/${proposalId}/simulate`);
+      // Simulation can be more expensive; allow longer runtime and one retry
+      return await this.withRetry(
+        () => this.post(`/api/metacognition/proposals/${proposalId}/simulate`, null, { timeout: 60000 }),
+        { retries: 1, baseDelayMs: 800 }
+      );
     } catch (error) {
       console.error(`Failed to simulate proposal ${proposalId}:`, error);
       throw error;
@@ -367,7 +407,10 @@ export class GödelOSAPI {
 
   static async fetchMetacognitionEvolution() {
     try {
-      return await this.get('/api/metacognition/evolution');
+      return await this.withRetry(
+        () => this.get('/api/metacognition/evolution', { timeout: 20000 }),
+        { retries: 1, baseDelayMs: 400 }
+      );
     } catch (error) {
       console.warn('Failed to fetch metacognition evolution:', error);
       throw error;
@@ -376,7 +419,10 @@ export class GödelOSAPI {
 
   static async fetchMetacognitionLiveState() {
     try {
-      return await this.get('/api/metacognition/live-state');
+      return await this.withRetry(
+        () => this.get('/api/metacognition/live-state', { timeout: 15000 }),
+        { retries: 1, baseDelayMs: 400 }
+      );
     } catch (error) {
       console.warn('Failed to fetch metacognition live state:', error);
       throw error;

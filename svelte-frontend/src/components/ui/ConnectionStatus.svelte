@@ -93,7 +93,7 @@
   }
 </script>
 
-<div class="connection-status" class:connected={isConnected} class:reconnecting={connectionState === 'reconnecting'}>
+<div class="connection-status" class:connected={isConnected} class:reconnecting={connectionState === 'reconnecting'} data-testid="connection-status">
   <button 
     class="status-indicator"
     on:click={() => showDetails = !showDetails}

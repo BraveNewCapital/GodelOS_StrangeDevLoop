@@ -25,8 +25,8 @@
       await apiHelpers.initializeSelfModification();
       scheduleAutoRefresh();
     } catch (error) {
-      console.error('Failed to initialize self-modification hub:', error);
-      errorMessage = error?.message || 'Unable to load self-modification data.';
+      console.error('[SelfModHub] Failed to initialize:', error);
+      errorMessage = `Backend connection failed: ${error?.message || 'Unknown error'}. The self-modification service may not be available.`;
     } finally {
       initializing = false;
     }
@@ -73,6 +73,17 @@
   $: pending = $pendingSelfModificationProposals;
   $: highRisk = $highRiskProposals;
 
+  // Debug logging
+  $: {
+    console.log('[SelfModHub] State updated:', {
+      capabilities: state.capabilities?.length || 0,
+      proposals: state.proposals?.length || 0,
+      summary: state.summary,
+      errors: state.errors,
+      loading: state.loading
+    });
+  }
+
   $: capabilityLoading = state.loading.capabilities;
   $: proposalsLoading = state.loading.proposals;
   $: evolutionLoading = state.loading.evolution;
@@ -111,17 +122,24 @@
     </div>
   </header>
 
-  {#if errorMessage}
-    <div class="error-banner">
-      <span>⚠️ {errorMessage}</span>
-      <button on:click={() => errorMessage = null}>Dismiss</button>
-    </div>
-  {/if}
-
   {#if initializing}
     <div class="loading-state" data-testid="self-mod-loading">
       <div class="spinner"></div>
       <p>Loading self-modification data…</p>
+    </div>
+  {:else if errorMessage}
+    <div class="error-state">
+      <div class="error-icon">⚠️</div>
+      <h3>Service Unavailable</h3>
+      <p>{errorMessage}</p>
+      <button class="retry-btn" on:click={handleManualRefresh}>Retry Connection</button>
+    </div>
+  {:else if state.capabilities.length === 0 && state.proposals.length === 0}
+    <div class="empty-state">
+      <div class="empty-icon">🛠️</div>
+      <h3>No Data Available</h3>
+      <p>The self-modification system is running but hasn't generated any capability assessments or proposals yet.</p>
+      <p class="hint">Try interacting with the system or come back later.</p>
     </div>
   {:else}
     <div class="hub-grid">
@@ -296,24 +314,6 @@
     animation: spin 0.8s linear infinite;
   }
 
-  .error-banner {
-    padding: 0.75rem 1rem;
-    border-radius: 12px;
-    background: rgba(248, 113, 113, 0.15);
-    border: 1px solid rgba(248, 113, 113, 0.35);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 1rem;
-  }
-
-  .error-banner button {
-    background: transparent;
-    border: none;
-    color: rgba(248, 250, 252, 0.9);
-    cursor: pointer;
-  }
-
   .loading-state {
     display: flex;
     flex-direction: column;
@@ -322,6 +322,62 @@
     gap: 1rem;
     padding: 2rem;
     min-height: 260px;
+  }
+
+  .error-state,
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    padding: 3rem 2rem;
+    min-height: 300px;
+    text-align: center;
+    background: rgba(15, 23, 42, 0.4);
+    border-radius: 16px;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+  }
+
+  .error-icon,
+  .empty-icon {
+    font-size: 3rem;
+    opacity: 0.7;
+  }
+
+  .error-state h3,
+  .empty-state h3 {
+    margin: 0;
+    font-size: 1.5rem;
+  }
+
+  .error-state p,
+  .empty-state p {
+    margin: 0.5rem 0 0;
+    color: rgba(226, 232, 240, 0.7);
+    max-width: 500px;
+  }
+
+  .empty-state .hint {
+    font-size: 0.9rem;
+    color: rgba(226, 232, 240, 0.5);
+    font-style: italic;
+  }
+
+  .retry-btn {
+    margin-top: 1rem;
+    padding: 0.75rem 1.5rem;
+    background: rgba(59, 130, 246, 0.2);
+    border: 1px solid rgba(59, 130, 246, 0.4);
+    color: #bfdbfe;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .retry-btn:hover {
+    background: rgba(59, 130, 246, 0.3);
+    transform: translateY(-1px);
   }
 
   .spinner {
@@ -335,13 +391,19 @@
 
   .hub-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    grid-template-columns: 1fr;
     gap: 1.5rem;
   }
 
-  @media (max-width: 1024px) {
+  @media (min-width: 1200px) {
     .hub-grid {
-      grid-template-columns: 1fr;
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  @media (min-width: 1600px) {
+    .hub-grid {
+      grid-template-columns: repeat(2, 1fr);
     }
   }
 

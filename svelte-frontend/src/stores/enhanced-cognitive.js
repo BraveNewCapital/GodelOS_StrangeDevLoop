@@ -876,9 +876,8 @@ class EnhancedCognitiveStateManager {
    */
   async updateSystemHealth() {
     try {
-      if (!this.apiUrl) return;
-      
-      const response = await fetch(`${this.apiUrl}/api/enhanced/system-health`);
+      // Use canonical enhanced cognitive health endpoint exposed by backend
+      const response = await fetch(`${API_BASE_URL}/api/enhanced-cognitive/health`);
       if (response.ok) {
         const health = await response.json();
         
@@ -907,9 +906,8 @@ class EnhancedCognitiveStateManager {
    */
   async updateAutonomousLearningState() {
     try {
-      if (!this.apiUrl) return;
-      
-      const response = await fetch(`${this.apiUrl}/api/enhanced/autonomous-learning`);
+      // Use enhanced cognitive autonomous learning status endpoint
+      const response = await fetch(`${API_BASE_URL}/api/enhanced-cognitive/autonomous/status`);
       if (response.ok) {
         const learning = await response.json();
         

@@ -336,7 +336,7 @@
         <div class="health-section">
             <div class="section-header">
                 <h2 class="section-title">🏥 System Health Overview</h2>
-                <button class="refresh-btn" on:click={refreshAllSystems} disabled={isLoading}>
+                <button class="refresh-btn" data-testid="refresh-enhanced" on:click={refreshAllSystems} disabled={isLoading}>
                     <span class="refresh-icon" class:spinning={isLoading}>🔄</span>
                     Refresh
                 </button>

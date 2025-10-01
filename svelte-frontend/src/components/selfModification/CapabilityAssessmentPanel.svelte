@@ -323,8 +323,14 @@
 
   .content-grid {
     display: grid;
-    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    grid-template-columns: 1fr;
     gap: 1.5rem;
+  }
+
+  @media (min-width: 1024px) {
+    .content-grid {
+      grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+    }
   }
 
   .capability-list ul {
@@ -465,9 +471,13 @@
     color: rgba(226, 232, 240, 0.6);
   }
 
-  @media (max-width: 960px) {
+  @media (max-width: 1023px) {
     .content-grid {
       grid-template-columns: 1fr;
+    }
+    
+    .sidebar {
+      order: 1;
     }
   }
 

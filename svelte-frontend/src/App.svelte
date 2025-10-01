@@ -566,7 +566,7 @@
     </nav>
 
     <!-- Main Content Area -->
-    <section class="main-content">
+  <section class="main-content" data-testid="main-content">
       {#if activeView === 'dashboard'}
         <!-- Enhanced Dashboard View -->
         <div class="dashboard-layout" data-testid="dashboard-view">
