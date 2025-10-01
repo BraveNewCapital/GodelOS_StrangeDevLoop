@@ -404,49 +404,89 @@ class SelfModificationService:
             }
 
     def _compute_capabilities(self, state: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Compute capability scores from real metrics data."""
+        # Get metacognitive state signals
         awareness = _clamp(state.get("self_awareness_level", 0.55))
         reflection_depth = state.get("reflection_depth", 1)
         cognitive_load = _clamp(state.get("cognitive_load", 0.35))
         self_model_accuracy = _clamp(state.get("self_model_accuracy", 0.6))
-
         monitors_active = state.get("self_monitoring_active", False)
         monitoring_bonus = 0.05 if monitors_active else -0.05
 
+        # Extract real metrics from last snapshot
+        metrics = self._last_metrics_snapshot
+        baseline = self._baseline_metrics
+        
+        # Calculate real performance indicators
+        success_rate = 0.0
+        if metrics.get("total_queries", 0) > 0:
+            success_rate = metrics["successful_queries"] / metrics["total_queries"]
+        
+        # Calculate query complexity handling (proxy for reasoning capability)
+        avg_latency = metrics.get("average_processing_time", 0.0)
+        latency_score = 1.0 - min(avg_latency / 10.0, 1.0)  # Normalize: <1s=excellent, >10s=poor
+        
+        # Calculate knowledge utilization
+        knowledge_productivity = 0.0
+        if metrics.get("total_queries", 0) > 0:
+            knowledge_productivity = metrics.get("knowledge_items_created", 0) / metrics["total_queries"]
+        knowledge_score = min(knowledge_productivity * 2.0, 1.0)  # Normalize to 0-1
+        
+        # Calculate gap resolution capability
+        gap_resolution_rate = 0.0
+        if metrics.get("gaps_identified", 0) > 0:
+            gap_resolution_rate = metrics["gaps_resolved"] / metrics["gaps_identified"]
+        
+        # Calculate improvement trends (comparing to baseline)
+        query_growth = 0.0
+        if baseline.get("total_queries", 0) > 0:
+            query_growth = (
+                (metrics.get("total_queries", 0) - baseline["total_queries"]) /
+                baseline["total_queries"]
+            )
+
+        # Define capabilities with real metric-based scoring
         definitions: List[Dict[str, Any]] = [
             {
                 "id": "analogical_reasoning",
                 "label": "Analogical Reasoning",
-                "base": 0.58 + awareness * 0.25 - cognitive_load * 0.1 + monitoring_bonus,
+                # Based on: success rate + latency + awareness
+                "base": (success_rate * 0.5 + latency_score * 0.3 + awareness * 0.2) + monitoring_bonus,
                 "weight": 0.9,
             },
             {
                 "id": "knowledge_integration",
                 "label": "Knowledge Integration",
-                "base": 0.52 + self_model_accuracy * 0.3 - cognitive_load * 0.05,
+                # Based on: knowledge items created + gap resolution + model accuracy
+                "base": (knowledge_score * 0.4 + gap_resolution_rate * 0.35 + self_model_accuracy * 0.25),
                 "weight": 0.85,
             },
             {
                 "id": "creative_problem_solving",
                 "label": "Creative Problem Solving",
-                "base": 0.5 + awareness * 0.2 + (reflection_depth / 4.0) * 0.2 - cognitive_load * 0.08,
+                # Based on: success on complex queries + reflection depth + awareness
+                "base": (success_rate * 0.4 + (reflection_depth / 4.0) * 0.3 + awareness * 0.3 - cognitive_load * 0.08),
                 "weight": 0.8,
             },
             {
                 "id": "abstract_mathematics",
                 "label": "Abstract Mathematics",
-                "base": 0.42 + (reflection_depth / 4.0) * 0.25 - cognitive_load * 0.1,
+                # Based on: logical reasoning depth + latency (complex queries take longer)
+                "base": ((reflection_depth / 4.0) * 0.5 + latency_score * 0.3 + success_rate * 0.2),
                 "weight": 0.75,
             },
             {
                 "id": "visual_pattern_recognition",
                 "label": "Visual Pattern Recognition",
-                "base": 0.3 + awareness * 0.15 - cognitive_load * 0.12,
+                # Based on: pattern detection (using awareness as proxy) + cognitive load
+                "base": (awareness * 0.5 + success_rate * 0.3 - cognitive_load * 0.2),
                 "weight": 0.7,
             },
             {
                 "id": "emotional_intelligence",
                 "label": "Emotional Intelligence",
-                "base": 0.22 + awareness * 0.1 - cognitive_load * 0.05,
+                # Based on: contextual awareness + user query understanding
+                "base": (awareness * 0.6 + success_rate * 0.2 - cognitive_load * 0.1),
                 "weight": 0.65,
             },
         ]
@@ -455,22 +495,51 @@ class SelfModificationService:
         for definition in definitions:
             cap_id = definition["id"]
             base_level = _clamp(definition["base"])
+            
+            # Track capability history for trend detection
             history = self._capability_history.get(cap_id)
             if not history:
-                baseline = _clamp(base_level - 0.08)
+                baseline_level = _clamp(base_level - 0.08)
                 history = {
-                    "baseline": baseline,
+                    "baseline": baseline_level,
                     "last": base_level,
                     "improvements": [],
+                    "samples": []
                 }
+            
+            # Calculate improvement delta
             improvement_delta = base_level - history.get("last", base_level)
             history["last"] = base_level
             history.setdefault("improvements", []).append(improvement_delta)
-            history["improvements"] = history["improvements"][-12:]
+            history["improvements"] = history["improvements"][-12:]  # Keep last 12 samples
+            
+            # Store sample with timestamp for long-term tracking
+            history.setdefault("samples", []).append({
+                "timestamp": time.time(),
+                "level": base_level,
+                "metrics": {
+                    "success_rate": success_rate,
+                    "avg_latency": avg_latency,
+                    "knowledge_items": metrics.get("knowledge_items_created", 0)
+                }
+            })
+            history["samples"] = history["samples"][-50:]  # Keep last 50 samples
+            
             self._capability_history[cap_id] = history
 
+            # Calculate confidence based on sample size and variance
             confidence = _clamp(0.6 + (definition["weight"] * (1 - cognitive_load)))
-            status = "operational" if base_level >= 0.55 else "developing"
+            if len(history["samples"]) >= 5:
+                confidence = min(confidence + 0.1, 1.0)  # Bonus for more data
+            
+            # Determine status and trend
+            status = "operational" if base_level >= 0.7 else "developing" if base_level >= 0.4 else "limited"
+            
+            # Calculate trend from recent improvements
+            recent_improvements = history["improvements"][-5:]
+            avg_trend = sum(recent_improvements) / len(recent_improvements) if recent_improvements else 0
+            trend = "up" if avg_trend > 0.01 else "down" if avg_trend < -0.01 else "stable"
+            
             capability = {
                 "id": cap_id,
                 "label": definition["label"],
@@ -479,9 +548,10 @@ class SelfModificationService:
                 "improvement_rate": improvement_delta,
                 "confidence": confidence,
                 "status": status,
-                "trend": "up" if improvement_delta > 0.01 else "down" if improvement_delta < -0.01 else "stable",
+                "trend": trend,
                 "last_updated": datetime.utcnow().isoformat() + "Z",
                 "enabled": base_level >= 0.25,
+                "sample_count": len(history["samples"]),
             }
             capabilities.append(capability)
 
