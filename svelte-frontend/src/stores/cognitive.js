@@ -91,6 +91,226 @@ export const healthHelpers = {
   })
 };
 
+const createDefaultCapabilitySummary = () => ({
+  total: 0,
+  operational: 0,
+  developing: 0,
+  averagePerformance: 0
+});
+
+const createDefaultLiveState = () => ({
+  timestamp: null,
+  currentQuery: null,
+  manifestConsciousness: {
+    focus: [],
+    reflectionDepth: 0,
+    selfAwareness: 0
+  },
+  agenticProcesses: [],
+  daemonThreads: [],
+  resourceUtilization: [],
+  alerts: [],
+  cognitiveState: {}
+});
+
+const normalizeCapability = (capability) => {
+  if (!capability) {
+    return {
+      id: 'unknown',
+      label: 'Unknown Capability',
+      currentLevel: 0,
+      baselineLevel: 0,
+      improvementRate: 0,
+      confidence: 0,
+      status: 'unknown',
+      trend: 'stable',
+      lastUpdated: null,
+      enabled: false
+    };
+  }
+
+  return {
+    id: capability.id,
+    label: capability.label,
+    currentLevel: capability.current_level ?? capability.currentLevel ?? 0,
+    baselineLevel: capability.baseline_level ?? capability.baselineLevel ?? 0,
+    improvementRate: capability.improvement_rate ?? capability.improvementRate ?? 0,
+    confidence: capability.confidence ?? 0,
+    status: capability.status ?? 'unknown',
+    trend: capability.trend ?? 'stable',
+    lastUpdated: capability.last_updated ?? capability.lastUpdated ?? null,
+    enabled: capability.enabled ?? true
+  };
+};
+
+const normalizeCapabilityCollection = (payload = {}) => {
+  const capabilities = Array.isArray(payload.capabilities)
+    ? payload.capabilities.map(normalizeCapability)
+    : [];
+
+  const learningFocus = Array.isArray(payload.learning_focus || payload.learningFocus)
+    ? (payload.learning_focus || payload.learningFocus).map(normalizeCapability)
+    : [];
+
+  const recentImprovements = Array.isArray(payload.recent_improvements || payload.recentImprovements)
+    ? (payload.recent_improvements || payload.recentImprovements).map((item) => ({
+        id: item.id,
+        delta: item.delta
+      }))
+    : [];
+
+  const summaryRaw = payload.summary || {};
+  const summary = {
+    total: summaryRaw.total ?? 0,
+    operational: summaryRaw.operational ?? 0,
+    developing: summaryRaw.developing ?? 0,
+    averagePerformance: summaryRaw.average_performance ?? summaryRaw.averagePerformance ?? 0
+  };
+
+  const resourceAllocation = Array.isArray(payload.resource_allocation || payload.resourceAllocation)
+    ? (payload.resource_allocation || payload.resourceAllocation).map((item) => ({
+        category: item.category,
+        allocation: item.allocation
+      }))
+    : [];
+
+  return {
+    timestamp: payload.timestamp ?? null,
+    capabilities,
+    summary,
+    learningFocus,
+    recentImprovements,
+    resourceAllocation,
+    metacognitiveState: payload.metacognitive_state || payload.metacognitiveState || {}
+  };
+};
+
+const normalizeProposal = (proposal) => {
+  if (!proposal) {
+    return null;
+  }
+
+  return {
+    id: proposal.id,
+    title: proposal.title,
+    priority: proposal.priority,
+    priorityRank: proposal.priority_rank ?? proposal.priorityRank ?? Number.MAX_SAFE_INTEGER,
+    status: proposal.status,
+    riskLevel: proposal.risk_level ?? proposal.riskLevel ?? 'unknown',
+    confidence: proposal.confidence ?? 0,
+    expectedBenefits: proposal.expected_benefits || proposal.expectedBenefits || {},
+    potentialRisks: proposal.potential_risks || proposal.potentialRisks || {},
+    monitoringRequirements: proposal.monitoring_requirements || proposal.monitoringRequirements || [],
+    focusAreas: proposal.focus_areas || proposal.focusAreas || [],
+    targetQuarter: proposal.target_quarter || proposal.targetQuarter || null,
+    estimatedDurationDays: proposal.estimated_duration_days || proposal.estimatedDurationDays || null,
+    decisionLog: proposal.decision_log || proposal.decisionLog || [],
+    createdAt: proposal.created_at || proposal.createdAt || null,
+    approvedAt: proposal.approved_at || proposal.approvedAt || null,
+    rejectedAt: proposal.rejected_at || proposal.rejectedAt || null
+  };
+};
+
+const normalizeProposalCollection = (payload = {}) => {
+  const proposals = Array.isArray(payload.proposals)
+    ? payload.proposals.map(normalizeProposal).filter(Boolean)
+    : [];
+
+  const countsRaw = payload.counts || {};
+  let counts = Object.keys(countsRaw).reduce((acc, key) => {
+    acc[key] = countsRaw[key];
+    return acc;
+  }, {});
+
+  if (!Object.keys(counts).length && proposals.length) {
+    counts = proposals.reduce((acc, proposal) => {
+      const status = (proposal.status || 'unknown').toLowerCase();
+      acc[status] = (acc[status] || 0) + 1;
+      return acc;
+    }, {});
+  }
+
+  return {
+    timestamp: payload.timestamp ?? null,
+    proposals,
+    counts
+  };
+};
+
+const countProposalsByStatus = (proposals = []) => {
+  return proposals.reduce((acc, proposal) => {
+    const status = (proposal.status || 'unknown').toLowerCase();
+    acc[status] = (acc[status] || 0) + 1;
+    return acc;
+  }, {});
+};
+
+const normalizeEvolutionOverview = (payload = {}) => ({
+  timestamp: payload.timestamp ?? null,
+  timeline: Array.isArray(payload.timeline) ? payload.timeline.map((event) => ({
+    id: event.id,
+    label: event.label,
+    category: event.category,
+    impact: event.impact || {},
+    timestamp: event.timestamp
+  })) : [],
+  metrics: payload.metrics || {},
+  upcoming: Array.isArray(payload.upcoming) ? payload.upcoming : []
+});
+
+const normalizeLiveState = (payload = {}) => {
+  const manifest = payload.manifest_consciousness || payload.manifestConsciousness || {};
+
+  return {
+    timestamp: payload.timestamp ?? null,
+    currentQuery: payload.current_query || payload.currentQuery || null,
+    manifestConsciousness: {
+      focus: manifest.focus || [],
+      reflectionDepth: manifest.reflection_depth ?? manifest.reflectionDepth ?? 0,
+      selfAwareness: manifest.self_awareness ?? manifest.selfAwareness ?? 0
+    },
+    agenticProcesses: Array.isArray(payload.agentic_processes || payload.agenticProcesses)
+      ? (payload.agentic_processes || payload.agenticProcesses).map((process) => ({
+          id: process.id,
+          label: process.label,
+          status: process.status
+        }))
+      : [],
+    daemonThreads: Array.isArray(payload.daemon_threads || payload.daemonThreads)
+      ? (payload.daemon_threads || payload.daemonThreads).map((thread) => ({
+          id: thread.id,
+          label: thread.label,
+          status: thread.status
+        }))
+      : [],
+    resourceUtilization: Array.isArray(payload.resource_utilization || payload.resourceUtilization)
+      ? (payload.resource_utilization || payload.resourceUtilization).map((item) => ({
+          category: item.category,
+          allocation: item.allocation
+        }))
+      : [],
+    alerts: Array.isArray(payload.alerts) ? payload.alerts : [],
+    cognitiveState: payload.cognitive_state || payload.cognitiveState || {}
+  };
+};
+
+const normalizeSimulationResult = (payload = {}) => ({
+  proposal: normalizeProposal(payload.proposal),
+  confidence: payload.confidence ?? 0,
+  riskLevel: payload.risk_level ?? payload.riskLevel ?? 'unknown',
+  estimatedCompletionDays: payload.estimated_completion_days ?? payload.estimatedCompletionDays ?? null,
+  monitoringRequirements: payload.monitoring_requirements || payload.monitoringRequirements || [],
+  projectedCapabilities: Array.isArray(payload.projected_capabilities || payload.projectedCapabilities)
+    ? (payload.projected_capabilities || payload.projectedCapabilities).map((item) => ({
+        id: item.id,
+        label: item.label,
+        currentLevel: item.current_level ?? item.currentLevel ?? 0,
+        projectedLevel: item.projected_level ?? item.projectedLevel ?? 0,
+        delta: item.delta ?? 0
+      }))
+    : []
+});
+
 // Enhanced API integration functions
 export const apiHelpers = {
   // Sanitize health data to ensure all values are valid numbers between 0 and 1
@@ -171,6 +391,331 @@ export const apiHelpers = {
 
     updateAll(); // Initial update
     return setInterval(updateAll, interval);
+  },
+
+  // --- Self-modification helpers ---
+  loadSelfModificationCapabilities: async () => {
+    selfModificationState.update(state => ({
+      ...state,
+      loading: { ...state.loading, capabilities: true },
+      errors: { ...state.errors, capabilities: null }
+    }));
+
+    try {
+      const { GödelOSAPI } = await import('../utils/api.js');
+      const raw = await GödelOSAPI.fetchMetacognitionCapabilities();
+      const normalized = normalizeCapabilityCollection(raw);
+
+      selfModificationState.update(state => ({
+        ...state,
+        loading: { ...state.loading, capabilities: false },
+        capabilities: normalized.capabilities,
+        summary: normalized.summary,
+        learningFocus: normalized.learningFocus,
+        recentImprovements: normalized.recentImprovements,
+        resourceAllocation: normalized.resourceAllocation,
+        metacognitiveState: normalized.metacognitiveState,
+        lastUpdated: { ...state.lastUpdated, capabilities: Date.now() }
+      }));
+
+      evolutionState.update(state => ({
+        ...state,
+        capabilities: normalized.capabilities
+      }));
+
+      return normalized;
+    } catch (error) {
+      selfModificationState.update(state => ({
+        ...state,
+        loading: { ...state.loading, capabilities: false },
+        errors: { ...state.errors, capabilities: error?.message || 'Failed to load capability data' }
+      }));
+      throw error;
+    }
+  },
+
+  loadSelfModificationProposals: async (status = null) => {
+    selfModificationState.update(state => ({
+      ...state,
+      loading: { ...state.loading, proposals: true },
+      errors: { ...state.errors, proposals: null }
+    }));
+
+    try {
+      const { GödelOSAPI } = await import('../utils/api.js');
+      const raw = await GödelOSAPI.fetchMetacognitionProposals(status);
+      const normalized = normalizeProposalCollection(raw);
+
+      selfModificationState.update(state => ({
+        ...state,
+        loading: { ...state.loading, proposals: false },
+        proposals: normalized.proposals,
+        proposalCounts: normalized.counts,
+        lastUpdated: { ...state.lastUpdated, proposals: Date.now() }
+      }));
+
+      evolutionState.update(state => ({
+        ...state,
+        proposals: normalized.proposals
+      }));
+
+      return normalized;
+    } catch (error) {
+      selfModificationState.update(state => ({
+        ...state,
+        loading: { ...state.loading, proposals: false },
+        errors: { ...state.errors, proposals: error?.message || 'Failed to load proposals' }
+      }));
+      throw error;
+    }
+  },
+
+  loadSelfModificationEvolution: async () => {
+    selfModificationState.update(state => ({
+      ...state,
+      loading: { ...state.loading, evolution: true },
+      errors: { ...state.errors, evolution: null }
+    }));
+
+    try {
+      const { GödelOSAPI } = await import('../utils/api.js');
+      const raw = await GödelOSAPI.fetchMetacognitionEvolution();
+      const normalized = normalizeEvolutionOverview(raw);
+
+      selfModificationState.update(state => ({
+        ...state,
+        loading: { ...state.loading, evolution: false },
+        timeline: normalized.timeline,
+        metrics: normalized.metrics,
+        upcoming: normalized.upcoming,
+        lastUpdated: { ...state.lastUpdated, evolution: Date.now() }
+      }));
+
+      evolutionState.update(state => ({
+        ...state,
+        timeline: normalized.timeline,
+        metrics: {
+          ...state.metrics,
+          ...normalized.metrics
+        },
+        modifications: normalized.upcoming || state.modifications
+      }));
+
+      return normalized;
+    } catch (error) {
+      selfModificationState.update(state => ({
+        ...state,
+        loading: { ...state.loading, evolution: false },
+        errors: { ...state.errors, evolution: error?.message || 'Failed to load evolution overview' }
+      }));
+      throw error;
+    }
+  },
+
+  loadSelfModificationLiveState: async () => {
+    selfModificationState.update(state => ({
+      ...state,
+      loading: { ...state.loading, liveState: true },
+      errors: { ...state.errors, liveState: null }
+    }));
+
+    try {
+      const { GödelOSAPI } = await import('../utils/api.js');
+      const raw = await GödelOSAPI.fetchMetacognitionLiveState();
+      const normalized = normalizeLiveState(raw);
+
+      selfModificationState.update(state => ({
+        ...state,
+        loading: { ...state.loading, liveState: false },
+        liveState: normalized,
+        lastUpdated: { ...state.lastUpdated, liveState: Date.now() }
+      }));
+
+      return normalized;
+    } catch (error) {
+      selfModificationState.update(state => ({
+        ...state,
+        loading: { ...state.loading, liveState: false },
+        errors: { ...state.errors, liveState: error?.message || 'Failed to load live state' }
+      }));
+      throw error;
+    }
+  },
+
+  initializeSelfModification: async () => {
+    await Promise.allSettled([
+      apiHelpers.loadSelfModificationCapabilities(),
+      apiHelpers.loadSelfModificationProposals(),
+      apiHelpers.loadSelfModificationEvolution(),
+      apiHelpers.loadSelfModificationLiveState()
+    ]);
+  },
+
+  refreshSelfModification: async () => {
+    await Promise.allSettled([
+      apiHelpers.loadSelfModificationCapabilities(),
+      apiHelpers.loadSelfModificationProposals(),
+      apiHelpers.loadSelfModificationEvolution()
+    ]);
+  },
+
+  approveSelfModificationProposal: async (proposalId, actor = 'self_modification_ui') => {
+    const { GödelOSAPI } = await import('../utils/api.js');
+    const updated = await GödelOSAPI.approveMetacognitionProposal(proposalId, actor);
+    const normalized = normalizeProposal(updated);
+
+    let updatedProposals;
+    selfModificationState.update(state => {
+      updatedProposals = state.proposals.some(proposal => proposal.id === normalized.id)
+        ? state.proposals.map(proposal => proposal.id === normalized.id ? normalized : proposal)
+        : [normalized, ...state.proposals];
+
+      return {
+        ...state,
+        proposals: updatedProposals,
+        proposalCounts: countProposalsByStatus(updatedProposals),
+        lastUpdated: { ...state.lastUpdated, proposals: Date.now() }
+      };
+    });
+
+    evolutionState.update(state => ({
+      ...state,
+      proposals: updatedProposals || state.proposals
+    }));
+
+    return normalized;
+  },
+
+  rejectSelfModificationProposal: async (proposalId, reason = null, actor = 'self_modification_ui') => {
+    const { GödelOSAPI } = await import('../utils/api.js');
+    const updated = await GödelOSAPI.rejectMetacognitionProposal(proposalId, reason, actor);
+    const normalized = normalizeProposal(updated);
+
+    let updatedProposals;
+    selfModificationState.update(state => {
+      updatedProposals = state.proposals.some(proposal => proposal.id === normalized.id)
+        ? state.proposals.map(proposal => proposal.id === normalized.id ? normalized : proposal)
+        : [normalized, ...state.proposals];
+
+      return {
+        ...state,
+        proposals: updatedProposals,
+        proposalCounts: countProposalsByStatus(updatedProposals),
+        lastUpdated: { ...state.lastUpdated, proposals: Date.now() }
+      };
+    });
+
+    evolutionState.update(state => ({
+      ...state,
+      proposals: updatedProposals || state.proposals
+    }));
+
+    return normalized;
+  },
+
+  simulateSelfModificationProposal: async (proposalId) => {
+    const { GödelOSAPI } = await import('../utils/api.js');
+    const raw = await GödelOSAPI.simulateMetacognitionProposal(proposalId);
+    const normalized = normalizeSimulationResult(raw);
+
+    selfModificationState.update(state => ({
+      ...state,
+      activeSimulation: normalized,
+      lastUpdated: { ...state.lastUpdated, proposals: Date.now() }
+    }));
+
+    return normalized;
+  }
+};
+
+export const selfModificationEventHandlers = {
+  handleCapabilityUpdate: (payload) => {
+    const normalized = normalizeCapabilityCollection(payload || {});
+
+    selfModificationState.update(state => ({
+      ...state,
+      capabilities: normalized.capabilities,
+      summary: normalized.summary,
+      learningFocus: normalized.learningFocus,
+      recentImprovements: normalized.recentImprovements,
+      resourceAllocation: normalized.resourceAllocation,
+      metacognitiveState: normalized.metacognitiveState,
+      lastUpdated: { ...state.lastUpdated, capabilities: Date.now() }
+    }));
+
+    evolutionState.update(state => ({
+      ...state,
+      capabilities: normalized.capabilities
+    }));
+  },
+
+  handleProposalUpdate: (payload) => {
+    if (!payload) return;
+    const proposal = normalizeProposal(payload.proposal || payload);
+    if (!proposal) return;
+
+    selfModificationState.update(state => {
+      const proposals = state.proposals.some(item => item.id === proposal.id)
+        ? state.proposals.map(item => (item.id === proposal.id ? proposal : item))
+        : [proposal, ...state.proposals];
+
+      return {
+        ...state,
+        proposals,
+        proposalCounts: countProposalsByStatus(proposals),
+        lastUpdated: { ...state.lastUpdated, proposals: Date.now() }
+      };
+    });
+
+    evolutionState.update(state => ({
+      ...state,
+      proposals: state.proposals.some(item => item.id === proposal.id)
+        ? state.proposals.map(item => (item.id === proposal.id ? proposal : item))
+        : [proposal, ...state.proposals]
+    }));
+  },
+
+  handleProposalSimulation: (payload) => {
+    const normalized = normalizeSimulationResult(payload || {});
+    selfModificationState.update(state => ({
+      ...state,
+      activeSimulation: normalized,
+      lastUpdated: { ...state.lastUpdated, proposals: Date.now() }
+    }));
+  },
+
+  handleLiveStateUpdate: (payload) => {
+    const normalized = normalizeLiveState(payload || {});
+    selfModificationState.update(state => ({
+      ...state,
+      liveState: normalized,
+      lastUpdated: { ...state.lastUpdated, liveState: Date.now() }
+    }));
+  },
+
+  handleEvolutionCheckpoint: (payload) => {
+    if (!payload) return;
+    const event = {
+      id: payload.id || `evt_${Date.now()}`,
+      label: payload.label || payload.title || 'Evolution Update',
+      category: payload.category || 'update',
+      impact: payload.impact || {},
+      timestamp: payload.timestamp || new Date().toISOString() + 'Z'
+    };
+
+    selfModificationState.update(state => {
+      const timeline = [event, ...state.timeline].slice(0, 75);
+      return {
+        ...state,
+        timeline,
+        lastUpdated: { ...state.lastUpdated, evolution: Date.now() }
+      };
+    });
+
+    evolutionState.update(state => ({
+      ...state,
+      timeline: [event, ...state.timeline].slice(0, 75)
+    }));
   }
 };
 
@@ -228,6 +773,40 @@ export const evolutionState = writable({
     strategiesOptimized: 23,
     modificationsImplemented: 156,
     breakthroughs: 12
+  }
+});
+
+export const selfModificationState = writable({
+  loading: {
+    capabilities: false,
+    proposals: false,
+    evolution: false,
+    liveState: false
+  },
+  errors: {
+    capabilities: null,
+    proposals: null,
+    evolution: null,
+    liveState: null
+  },
+  capabilities: [],
+  summary: createDefaultCapabilitySummary(),
+  learningFocus: [],
+  recentImprovements: [],
+  resourceAllocation: [],
+  metacognitiveState: {},
+  proposals: [],
+  proposalCounts: {},
+  activeSimulation: null,
+  timeline: [],
+  metrics: {},
+  upcoming: [],
+  liveState: createDefaultLiveState(),
+  lastUpdated: {
+    capabilities: null,
+    proposals: null,
+    evolution: null,
+    liveState: null
   }
 });
 
@@ -291,6 +870,25 @@ export const pendingProposals = derived(
   $state => $state.proposals.filter(p => p.status === 'pending')
 );
 
+export const highRiskProposals = derived(
+  selfModificationState,
+  $state => $state.proposals.filter(p => (p.riskLevel || '').toLowerCase() === 'high')
+);
+
+export const pendingSelfModificationProposals = derived(
+  selfModificationState,
+  $state => $state.proposals.filter(p => ['pending', 'under_review'].includes((p.status || '').toLowerCase()))
+);
+
+export const selfModificationAlerts = derived(
+  selfModificationState,
+  $state => ({
+    highRisk: $state.proposals.filter(p => (p.riskLevel || '').toLowerCase() === 'high').length,
+    pendingApprovals: $state.proposals.filter(p => (p.status || '').toLowerCase() === 'pending').length,
+    totalCapabilities: $state.summary.total || 0
+  })
+);
+
 // WebSocket integration for real-time cognitive updates
 let cognitiveWebSocket = null;
 import { WS_BASE_URL } from '../config.js';
@@ -317,7 +915,12 @@ export function initCognitiveStream() {
           "consciousness_update",
           "system_status",
           "transparency",
-          "cognitive_transparency"
+          "cognitive_transparency",
+          "capability_update",
+          "proposal_update",
+          "proposal_simulation",
+          "metacognition_live_state",
+          "evolution_checkpoint"
         ]
       };
       
@@ -395,6 +998,26 @@ export function initCognitiveStream() {
               ...state,
               ...eventData
             }));
+            break;
+
+          case 'capability_update':
+            selfModificationEventHandlers.handleCapabilityUpdate(eventData);
+            break;
+
+          case 'proposal_update':
+            selfModificationEventHandlers.handleProposalUpdate(eventData);
+            break;
+
+          case 'proposal_simulation':
+            selfModificationEventHandlers.handleProposalSimulation(eventData);
+            break;
+
+          case 'metacognition_live_state':
+            selfModificationEventHandlers.handleLiveStateUpdate(eventData);
+            break;
+
+          case 'evolution_checkpoint':
+            selfModificationEventHandlers.handleEvolutionCheckpoint(eventData);
             break;
             
           case 'evolution_event':

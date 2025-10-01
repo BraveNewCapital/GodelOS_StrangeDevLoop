@@ -304,6 +304,85 @@ export class GödelOSAPI {
     }
   }
 
+  // Metacognition / Self-modification API helpers
+  static async fetchMetacognitionCapabilities() {
+    try {
+      return await this.get('/api/metacognition/capabilities');
+    } catch (error) {
+      console.warn('Failed to fetch metacognition capabilities:', error);
+      throw error;
+    }
+  }
+
+  static async fetchMetacognitionProposals(status = null) {
+    try {
+      const endpoint = status
+        ? `/api/metacognition/proposals?status=${encodeURIComponent(status)}`
+        : '/api/metacognition/proposals';
+      return await this.get(endpoint);
+    } catch (error) {
+      console.warn('Failed to fetch metacognition proposals:', error);
+      throw error;
+    }
+  }
+
+  static async fetchMetacognitionProposal(proposalId) {
+    try {
+      return await this.get(`/api/metacognition/proposals/${proposalId}`);
+    } catch (error) {
+      console.warn(`Failed to fetch proposal ${proposalId}:`, error);
+      throw error;
+    }
+  }
+
+  static async approveMetacognitionProposal(proposalId, actor = 'self_modification_ui') {
+    try {
+      return await this.post(`/api/metacognition/proposals/${proposalId}/approve`, { actor });
+    } catch (error) {
+      console.error(`Failed to approve proposal ${proposalId}:`, error);
+      throw error;
+    }
+  }
+
+  static async rejectMetacognitionProposal(proposalId, reason = null, actor = 'self_modification_ui') {
+    try {
+      return await this.post(`/api/metacognition/proposals/${proposalId}/reject`, {
+        actor,
+        reason
+      });
+    } catch (error) {
+      console.error(`Failed to reject proposal ${proposalId}:`, error);
+      throw error;
+    }
+  }
+
+  static async simulateMetacognitionProposal(proposalId) {
+    try {
+      return await this.post(`/api/metacognition/proposals/${proposalId}/simulate`);
+    } catch (error) {
+      console.error(`Failed to simulate proposal ${proposalId}:`, error);
+      throw error;
+    }
+  }
+
+  static async fetchMetacognitionEvolution() {
+    try {
+      return await this.get('/api/metacognition/evolution');
+    } catch (error) {
+      console.warn('Failed to fetch metacognition evolution:', error);
+      throw error;
+    }
+  }
+
+  static async fetchMetacognitionLiveState() {
+    try {
+      return await this.get('/api/metacognition/live-state');
+    } catch (error) {
+      console.warn('Failed to fetch metacognition live state:', error);
+      throw error;
+    }
+  }
+
   static async queryKnowledge(query) {
     try {
       const response = await fetch(`${API_BASE_URL}/api/query`, {

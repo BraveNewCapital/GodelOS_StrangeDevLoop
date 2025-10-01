@@ -36,6 +36,7 @@
   // Evolution Tracking
   import CapabilityDashboard from './components/evolution/CapabilityDashboard.svelte';
   import ArchitectureTimeline from './components/evolution/ArchitectureTimeline.svelte';
+  import SelfModificationHub from './components/selfModification/SelfModificationHub.svelte';
   
   // UI Components
   import Modal from './components/ui/Modal.svelte';
@@ -260,6 +261,14 @@
           description: 'Self-directed knowledge acquisition',
           modal: 'autonomous', // Use modal trigger instead of direct component
           featured: true
+        },
+        self_modification: {
+          icon: '🛠️',
+          title: 'Self-Modification',
+          description: 'Capability evolution, proposals, and live monitoring',
+          component: SelfModificationHub,
+          featured: true,
+          badge: 'ALPHA'
         }
       }
     },
