@@ -75,3 +75,4 @@ Frontend `SelfModificationHub`
 
 ## Work Log
 - **2025-10-01 10:15 UTC** — Completed architecture review; documented existing backend modules (`MetacognitionManager`, `MetaCognitiveMonitor`), current API limitations, and proposed multi-stage integration approach combining new REST endpoints, WebSocket events, and modular Svelte UI components.
+- **2025-10-01 12:40 UTC** — Added `backend/metacognition_service.py` to aggregate capability metrics, proposal workflows, evolution timeline data, and live-state snapshots with graceful fallbacks; wired the service into `unified_server.py` startup, expanded REST surface (`/api/metacognition/capabilities|proposals|evolution|live-state`), introduced proposal approval/rejection/simulation endpoints, and enabled WebSocket broadcasts for capability, proposal, and live-state updates.

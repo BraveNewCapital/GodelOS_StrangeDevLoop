@@ -88,6 +88,11 @@ class ChatResponse(BaseModel):
     tool_calls: Optional[List[Dict[str, Any]]] = None
     reasoning: Optional[List[str]] = None
 
+
+class ProposalDecisionRequest(BaseModel):
+    actor: Optional[str] = "user"
+    reason: Optional[str] = None
+
 # Import GödelOS components - with fallback handling for reliability
 try:
     from backend.godelos_integration import GödelOSIntegration
@@ -357,6 +362,15 @@ except ImportError as e:
     vector_db_router = None
     VECTOR_DATABASE_AVAILABLE = False
 
+# Import self-modification service
+try:
+    from backend.metacognition_service import SelfModificationService
+    SELF_MODIFICATION_SERVICE_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Self-modification service not available: {e}")
+    SelfModificationService = None  # type: ignore[assignment]
+    SELF_MODIFICATION_SERVICE_AVAILABLE = False
+
 # Import distributed vector database
 try:
     from backend.api.distributed_vector_router import router as distributed_vector_router
@@ -408,6 +422,7 @@ enhanced_websocket_manager = None
 unified_consciousness_engine = None
 tool_based_llm = None
 cognitive_manager = None
+self_modification_service = None
 # Removed cognitive_streaming_task - no longer using synthetic streaming
 
 # Observability instances
@@ -444,6 +459,13 @@ def get_system_health_with_labels() -> Dict[str, Any]:
         **health_scores,
         "_labels": labels
     }
+
+
+def require_self_modification_service():
+    """Ensure the self-modification service is available before handling a request."""
+    if not self_modification_service:
+        raise HTTPException(status_code=503, detail="Self-modification service unavailable")
+    return self_modification_service
 
 def get_manifest_consciousness_canonical() -> Dict[str, Any]:
     """Get manifest consciousness in canonical camelCase format."""
@@ -499,7 +521,7 @@ cognitive_state = {
 
 async def initialize_core_services():
     """Initialize core services with proper error handling."""
-    global godelos_integration, websocket_manager, enhanced_websocket_manager, unified_consciousness_engine, tool_based_llm, cognitive_manager, transparency_engine
+    global godelos_integration, websocket_manager, enhanced_websocket_manager, unified_consciousness_engine, tool_based_llm, cognitive_manager, transparency_engine, self_modification_service
 
     # Initialize WebSocket manager
     websocket_manager = WebSocketManager()
@@ -607,6 +629,20 @@ async def initialize_core_services():
         except Exception as e:
             logger.error(f"❌ Failed to initialize unified consciousness engine: {e}")
             unified_consciousness_engine = None
+
+    # Initialize self-modification service
+    if SELF_MODIFICATION_SERVICE_AVAILABLE:
+        try:
+            self_modification_service = SelfModificationService(
+                cognitive_manager=cognitive_manager,
+                websocket_manager=websocket_manager,
+            )
+            logger.info("✅ Self-modification service initialized")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize self-modification service: {e}")
+            self_modification_service = None
+    else:
+        self_modification_service = None
 
 async def initialize_optional_services():
     """Initialize optional advanced services."""
@@ -4848,6 +4884,100 @@ async def trigger_reflection(reflection_request: dict):
     except Exception as e:
         logger.error(f"Error triggering reflection: {e}")
         raise HTTPException(status_code=500, detail=f"Reflection error: {str(e)}")
+
+
+@app.get("/api/metacognition/capabilities")
+async def metacognition_capabilities():
+    """Expose current capability assessment data for the self-modification hub."""
+    service = require_self_modification_service()
+    try:
+        return await service.get_capability_snapshot()
+    except Exception as e:
+        logger.error(f"Error retrieving capability snapshot: {e}")
+        raise HTTPException(status_code=500, detail=f"Capability snapshot error: {str(e)}")
+
+
+@app.get("/api/metacognition/proposals")
+async def metacognition_proposals(status: Optional[str] = None):
+    """Return pending and historical self-modification proposals."""
+    service = require_self_modification_service()
+    try:
+        return await service.list_proposals(status=status)
+    except Exception as e:
+        logger.error(f"Error retrieving proposals: {e}")
+        raise HTTPException(status_code=500, detail=f"Proposal lookup error: {str(e)}")
+
+
+@app.get("/api/metacognition/proposals/{proposal_id}")
+async def metacognition_proposal_detail(proposal_id: str):
+    service = require_self_modification_service()
+    try:
+        return await service.get_proposal(proposal_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Proposal '{proposal_id}' not found")
+    except Exception as e:
+        logger.error(f"Error retrieving proposal {proposal_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Proposal retrieval error: {str(e)}")
+
+
+@app.post("/api/metacognition/proposals/{proposal_id}/approve")
+async def metacognition_proposal_approve(proposal_id: str, request: ProposalDecisionRequest):
+    service = require_self_modification_service()
+    try:
+        return await service.approve_proposal(proposal_id, actor=request.actor or "user")
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Proposal '{proposal_id}' not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as e:
+        logger.error(f"Error approving proposal {proposal_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Proposal approval error: {str(e)}")
+
+
+@app.post("/api/metacognition/proposals/{proposal_id}/reject")
+async def metacognition_proposal_reject(proposal_id: str, request: ProposalDecisionRequest):
+    service = require_self_modification_service()
+    try:
+        return await service.reject_proposal(proposal_id, actor=request.actor or "user", reason=request.reason)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Proposal '{proposal_id}' not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as e:
+        logger.error(f"Error rejecting proposal {proposal_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Proposal rejection error: {str(e)}")
+
+
+@app.post("/api/metacognition/proposals/{proposal_id}/simulate")
+async def metacognition_proposal_simulate(proposal_id: str):
+    service = require_self_modification_service()
+    try:
+        return await service.simulate_proposal(proposal_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Proposal '{proposal_id}' not found")
+    except Exception as e:
+        logger.error(f"Error simulating proposal {proposal_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Proposal simulation error: {str(e)}")
+
+
+@app.get("/api/metacognition/evolution")
+async def metacognition_evolution_overview():
+    service = require_self_modification_service()
+    try:
+        return await service.get_evolution_overview()
+    except Exception as e:
+        logger.error(f"Error retrieving evolution overview: {e}")
+        raise HTTPException(status_code=500, detail=f"Evolution overview error: {str(e)}")
+
+
+@app.get("/api/metacognition/live-state")
+async def metacognition_live_state():
+    service = require_self_modification_service()
+    try:
+        return await service.get_live_state()
+    except Exception as e:
+        logger.error(f"Error retrieving live metacognition state: {e}")
+        raise HTTPException(status_code=500, detail=f"Live state error: {str(e)}")
 
 @app.get("/api/transparency/reasoning-trace")
 async def get_reasoning_trace():
