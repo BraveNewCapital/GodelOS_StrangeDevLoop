@@ -806,6 +806,14 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Failed to connect consciousness engine to endpoints: {e}")
 
+    # Start self-modification metrics collection
+    if self_modification_service:
+        try:
+            await self_modification_service.start_monitoring()
+            logger.info("✅ Self-modification metrics collection started")
+        except Exception as e:
+            logger.error(f"Failed to start self-modification monitoring: {e}")
+
     # REMOVED: Synthetic cognitive streaming - replaced with real event-driven updates
     # cognitive_streaming_task = asyncio.create_task(continuous_cognitive_streaming())
     logger.info("✅ Synthetic cognitive streaming disabled - using event-driven updates only")
@@ -824,6 +832,14 @@ async def lifespan(app: FastAPI):
             logger.info("✅ Consciousness engine shutdown complete")
         except Exception as e:
             logger.warning(f"⚠️ Error shutting down consciousness engine: {e}")
+
+    # Stop self-modification metrics collection if running
+    if self_modification_service:
+        try:
+            await self_modification_service.stop_monitoring()
+            logger.info("✅ Self-modification metrics collection stopped")
+        except Exception as e:
+            logger.warning(f"⚠️ Error stopping self-modification monitoring: {e}")
 
     # Stop reconciliation monitor if running
     try:
