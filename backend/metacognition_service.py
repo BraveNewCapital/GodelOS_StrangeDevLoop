@@ -613,7 +613,9 @@ class SelfModificationService:
                 "cognitive_state": cognitive_state or {},
                 "performance_metrics": {
                     "total_queries": metrics.get("total_queries", 0),
+                    "successful_queries": metrics.get("successful_queries", 0),
                     "success_rate": success_rate if metrics.get("total_queries", 0) > 0 else 0.0,
+                    "average_latency": metrics.get("average_processing_time", 0.0),
                     "avg_latency": metrics.get("average_processing_time", 0.0),
                     "knowledge_items_created": metrics.get("knowledge_items_created", 0),
                     "gap_resolution_rate": gap_resolution_rate,
@@ -1003,7 +1005,9 @@ class SelfModificationService:
 
     def _serialize_proposal(self, proposal: Dict[str, Any]) -> Dict[str, Any]:
         """Serialize proposal dict to API response format with safe defaults."""
+        proposal_id = proposal.get("proposal_id") or proposal.get("id")
         return {
+            "proposal_id": proposal_id,
             "id": proposal.get("proposal_id", proposal.get("id")),  # Support both keys
             "title": proposal.get("title", "Untitled Proposal"),
             "status": proposal.get("status", "pending"),
@@ -1039,14 +1043,16 @@ class SelfModificationService:
         if not self.websocket_manager:
             return
         try:
-            await self.websocket_manager.broadcast(
-                {
-                    "type": event_type,
-                    "timestamp": time.time(),
-                    "source": "metacognition_service",
-                    "data": payload,
-                }
-            )
+            event = {
+                "type": event_type,
+                "timestamp": time.time(),
+                "source": "metacognition_service",
+                "data": payload,
+            }
+            if hasattr(self.websocket_manager, "broadcast_metacognition_event"):
+                await self.websocket_manager.broadcast_metacognition_event(event)
+            else:
+                await self.websocket_manager.broadcast(event)
         except Exception as exc:  # pragma: no cover - best-effort broadcast
             logger.debug("Failed to broadcast %s: %s", event_type, exc)
 

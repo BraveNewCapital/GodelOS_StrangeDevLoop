@@ -129,6 +129,7 @@ class WebSocketManager:
                     "cognitive_event",
                     "knowledge_update",
                     "consciousness_update",
+                    "metacognition_event",
                     "system_status",
                     "health_update",
                     "metrics_update",
@@ -295,6 +296,39 @@ class WebSocketManager:
             await self.broadcast(message)
         except Exception as e:
             logger.error(f"Error broadcasting learning event: {e}")
+
+    async def broadcast_metacognition_event(self, event: Union[dict, str]):
+        """Broadcast metacognition-specific events using the unified schema."""
+        try:
+            if not isinstance(event, dict):
+                event = {"type": "metacognition_update", "value": event}
+
+            # Normalize primary attributes
+            event_type = event.get("type", "metacognition_update")
+            timestamp = event.get("timestamp", time.time())
+            source = event.get("source", "metacognition_service")
+
+            if isinstance(event.get("data"), dict):
+                data = dict(event["data"])
+            else:
+                # Promote remaining top-level keys into data payload
+                data = {
+                    key: value
+                    for key, value in event.items()
+                    if key not in {"type", "timestamp", "source"}
+                }
+
+            data.setdefault("event_type", event_type)
+
+            message = {
+                "type": "metacognition_event",
+                "timestamp": timestamp,
+                "source": source,
+                "data": data,
+            }
+            await self.broadcast(message)
+        except Exception as exc:
+            logger.error(f"Error broadcasting metacognition event: {exc}")
 
     def has_connections(self) -> bool:
         return len(self.active_connections) > 0

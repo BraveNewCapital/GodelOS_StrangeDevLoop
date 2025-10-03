@@ -440,6 +440,30 @@ function handleCognitiveUpdate(message) {
       } catch (e) { /* ignore */ }
       break;
 
+    case 'metacognition_event': {
+      try {
+        const payload = message.data || {};
+        const normalized = {
+          event_type: payload.event_type || payload.type || 'metacognition_update',
+          timestamp: payload.timestamp || message.timestamp || Date.now(),
+          source: payload.source || message.source || 'metacognition_service',
+          severity: payload.severity || payload.level || payload.status || 'info',
+          title: payload.title || payload.message || null,
+          summary: payload.summary || payload.description || payload.message || null,
+          data: payload
+        };
+
+        import('../stores/cognitive.js').then(mod => {
+          if (mod && mod.selfModificationEventHandlers && typeof mod.selfModificationEventHandlers.handleMetacognitionEvent === 'function') {
+            mod.selfModificationEventHandlers.handleMetacognitionEvent(normalized);
+          }
+        }).catch(() => {});
+      } catch (error) {
+        console.warn('Failed to process metacognition event message', error, message);
+      }
+      break;
+    }
+
     default:
       console.log('Unknown message type:', message.type);
   }

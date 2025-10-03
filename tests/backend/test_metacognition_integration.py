@@ -6,11 +6,17 @@ through metrics collection, capability assessment, and proposal generation.
 """
 
 import asyncio
+import json
+from dataclasses import replace
+
 import pytest
 import pytest_asyncio
 import httpx
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from backend.metacognition_service import SelfModificationService
+from backend.core.metacognitive_monitor import MetaCognitiveState
 
 # Mark all tests in this file as integration tests
 pytestmark = pytest.mark.integration
@@ -373,18 +379,24 @@ class TestWebSocketBroadcasting:
     @pytest.mark.requires_backend
     async def test_websocket_connection(self):
         """Test WebSocket connection for metacognition events."""
-        # This would require a WebSocket client
-        # Placeholder for WebSocket testing
-        # In practice, you'd use websockets library:
-        #
-        # import websockets
-        # async with websockets.connect("ws://localhost:8000/ws") as ws:
-        #     # Listen for metacognition events
-        #     message = await ws.recv()
-        #     data = json.loads(message)
-        #     assert "type" in data
-        
-        pytest.skip("WebSocket testing requires websockets library")
+        websockets = pytest.importorskip("websockets")
+
+        uri = "ws://localhost:8000/ws/cognitive-stream"
+        async with websockets.connect(uri) as websocket:
+            initial_raw = await asyncio.wait_for(websocket.recv(), timeout=5)
+            initial_message = json.loads(initial_raw)
+            assert initial_message.get("type") == "initial_state"
+
+            await websocket.send(json.dumps({
+                "type": "subscribe",
+                "event_types": ["metacognition_event"]
+            }))
+
+            confirmation_raw = await asyncio.wait_for(websocket.recv(), timeout=5)
+            confirmation = json.loads(confirmation_raw)
+            assert confirmation.get("type") in {"subscription_confirmed", "ack"}
+            if confirmation.get("type") == "subscription_confirmed":
+                assert "event_types" in confirmation
 
 
 class TestErrorHandlingIntegration:
@@ -422,24 +434,151 @@ class TestErrorHandlingIntegration:
         assert response.status_code in [400, 422]
 
 
-@pytest.mark.requires_backend
 class TestPerformanceThresholds:
     """Test that performance thresholds trigger expected behaviors."""
     
     @pytest.mark.asyncio
-    async def test_low_success_rate_triggers_alert(self, api_client):
-        """Test that low success rate triggers alerts in live state."""
-        # This test would need to simulate poor performance
-        # which is difficult in integration testing
-        # Better suited for unit tests or manual QA
-        pytest.skip("Requires controlled performance degradation simulation")
+    async def test_low_success_rate_triggers_alert(self):
+        """Ensure low query success rate produces an alert in live state."""
+
+        class StubCognitiveManager:
+            def __init__(self, state):
+                self.active_sessions = {}
+                self._state = state
+
+            async def get_cognitive_state(self):
+                return self._state
+
+        metrics_snapshot = {
+            "total_queries": 10,
+            "successful_queries": 4,
+            "average_processing_time": 6.0,
+            "knowledge_items_created": 1,
+            "gaps_identified": 3,
+            "gaps_resolved": 1,
+            "active_sessions_count": 0,
+        }
+
+        cognitive_state = {
+            "status": "operational",
+            "timestamp": datetime.utcnow().timestamp(),
+            "active_sessions": 0,
+            "processing_metrics": metrics_snapshot,
+            "subsystems": {
+                "godelos_integration": True,
+                "llm_driver": True,
+                "knowledge_pipeline": False,
+                "websocket_manager": True,
+            },
+            "configuration": {
+                "max_reasoning_depth": 5,
+                "min_confidence_threshold": 0.7,
+            },
+            "recent_sessions": [],
+        }
+
+        service = SelfModificationService(
+            cognitive_manager=StubCognitiveManager(cognitive_state),
+            websocket_manager=None,
+        )
+
+        service._last_metrics_snapshot = metrics_snapshot.copy()
+        service._baseline_metrics = metrics_snapshot.copy()
+
+        original_monitor = service.metacognitive_monitor
+
+        class MonitorStub:
+            def __init__(self, state):
+                self.current_state = state
+
+        try:
+            service.metacognitive_monitor = MonitorStub(
+                replace(
+                    MetaCognitiveState(),
+                    self_awareness_level=0.3,
+                    reflection_depth=2,
+                    cognitive_load=0.2,
+                    self_model_accuracy=0.5,
+                )
+            )
+
+            live_state = await service.get_live_state()
+        finally:
+            service.metacognitive_monitor = original_monitor
+
+        alerts = live_state.get("alerts", [])
+        assert any("Query success rate dropped" in alert.get("message", "") for alert in alerts)
+        assert live_state["performance_metrics"]["successful_queries"] == 4
     
     @pytest.mark.asyncio
-    async def test_capability_gap_triggers_proposal(self, api_client):
-        """Test that capability gaps trigger proposal generation."""
-        # Similar to above - hard to force specific capability gaps
-        # in integration environment
-        pytest.skip("Requires controlled capability manipulation")
+    async def test_capability_gap_triggers_proposal(self):
+        """Verify that capability gaps result in proposal generation."""
+
+        class StubCognitiveManager:
+            def __init__(self, state):
+                self.active_sessions = {}
+                self._state = state
+
+            async def get_cognitive_state(self):
+                return self._state
+
+        metrics_snapshot = {
+            "total_queries": 120,
+            "successful_queries": 60,
+            "average_processing_time": 7.5,
+            "knowledge_items_created": 10,
+            "gaps_identified": 20,
+            "gaps_resolved": 5,
+            "active_sessions_count": 3,
+        }
+
+        cognitive_state = {
+            "status": "operational",
+            "timestamp": datetime.utcnow().timestamp(),
+            "active_sessions": 3,
+            "processing_metrics": metrics_snapshot,
+            "subsystems": {
+                "godelos_integration": True,
+                "llm_driver": True,
+                "knowledge_pipeline": True,
+                "websocket_manager": True,
+            },
+            "recent_sessions": [],
+        }
+
+        service = SelfModificationService(
+            cognitive_manager=StubCognitiveManager(cognitive_state),
+            websocket_manager=None,
+        )
+
+        service._last_metrics_snapshot = metrics_snapshot.copy()
+        service._baseline_metrics = metrics_snapshot.copy()
+
+        original_monitor = service.metacognitive_monitor
+
+        class MonitorStub:
+            def __init__(self, state):
+                self.current_state = state
+
+        try:
+            service.metacognitive_monitor = MonitorStub(
+                replace(
+                    MetaCognitiveState(),
+                    self_awareness_level=0.4,
+                    reflection_depth=1,
+                    cognitive_load=0.6,
+                    self_model_accuracy=0.4,
+                )
+            )
+
+            await service._auto_generate_proposals()
+        finally:
+            service.metacognitive_monitor = original_monitor
+
+        assert service._proposals, "Expected at least one proposal to be generated"
+        sample_proposal = next(iter(service._proposals.values()))
+        assert "proposal_id" in sample_proposal
+        assert sample_proposal["status"] in {"pending", "under_review", "approved", "rejected"}
 
 
 if __name__ == "__main__":

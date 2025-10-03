@@ -9,6 +9,10 @@
   export let metacognitiveState = {};
   export let loading = false;
   export let onRefresh = null;
+  export let status = { state: 'idle', message: 'Standing by for updates.', updatedAt: null, meta: {} };
+  export let feedbackEntries = [];
+  export let pushFeedback = null;
+  export let dismissFeedback = null;
 
   const dispatch = createEventDispatcher();
 
@@ -42,6 +46,11 @@
     if (typeof onRefresh === 'function') {
       dispatch('refresh');
       onRefresh();
+      if (typeof pushFeedback === 'function') {
+        pushFeedback('info', 'Manual capability refresh requested.', {
+          origin: 'CapabilityAssessmentPanel'
+        });
+      }
     }
   }
 
@@ -102,9 +111,20 @@
 
 <article class="panel" data-testid="capability-panel">
   <header>
-    <div>
-      <h3>Capability Assessment</h3>
-      <p>Real-time capability confidence, learning focus, and resource allocation.</p>
+    <div class="header-left">
+      <div>
+        <h3>Capability Assessment</h3>
+        <p>Real-time capability confidence, learning focus, and resource allocation.</p>
+      </div>
+      <div class={`status-pill ${status.state}`}>
+        <span class="status-icon">{status.state === 'loading' ? '⏳' : status.state === 'success' ? '✅' : status.state === 'error' ? '⚠️' : status.state === 'warning' ? '⚠️' : 'ℹ️'}</span>
+        <div class="status-text">
+          <strong>{status.message}</strong>
+          {#if status.updatedAt}
+            <time>{new Date(status.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time>
+          {/if}
+        </div>
+      </div>
     </div>
     <button class="ghost" on:click={handleRefresh} disabled={loading}>
       🔄
@@ -117,6 +137,25 @@
       <p>Synchronizing capability metrics…</p>
     </div>
   {:else}
+    {#if feedbackEntries?.length}
+      <aside class="feedback-cues" aria-live="polite">
+        <h4>Recent Updates</h4>
+        <ul>
+          {#each feedbackEntries as entry (entry.id)}
+            <li>
+              <span class={`dot ${entry.type}`}></span>
+              <div class="cue-text">
+                <p>{entry.message}</p>
+                <time>{new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time>
+              </div>
+              {#if typeof dismissFeedback === 'function'}
+                <button class="dismiss" type="button" on:click={() => dismissFeedback(entry.id)} aria-label="Dismiss cue">✕</button>
+              {/if}
+            </li>
+          {/each}
+        </ul>
+      </aside>
+    {/if}
     <section class="summary-grid">
       <div class="metric-card">
         <span class="label">Operational</span>
@@ -247,6 +286,12 @@
     gap: 1rem;
   }
 
+  .header-left {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
   h3 {
     margin: 0;
     font-size: 1.5rem;
@@ -271,6 +316,41 @@
     cursor: not-allowed;
   }
 
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    background: rgba(15, 23, 42, 0.55);
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    border-radius: 12px;
+    padding: 0.55rem 0.8rem;
+    min-width: 220px;
+  }
+
+  .status-pill.success { border-color: rgba(34, 197, 94, 0.35); }
+  .status-pill.error { border-color: rgba(248, 113, 113, 0.35); }
+  .status-pill.warning { border-color: rgba(251, 191, 36, 0.35); }
+  .status-pill.loading { border-color: rgba(59, 130, 246, 0.35); }
+
+  .status-icon {
+    font-size: 1.25rem;
+  }
+
+  .status-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .status-text strong {
+    font-size: 0.95rem;
+  }
+
+  .status-text time {
+    font-size: 0.75rem;
+    color: rgba(148, 163, 184, 0.7);
+  }
+
   .loading {
     display: flex;
     flex-direction: column;
@@ -293,6 +373,80 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
     gap: 1rem;
+  }
+
+  .feedback-cues {
+    background: rgba(17, 24, 39, 0.6);
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    border-radius: 14px;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .feedback-cues h4 {
+    margin: 0;
+    font-size: 1rem;
+  }
+
+  .feedback-cues ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+
+  .feedback-cues li {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 0.6rem;
+    align-items: center;
+  }
+
+  .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: rgba(148, 163, 184, 0.7);
+  }
+
+  .dot.success { background: rgba(34, 197, 94, 0.9); }
+  .dot.error { background: rgba(248, 113, 113, 0.9); }
+  .dot.warning { background: rgba(251, 191, 36, 0.95); }
+  .dot.info { background: rgba(59, 130, 246, 0.9); }
+
+  .cue-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .cue-text p {
+    margin: 0;
+    font-size: 0.9rem;
+    color: rgba(226, 232, 240, 0.85);
+  }
+
+  .cue-text time {
+    font-size: 0.75rem;
+    color: rgba(148, 163, 184, 0.7);
+  }
+
+  .dismiss {
+    background: transparent;
+    border: none;
+    color: rgba(148, 163, 184, 0.7);
+    cursor: pointer;
+    font-size: 1rem;
+    border-radius: 0.5rem;
+    padding: 0.1rem 0.3rem;
+  }
+
+  .dismiss:hover {
+    background: rgba(148, 163, 184, 0.2);
   }
 
   .metric-card {

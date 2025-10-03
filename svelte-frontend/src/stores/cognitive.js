@@ -311,6 +311,65 @@ const normalizeSimulationResult = (payload = {}) => ({
     : []
 });
 
+const FEEDBACK_LIMIT = 10;
+const STATUS_SCOPES = ['capabilities', 'proposals', 'evolution', 'liveState'];
+
+const createFeedbackEntry = (type, message, meta = {}) => ({
+  id: meta.id || `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  type,
+  message,
+  meta,
+  timestamp: Date.now()
+});
+
+const normalizeStatusPayload = (scope, payload = {}) => ({
+  scope,
+  state: payload.state || 'info',
+  message: payload.message || null,
+  meta: payload.meta || {},
+  updatedAt: Date.now()
+});
+
+const pushSelfModificationFeedback = (type, message, meta = {}) => {
+  const entry = createFeedbackEntry(type, message, meta);
+  selfModificationState.update((state) => {
+    const feedbackLog = [entry, ...(state.feedbackLog || [])].slice(0, FEEDBACK_LIMIT);
+    return {
+      ...state,
+      feedbackLog
+    };
+  });
+  return entry;
+};
+
+const setSelfModificationStatus = (scope, payload = {}) => {
+  if (!STATUS_SCOPES.includes(scope)) return;
+  const statusEntry = normalizeStatusPayload(scope, payload);
+
+  selfModificationState.update((state) => {
+    const status = {
+      ...state.status,
+      [scope]: statusEntry,
+      lastAction: payload.state === 'idle'
+        ? state.status?.lastAction || null
+        : {
+            scope,
+            state: statusEntry.state,
+            message: statusEntry.message,
+            meta: statusEntry.meta,
+            updatedAt: statusEntry.updatedAt
+          }
+    };
+
+    return {
+      ...state,
+      status
+    };
+  });
+
+  return statusEntry;
+};
+
 // Enhanced API integration functions
 export const apiHelpers = {
   // Sanitize health data to ensure all values are valid numbers between 0 and 1
@@ -401,6 +460,8 @@ export const apiHelpers = {
       errors: { ...state.errors, capabilities: null }
     }));
 
+    setSelfModificationStatus('capabilities', { state: 'loading', message: 'Loading capability portfolio…' });
+
     try {
       const { GödelOSAPI } = await import('../utils/api.js');
       const raw = await GödelOSAPI.fetchMetacognitionCapabilities();
@@ -423,13 +484,32 @@ export const apiHelpers = {
         capabilities: normalized.capabilities
       }));
 
+      setSelfModificationStatus('capabilities', {
+        state: 'success',
+        message: `Capabilities updated (${normalized.summary.total || normalized.capabilities.length} tracked)` ,
+        meta: {
+          total: normalized.summary.total,
+          operational: normalized.summary.operational,
+          timestamp: Date.now()
+        }
+      });
+
       return normalized;
     } catch (error) {
+      const message = error?.message || 'Failed to load capability data';
       selfModificationState.update(state => ({
         ...state,
         loading: { ...state.loading, capabilities: false },
-        errors: { ...state.errors, capabilities: error?.message || 'Failed to load capability data' }
+        errors: { ...state.errors, capabilities: message }
       }));
+      setSelfModificationStatus('capabilities', {
+        state: 'error',
+        message,
+        meta: { error: error?.message }
+      });
+      pushSelfModificationFeedback('error', `Capability refresh failed: ${message}`, {
+        scope: 'capabilities'
+      });
       throw error;
     }
   },
@@ -440,6 +520,8 @@ export const apiHelpers = {
       loading: { ...state.loading, proposals: true },
       errors: { ...state.errors, proposals: null }
     }));
+
+    setSelfModificationStatus('proposals', { state: 'loading', message: 'Fetching proposal queue…' });
 
     try {
       const { GödelOSAPI } = await import('../utils/api.js');
@@ -459,13 +541,31 @@ export const apiHelpers = {
         proposals: normalized.proposals
       }));
 
+      setSelfModificationStatus('proposals', {
+        state: 'success',
+        message: `Proposals refreshed (${normalized.counts.pending ?? normalized.proposals.length ?? 0} pending)`,
+        meta: {
+          counts: normalized.counts,
+          timestamp: Date.now()
+        }
+      });
+
       return normalized;
     } catch (error) {
+      const message = error?.message || 'Failed to load proposals';
       selfModificationState.update(state => ({
         ...state,
         loading: { ...state.loading, proposals: false },
-        errors: { ...state.errors, proposals: error?.message || 'Failed to load proposals' }
+        errors: { ...state.errors, proposals: message }
       }));
+      setSelfModificationStatus('proposals', {
+        state: 'error',
+        message,
+        meta: { error: error?.message }
+      });
+      pushSelfModificationFeedback('error', `Proposal refresh failed: ${message}`, {
+        scope: 'proposals'
+      });
       throw error;
     }
   },
@@ -476,6 +576,8 @@ export const apiHelpers = {
       loading: { ...state.loading, evolution: true },
       errors: { ...state.errors, evolution: null }
     }));
+
+    setSelfModificationStatus('evolution', { state: 'loading', message: 'Loading evolution timeline…' });
 
     try {
       const { GödelOSAPI } = await import('../utils/api.js');
@@ -501,13 +603,31 @@ export const apiHelpers = {
         modifications: normalized.upcoming || state.modifications
       }));
 
+      setSelfModificationStatus('evolution', {
+        state: 'success',
+        message: `Evolution timeline synced (${normalized.timeline.length} checkpoints)`,
+        meta: {
+          upcoming: normalized.upcoming?.length || 0,
+          timestamp: Date.now()
+        }
+      });
+
       return normalized;
     } catch (error) {
+      const message = error?.message || 'Failed to load evolution overview';
       selfModificationState.update(state => ({
         ...state,
         loading: { ...state.loading, evolution: false },
-        errors: { ...state.errors, evolution: error?.message || 'Failed to load evolution overview' }
+        errors: { ...state.errors, evolution: message }
       }));
+      setSelfModificationStatus('evolution', {
+        state: 'error',
+        message,
+        meta: { error: error?.message }
+      });
+      pushSelfModificationFeedback('error', `Evolution update failed: ${message}`, {
+        scope: 'evolution'
+      });
       throw error;
     }
   },
@@ -518,6 +638,8 @@ export const apiHelpers = {
       loading: { ...state.loading, liveState: true },
       errors: { ...state.errors, liveState: null }
     }));
+
+    setSelfModificationStatus('liveState', { state: 'loading', message: 'Capturing live cognition…' });
 
     try {
       const { GödelOSAPI } = await import('../utils/api.js');
@@ -531,6 +653,15 @@ export const apiHelpers = {
         lastUpdated: { ...state.lastUpdated, liveState: Date.now() }
       }));
 
+      setSelfModificationStatus('liveState', {
+        state: 'success',
+        message: `Live cognition updated (${normalized.agenticProcesses.length} active processes)` ,
+        meta: {
+          alerts: normalized.alerts?.length || 0,
+          timestamp: Date.now()
+        }
+      });
+
       return normalized;
     } catch (error) {
       selfModificationState.update(state => ({
@@ -538,6 +669,14 @@ export const apiHelpers = {
         loading: { ...state.loading, liveState: false },
         errors: { ...state.errors, liveState: error?.message || 'Failed to load live state' }
       }));
+      setSelfModificationStatus('liveState', {
+        state: 'error',
+        message: error?.message || 'Failed to load live state',
+        meta: { error: error?.message }
+      });
+      pushSelfModificationFeedback('error', `Live cognition stream failed: ${error?.message || 'Unknown error'}`, {
+        scope: 'liveState'
+      });
       throw error;
     }
   },
@@ -552,79 +691,163 @@ export const apiHelpers = {
   },
 
   refreshSelfModification: async () => {
-    await Promise.allSettled([
+    const results = await Promise.allSettled([
       apiHelpers.loadSelfModificationCapabilities(),
       apiHelpers.loadSelfModificationProposals(),
       apiHelpers.loadSelfModificationEvolution()
     ]);
+    const failures = results.filter(result => result.status === 'rejected');
+    if (failures.length) {
+      pushSelfModificationFeedback('warning', `Refresh completed with ${failures.length} warning${failures.length > 1 ? 's' : ''}.`, {
+        scope: 'refresh',
+        failures: failures.length
+      });
+    }
+    return results;
   },
 
   approveSelfModificationProposal: async (proposalId, actor = 'self_modification_ui') => {
     const { GödelOSAPI } = await import('../utils/api.js');
-    const updated = await GödelOSAPI.approveMetacognitionProposal(proposalId, actor);
-    const normalized = normalizeProposal(updated);
+    try {
+      const updated = await GödelOSAPI.approveMetacognitionProposal(proposalId, actor);
+      const normalized = normalizeProposal(updated);
 
-    let updatedProposals;
-    selfModificationState.update(state => {
-      updatedProposals = state.proposals.some(proposal => proposal.id === normalized.id)
-        ? state.proposals.map(proposal => proposal.id === normalized.id ? normalized : proposal)
-        : [normalized, ...state.proposals];
+      let updatedProposals;
+      selfModificationState.update(state => {
+        updatedProposals = state.proposals.some(proposal => proposal.id === normalized.id)
+          ? state.proposals.map(proposal => proposal.id === normalized.id ? normalized : proposal)
+          : [normalized, ...state.proposals];
 
-      return {
+        return {
+          ...state,
+          proposals: updatedProposals,
+          proposalCounts: countProposalsByStatus(updatedProposals),
+          lastUpdated: { ...state.lastUpdated, proposals: Date.now() }
+        };
+      });
+
+      evolutionState.update(state => ({
         ...state,
-        proposals: updatedProposals,
-        proposalCounts: countProposalsByStatus(updatedProposals),
-        lastUpdated: { ...state.lastUpdated, proposals: Date.now() }
-      };
-    });
+        proposals: updatedProposals || state.proposals
+      }));
 
-    evolutionState.update(state => ({
-      ...state,
-      proposals: updatedProposals || state.proposals
-    }));
+      const message = `Proposal "${normalized.title}" approved.`;
+      setSelfModificationStatus('proposals', {
+        state: 'success',
+        message,
+        meta: { proposalId: normalized.id, action: 'approve' }
+      });
+      pushSelfModificationFeedback('success', message, {
+        scope: 'proposals',
+        proposalId: normalized.id
+      });
 
-    return normalized;
+      return normalized;
+    } catch (error) {
+      const message = `Approval failed: ${error?.message || 'Unexpected error'}`;
+      setSelfModificationStatus('proposals', {
+        state: 'error',
+        message,
+        meta: { action: 'approve', proposalId, error: error?.message }
+      });
+      pushSelfModificationFeedback('error', message, {
+        scope: 'proposals',
+        proposalId
+      });
+      throw error;
+    }
   },
 
   rejectSelfModificationProposal: async (proposalId, reason = null, actor = 'self_modification_ui') => {
     const { GödelOSAPI } = await import('../utils/api.js');
-    const updated = await GödelOSAPI.rejectMetacognitionProposal(proposalId, reason, actor);
-    const normalized = normalizeProposal(updated);
+    try {
+      const updated = await GödelOSAPI.rejectMetacognitionProposal(proposalId, reason, actor);
+      const normalized = normalizeProposal(updated);
 
-    let updatedProposals;
-    selfModificationState.update(state => {
-      updatedProposals = state.proposals.some(proposal => proposal.id === normalized.id)
-        ? state.proposals.map(proposal => proposal.id === normalized.id ? normalized : proposal)
-        : [normalized, ...state.proposals];
+      let updatedProposals;
+      selfModificationState.update(state => {
+        updatedProposals = state.proposals.some(proposal => proposal.id === normalized.id)
+          ? state.proposals.map(proposal => proposal.id === normalized.id ? normalized : proposal)
+          : [normalized, ...state.proposals];
 
-      return {
+        return {
+          ...state,
+          proposals: updatedProposals,
+          proposalCounts: countProposalsByStatus(updatedProposals),
+          lastUpdated: { ...state.lastUpdated, proposals: Date.now() }
+        };
+      });
+
+      evolutionState.update(state => ({
         ...state,
-        proposals: updatedProposals,
-        proposalCounts: countProposalsByStatus(updatedProposals),
-        lastUpdated: { ...state.lastUpdated, proposals: Date.now() }
-      };
-    });
+        proposals: updatedProposals || state.proposals
+      }));
 
-    evolutionState.update(state => ({
-      ...state,
-      proposals: updatedProposals || state.proposals
-    }));
+      const message = `Proposal "${normalized.title}" rejected.`;
+      setSelfModificationStatus('proposals', {
+        state: 'warning',
+        message,
+        meta: { proposalId: normalized.id, action: 'reject', reason }
+      });
+      pushSelfModificationFeedback('warning', message, {
+        scope: 'proposals',
+        proposalId: normalized.id,
+        reason
+      });
 
-    return normalized;
+      return normalized;
+    } catch (error) {
+      const message = `Rejection failed: ${error?.message || 'Unexpected error'}`;
+      setSelfModificationStatus('proposals', {
+        state: 'error',
+        message,
+        meta: { action: 'reject', proposalId, error: error?.message }
+      });
+      pushSelfModificationFeedback('error', message, {
+        scope: 'proposals',
+        proposalId
+      });
+      throw error;
+    }
   },
 
   simulateSelfModificationProposal: async (proposalId) => {
     const { GödelOSAPI } = await import('../utils/api.js');
-    const raw = await GödelOSAPI.simulateMetacognitionProposal(proposalId);
-    const normalized = normalizeSimulationResult(raw);
+    try {
+      const raw = await GödelOSAPI.simulateMetacognitionProposal(proposalId);
+      const normalized = normalizeSimulationResult(raw);
 
-    selfModificationState.update(state => ({
-      ...state,
-      activeSimulation: normalized,
-      lastUpdated: { ...state.lastUpdated, proposals: Date.now() }
-    }));
+      selfModificationState.update(state => ({
+        ...state,
+        activeSimulation: normalized,
+        lastUpdated: { ...state.lastUpdated, proposals: Date.now() }
+      }));
 
-    return normalized;
+      const message = `Simulation ready for "${normalized.proposal?.title || 'proposal'}".`;
+      setSelfModificationStatus('proposals', {
+        state: 'info',
+        message,
+        meta: { proposalId: normalized.proposal?.id, action: 'simulate' }
+      });
+      pushSelfModificationFeedback('info', message, {
+        scope: 'proposals',
+        proposalId: normalized.proposal?.id
+      });
+
+      return normalized;
+    } catch (error) {
+      const message = `Simulation failed: ${error?.message || 'Unexpected error'}`;
+      setSelfModificationStatus('proposals', {
+        state: 'error',
+        message,
+        meta: { action: 'simulate', proposalId, error: error?.message }
+      });
+      pushSelfModificationFeedback('error', message, {
+        scope: 'proposals',
+        proposalId
+      });
+      throw error;
+    }
   }
 };
 
@@ -647,6 +870,13 @@ export const selfModificationEventHandlers = {
       ...state,
       capabilities: normalized.capabilities
     }));
+
+    setSelfModificationStatus('capabilities', {
+      state: 'info',
+      message: 'Capabilities updated via live stream',
+      meta: { source: 'websocket', timestamp: Date.now() }
+    });
+
   },
 
   handleProposalUpdate: (payload) => {
@@ -673,6 +903,13 @@ export const selfModificationEventHandlers = {
         ? state.proposals.map(item => (item.id === proposal.id ? proposal : item))
         : [proposal, ...state.proposals]
     }));
+
+    setSelfModificationStatus('proposals', {
+      state: 'info',
+      message: `Proposal "${proposal.title}" updated via live stream`,
+      meta: { proposalId: proposal.id, source: 'websocket' }
+    });
+
   },
 
   handleProposalSimulation: (payload) => {
@@ -682,6 +919,13 @@ export const selfModificationEventHandlers = {
       activeSimulation: normalized,
       lastUpdated: { ...state.lastUpdated, proposals: Date.now() }
     }));
+
+    setSelfModificationStatus('proposals', {
+      state: 'info',
+      message: `Simulation telemetry received for "${normalized.proposal?.title || 'proposal'}"`,
+      meta: { proposalId: normalized.proposal?.id, source: 'websocket' }
+    });
+
   },
 
   handleLiveStateUpdate: (payload) => {
@@ -691,6 +935,73 @@ export const selfModificationEventHandlers = {
       liveState: normalized,
       lastUpdated: { ...state.lastUpdated, liveState: Date.now() }
     }));
+
+    setSelfModificationStatus('liveState', {
+      state: 'info',
+      message: 'Live cognition stream updated',
+      meta: { source: 'websocket', alerts: normalized.alerts?.length || 0 }
+    });
+  },
+
+  handleMetacognitionEvent: (payload = {}) => {
+    if (!payload || typeof payload !== 'object') {
+      return;
+    }
+
+    const eventTypeRaw = payload.event_type || payload.type || 'metacognition_update';
+    const eventType = typeof eventTypeRaw === 'string' ? eventTypeRaw.toLowerCase() : 'metacognition_update';
+    const timestamp = payload.timestamp || new Date().toISOString();
+    const severityRaw = payload.severity || payload.level || payload.status;
+    const severity = typeof severityRaw === 'string' ? severityRaw.toLowerCase() : 'info';
+
+    const title = payload.title || payload.message || eventType.replace(/_/g, ' ');
+    const summary = payload.summary || payload.description || payload.message || null;
+
+    const logEntry = {
+      id: payload.id || payload.event_id || `metacog_${Date.now()}`,
+      eventType,
+      title,
+      summary,
+      severity,
+      timestamp,
+      source: payload.source || 'metacognition_service',
+      data: payload
+    };
+
+    selfModificationState.update(state => {
+      const events = Array.isArray(state.metacognitionEvents) ? state.metacognitionEvents : [];
+
+      return {
+        ...state,
+        metacognitiveState: {
+          ...state.metacognitiveState,
+          lastEvent: logEntry,
+          lastUpdated: Date.now()
+        },
+        metacognitionEvents: [logEntry, ...events].slice(0, 100),
+        lastUpdated: {
+          ...state.lastUpdated,
+          metacognition: Date.now()
+        }
+      };
+    });
+
+    const feedbackMessage = summary || title;
+    if (feedbackMessage) {
+      let feedbackType = 'info';
+      if (severity.includes('error') || severity.includes('critical')) {
+        feedbackType = 'error';
+      } else if (severity.includes('warn')) {
+        feedbackType = 'warning';
+      }
+
+      pushSelfModificationFeedback(feedbackType, feedbackMessage, {
+        scope: 'metacognition',
+        eventType,
+        timestamp,
+        source: logEntry.source
+      });
+    }
   },
 
   handleEvolutionCheckpoint: (payload) => {
@@ -716,6 +1027,13 @@ export const selfModificationEventHandlers = {
       ...state,
       timeline: [event, ...state.timeline].slice(0, 75)
     }));
+
+    setSelfModificationStatus('evolution', {
+      state: 'info',
+      message: 'New evolution checkpoint received',
+      meta: { source: 'websocket', checkpointId: event.id }
+    });
+
   }
 };
 
@@ -789,6 +1107,13 @@ export const selfModificationState = writable({
     evolution: null,
     liveState: null
   },
+  status: {
+    capabilities: { state: 'idle', message: 'Awaiting capability data', meta: {}, updatedAt: null },
+    proposals: { state: 'idle', message: 'Awaiting proposal data', meta: {}, updatedAt: null },
+    evolution: { state: 'idle', message: 'Awaiting evolution timeline', meta: {}, updatedAt: null },
+    liveState: { state: 'idle', message: 'Awaiting live cognition stream', meta: {}, updatedAt: null },
+    lastAction: null
+  },
   capabilities: [],
   summary: createDefaultCapabilitySummary(),
   learningFocus: [],
@@ -802,13 +1127,33 @@ export const selfModificationState = writable({
   metrics: {},
   upcoming: [],
   liveState: createDefaultLiveState(),
+  metacognitionEvents: [],
+  feedbackLog: [],
   lastUpdated: {
     capabilities: null,
     proposals: null,
     evolution: null,
-    liveState: null
+    liveState: null,
+    metacognition: null
   }
 });
+
+export const selfModificationFeedback = {
+  add: (type, message, meta = {}) => pushSelfModificationFeedback(type, message, meta),
+  dismiss: (id) => {
+    if (!id) return;
+    selfModificationState.update((state) => ({
+      ...state,
+      feedbackLog: (state.feedbackLog || []).filter((entry) => entry.id !== id)
+    }));
+  },
+  clear: () => {
+    selfModificationState.update((state) => ({
+      ...state,
+      feedbackLog: []
+    }));
+  }
+};
 
 // UI state and preferences
 export const uiState = writable({
@@ -880,6 +1225,16 @@ export const pendingSelfModificationProposals = derived(
   $state => $state.proposals.filter(p => ['pending', 'under_review'].includes((p.status || '').toLowerCase()))
 );
 
+export const selfModificationStatus = derived(
+  selfModificationState,
+  ($state) => $state.status
+);
+
+export const selfModificationFeedbackFeed = derived(
+  selfModificationState,
+  ($state) => $state.feedbackLog
+);
+
 export const selfModificationAlerts = derived(
   selfModificationState,
   $state => ({
@@ -920,6 +1275,7 @@ export function initCognitiveStream() {
           "proposal_update",
           "proposal_simulation",
           "metacognition_live_state",
+          "metacognition_event",
           "evolution_checkpoint"
         ]
       };
@@ -1015,6 +1371,16 @@ export function initCognitiveStream() {
           case 'metacognition_live_state':
             selfModificationEventHandlers.handleLiveStateUpdate(eventData);
             break;
+
+          case 'metacognition_event': {
+            const enrichedEvent = {
+              ...eventData,
+              timestamp: eventData?.timestamp || message.timestamp || Date.now(),
+              source: eventData?.source || message.source || 'metacognition_service'
+            };
+            selfModificationEventHandlers.handleMetacognitionEvent(enrichedEvent);
+            break;
+          }
 
           case 'evolution_checkpoint':
             selfModificationEventHandlers.handleEvolutionCheckpoint(eventData);

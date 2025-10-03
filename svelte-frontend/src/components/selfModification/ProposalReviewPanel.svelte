@@ -8,6 +8,10 @@
   export let onApprove = async () => {};
   export let onReject = async () => {};
   export let onSimulate = async () => {};
+  export let status = { state: 'idle', message: 'Standing by for updates.', updatedAt: null, meta: {} };
+  export let feedbackEntries = [];
+  export let pushFeedback = null;
+  export let dismissFeedback = null;
 
   let selectedProposal = null;
   let actionState = {};
@@ -18,6 +22,15 @@
     approved: 'var(--emerald-400)',
     rejected: 'var(--rose-400)',
     under_review: 'var(--sky-400)'
+  };
+
+  const panelStatusIcons = {
+    loading: '⏳',
+    success: '✅',
+    error: '⚠️',
+    warning: '⚠️',
+    info: 'ℹ️',
+    idle: '•'
   };
 
   const riskColors = {
@@ -54,9 +67,15 @@
     try {
       await onApprove(proposal.id);
       message = `✅ Proposal "${proposal.title}" approved.`;
+      if (typeof pushFeedback === 'function') {
+        pushFeedback('success', `Approved "${proposal.title}"`, { proposalId: proposal.id, action: 'approve' });
+      }
     } catch (error) {
       console.error('Approval failed:', error);
       message = `⚠️ Approval failed: ${error?.message || 'Unexpected error'}`;
+      if (typeof pushFeedback === 'function') {
+        pushFeedback('error', `Approval failed: ${error?.message || 'Unexpected error'}`, { proposalId: proposal.id, action: 'approve' });
+      }
     } finally {
       actionState = { ...actionState, [proposal.id]: null };
     }
@@ -69,9 +88,15 @@
     try {
       await onReject(proposal.id, reason);
       message = `🚫 Proposal "${proposal.title}" rejected.`;
+      if (typeof pushFeedback === 'function') {
+        pushFeedback('warning', `Rejected "${proposal.title}"`, { proposalId: proposal.id, action: 'reject', reason });
+      }
     } catch (error) {
       console.error('Rejection failed:', error);
       message = `⚠️ Rejection failed: ${error?.message || 'Unexpected error'}`;
+      if (typeof pushFeedback === 'function') {
+        pushFeedback('error', `Rejection failed: ${error?.message || 'Unexpected error'}`, { proposalId: proposal.id, action: 'reject' });
+      }
     } finally {
       actionState = { ...actionState, [proposal.id]: null };
     }
@@ -82,9 +107,15 @@
     actionState = { ...actionState, [proposal.id]: 'simulate' };
     try {
       await onSimulate(proposal.id);
+      if (typeof pushFeedback === 'function') {
+        pushFeedback('info', `Simulation requested for "${proposal.title}"`, { proposalId: proposal.id, action: 'simulate' });
+      }
     } catch (error) {
       console.error('Simulation failed:', error);
       message = `⚠️ Simulation failed: ${error?.message || 'Unexpected error'}`;
+      if (typeof pushFeedback === 'function') {
+        pushFeedback('error', `Simulation failed: ${error?.message || 'Unexpected error'}`, { proposalId: proposal.id, action: 'simulate' });
+      }
     } finally {
       actionState = { ...actionState, [proposal.id]: null };
     }
@@ -116,14 +147,27 @@
 
 <article class="panel" data-testid="proposal-panel">
   <header>
-    <div>
-      <h3>Proposal Review</h3>
-      <p>Assess, simulate, and approve metacognitive modifications.</p>
+    <div class="header-left">
+      <div>
+        <h3>Proposal Review</h3>
+        <p>Assess, simulate, and approve metacognitive modifications.</p>
+      </div>
+      <div class={`status-pill ${status.state}`}>
+        <span class="status-icon">{panelStatusIcons[status.state] || panelStatusIcons.info}</span>
+        <div class="status-text">
+          <strong>{status.message}</strong>
+          {#if status.updatedAt}
+            <time>{new Date(status.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time>
+          {/if}
+        </div>
+      </div>
     </div>
-    <div class="counts">
-      <span>Pending <strong>{counts.pending ?? 0}</strong></span>
-      <span>Approved <strong>{counts.approved ?? 0}</strong></span>
-      <span>Rejected <strong>{counts.rejected ?? 0}</strong></span>
+    <div class="header-right">
+      <div class="counts">
+        <span>Pending <strong>{counts.pending ?? 0}</strong></span>
+        <span>Approved <strong>{counts.approved ?? 0}</strong></span>
+        <span>Rejected <strong>{counts.rejected ?? 0}</strong></span>
+      </div>
     </div>
   </header>
 
@@ -139,6 +183,26 @@
         ✕
       </button>
     </div>
+  {/if}
+
+  {#if feedbackEntries?.length}
+    <aside class="feedback-cues" aria-live="polite">
+      <h4>Recent Decisions</h4>
+      <ul>
+        {#each feedbackEntries as entry (entry.id)}
+          <li>
+            <span class={`dot ${entry.type}`}></span>
+            <div class="cue-text">
+              <p>{entry.message}</p>
+              <time>{new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time>
+            </div>
+            {#if typeof dismissFeedback === 'function'}
+              <button class="cue-dismiss" type="button" on:click={() => dismissFeedback(entry.id)} aria-label="Dismiss cue">✕</button>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+    </aside>
   {/if}
 
   {#if loading}
@@ -286,6 +350,19 @@
     gap: 1rem;
   }
 
+  .header-left {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .header-right {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    align-items: flex-end;
+  }
+
   header h3 {
     margin: 0;
     font-size: 1.45rem;
@@ -306,6 +383,41 @@
   .counts strong {
     font-size: 1.1rem;
     margin-left: 0.35rem;
+  }
+
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    background: rgba(15, 23, 42, 0.55);
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    border-radius: 12px;
+    padding: 0.6rem 0.85rem;
+    min-width: 220px;
+  }
+
+  .status-pill.success { border-color: rgba(34, 197, 94, 0.35); }
+  .status-pill.error { border-color: rgba(248, 113, 113, 0.35); }
+  .status-pill.warning { border-color: rgba(251, 191, 36, 0.35); }
+  .status-pill.loading { border-color: rgba(59, 130, 246, 0.35); }
+
+  .status-icon {
+    font-size: 1.2rem;
+  }
+
+  .status-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .status-text strong {
+    font-size: 0.95rem;
+  }
+
+  .status-text time {
+    font-size: 0.75rem;
+    color: rgba(148, 163, 184, 0.7);
   }
 
   .message {
@@ -331,6 +443,81 @@
 
   .message .dismiss:hover {
     background: rgba(59, 130, 246, 0.2);
+  }
+
+  .feedback-cues {
+    margin: 0.75rem 0 0;
+    background: rgba(17, 24, 39, 0.6);
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    border-radius: 14px;
+    padding: 0.9rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+
+  .feedback-cues h4 {
+    margin: 0;
+    font-size: 1rem;
+  }
+
+  .feedback-cues ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+  }
+
+  .feedback-cues li {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 0.55rem;
+    align-items: center;
+  }
+
+  .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: rgba(148, 163, 184, 0.7);
+  }
+
+  .dot.success { background: rgba(34, 197, 94, 0.85); }
+  .dot.error { background: rgba(248, 113, 113, 0.9); }
+  .dot.warning { background: rgba(251, 191, 36, 0.95); }
+  .dot.info { background: rgba(59, 130, 246, 0.85); }
+
+  .cue-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .cue-text p {
+    margin: 0;
+    font-size: 0.9rem;
+    color: rgba(226, 232, 240, 0.85);
+  }
+
+  .cue-text time {
+    font-size: 0.75rem;
+    color: rgba(148, 163, 184, 0.7);
+  }
+
+  .cue-dismiss {
+    background: transparent;
+    border: none;
+    color: rgba(148, 163, 184, 0.7);
+    cursor: pointer;
+    font-size: 1rem;
+    border-radius: 0.5rem;
+    padding: 0.1rem 0.3rem;
+  }
+
+  .cue-dismiss:hover {
+    background: rgba(148, 163, 184, 0.2);
   }
 
   .loading {

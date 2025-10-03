@@ -676,8 +676,11 @@ class EnhancedCognitiveStateManager {
       }
       
       // Final cleanup - ensure no undefined/null values in content
-      if (!content || content.includes('undefined') || content.includes('null')) {
+      const safeContent = typeof content === 'string' ? content : JSON.stringify(content || {});
+      if (!safeContent || safeContent.includes('undefined') || safeContent.includes('null')) {
         content = `${baseType.replace('_', ' ')} activity detected`;
+      } else if (typeof content !== 'string') {
+        content = safeContent;
       }
       // Map backend event types to UI filter categories the monitor expects
       const mapToUiEventType = (t) => {
@@ -700,6 +703,9 @@ class EnhancedCognitiveStateManager {
           case 'learning':
           case 'synthesis':
             return t;
+          case 'metacognition_event':
+          case 'metacognition_update':
+            return 'reflection';
           default:
             // Fall back to a generic bucket so it still shows
             return 'reasoning';

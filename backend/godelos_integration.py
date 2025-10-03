@@ -502,6 +502,33 @@ class GödelOSIntegration:
             }
         }
 
+    async def process_query(
+        self,
+        query: str,
+        context: Optional[Dict[str, Any]] = None,
+        include_reasoning: Optional[bool] = None
+    ) -> Dict[str, Any]:
+        """Compatibility wrapper expected by unified_server /api/query endpoint."""
+
+        # Determine whether to include detailed reasoning
+        if include_reasoning is None:
+            include_reasoning = bool(context and context.get("include_reasoning"))
+
+        result = await self.process_natural_language_query(
+            query=query,
+            context=context,
+            include_reasoning=include_reasoning
+        )
+
+        # Provide legacy aliases expected by older code paths
+        result.setdefault("knowledge_used", [])
+        if "reasoning_trace" not in result:
+            result["reasoning_trace"] = result.get("reasoning_steps", [])
+        if "sources" not in result:
+            result["sources"] = result.get("knowledge_used", [])
+
+        return result
+
     async def get_knowledge(
         self,
         context_id: Optional[str] = None,
