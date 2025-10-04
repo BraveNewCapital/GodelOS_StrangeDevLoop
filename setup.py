@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="godelOS",
-    version="0.1.0",
+    version="0.2.0-beta",
     description="A comprehensive symbolic cognition engine",
     author="GödelOS Team",
     author_email="info@godelOS.org",
