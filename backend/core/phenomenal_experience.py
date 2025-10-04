@@ -971,21 +971,46 @@ class PhenomenalExperienceGenerator:
             
             def serialize_experience(exp: PhenomenalExperience) -> Dict[str, Any]:
                 """Convert PhenomenalExperience to JSON-serializable dict"""
-                exp_dict = asdict(exp)
-                # Convert enum to string value
-                exp_dict['experience_type'] = exp.experience_type.value
-                # Convert qualia patterns
-                for pattern in exp_dict['qualia_patterns']:
-                    if 'modality' in pattern and hasattr(pattern['modality'], 'value'):
-                        pattern['modality'] = pattern['modality'].value
-                return exp_dict
+                try:
+                    exp_dict = asdict(exp)
+                    # Convert enum to string value
+                    if hasattr(exp.experience_type, 'value'):
+                        exp_dict['experience_type'] = exp.experience_type.value
+                    else:
+                        exp_dict['experience_type'] = str(exp.experience_type)
+                    
+                    # Convert qualia patterns safely
+                    if 'qualia_patterns' in exp_dict:
+                        for pattern in exp_dict['qualia_patterns']:
+                            if isinstance(pattern, dict) and 'modality' in pattern:
+                                if hasattr(pattern['modality'], 'value'):
+                                    pattern['modality'] = pattern['modality'].value
+                                else:
+                                    pattern['modality'] = str(pattern['modality'])
+                    return exp_dict
+                except Exception as e:
+                    logger.warning(f"Error serializing experience: {e}")
+                    return {
+                        'id': getattr(exp, 'id', 'unknown'),
+                        'experience_type': str(getattr(exp, 'experience_type', 'unknown')),
+                        'error': 'serialization_failed'
+                    }
             
-            state_dict = asdict(state)
-            # Convert active experiences with proper enum serialization
-            state_dict['active_experiences'] = [
-                serialize_experience(exp) for exp in state.active_experiences
-            ]
-            return state_dict
+            try:
+                state_dict = asdict(state)
+                # Convert active experiences with proper enum serialization
+                if 'active_experiences' in state_dict:
+                    state_dict['active_experiences'] = [
+                        serialize_experience(exp) for exp in state.active_experiences
+                    ]
+                return state_dict
+            except Exception as e:
+                logger.warning(f"Error serializing conscious state: {e}")
+                return {
+                    'id': getattr(state, 'id', 'unknown'),
+                    'timestamp': getattr(state, 'timestamp', datetime.now().isoformat()),
+                    'error': 'serialization_failed'
+                }
         
         return {
             "total_experiences": count,

@@ -6,7 +6,6 @@
   // Component props
   export let compactMode = false;
   
-  let updateInterval;
   let focusHistory = [];
   let loadHistory = [];
   let isExpanded = true;
@@ -165,7 +164,7 @@
   });
   
   onDestroy(() => {
-    if (updateInterval) clearInterval(updateInterval);
+    // Clean shutdown - no intervals to clear since we use reactive stores only
   });
 </script>
 

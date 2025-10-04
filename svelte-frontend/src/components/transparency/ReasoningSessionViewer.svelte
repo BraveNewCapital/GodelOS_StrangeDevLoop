@@ -10,8 +10,7 @@
   let sessionDetails = null;
   let isLoading = false;
   let error = null;
-  let refreshInterval = null;
-  let autoRefresh = true;
+  // Manual refresh only - no auto-polling
 
   // WebSocket for live reasoning stream
   let reasoningSocket = null;
@@ -20,29 +19,15 @@
 
   onMount(() => {
     loadActiveSessions();
-    if (autoRefresh) {
-      startAutoRefresh();
-    }
+    // Removed aggressive 3-second polling - use manual refresh or WebSocket events instead
   });
 
   onDestroy(() => {
-    if (refreshInterval) {
-      clearInterval(refreshInterval);
-    }
-
+    // No polling interval to clear - manual refresh only
     if (reasoningSocket) reasoningSocket.close();
   });
 
-  function startAutoRefresh() {
-    refreshInterval = setInterval(() => {
-      if (autoRefresh) {
-        loadActiveSessions();
-        if (selectedSession) {
-          loadSessionDetails(selectedSession.session_id);
-        }
-      }
-    }, 3000); // Refresh every 3 seconds
-  }
+  // Manual refresh function for on-demand updates
 
   async function loadActiveSessions() {
     isLoading = true;
@@ -181,10 +166,9 @@
       <button class="start-session-btn" on:click={startNewSession}>
         ➕ Start New Session
       </button>
-      <label class="auto-refresh">
-        <input type="checkbox" bind:checked={autoRefresh} />
-        Auto-refresh
-      </label>
+      <button class="refresh-btn" on:click={loadActiveSessions}>
+        🔄 Refresh
+      </button>
     </div>
   </div>
 
@@ -340,7 +324,7 @@
     align-items: center;
   }
 
-  .start-session-btn {
+  .start-session-btn, .refresh-btn {
     background: linear-gradient(135deg, #4CAF50, #45a049);
     color: white;
     border: none;
@@ -351,17 +335,17 @@
     transition: all 0.3s ease;
   }
 
-  .start-session-btn:hover {
+  .refresh-btn {
+    background: linear-gradient(135deg, #2196F3, #1976D2);
+  }
+
+  .start-session-btn:hover, .refresh-btn:hover {
     transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
   }
 
-  .auto-refresh {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.7);
+  .refresh-btn:hover {
+    box-shadow: 0 4px 12px rgba(33, 150, 243, 0.3);
   }
 
   .error-banner {

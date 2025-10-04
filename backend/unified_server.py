@@ -144,6 +144,18 @@ class WebSocketManager:
             }
         await self.broadcast(message)
     
+    async def broadcast_consciousness_update(self, consciousness_data: dict):
+        """Broadcast consciousness update to all connected clients"""
+        try:
+            message = {
+                "type": "consciousness_update",
+                "timestamp": consciousness_data.get("timestamp", time.time()),
+                "data": consciousness_data
+            }
+            await self.broadcast(message)
+        except Exception as e:
+            logger.error(f"Error broadcasting consciousness update: {e}")
+    
     def has_connections(self) -> bool:
         return len(self.active_connections) > 0
 
@@ -242,12 +254,26 @@ except ImportError as e:
     CognitiveManager = None
     CONSCIOUSNESS_AVAILABLE = False
 
+# Import unified consciousness engine
+try:
+    from backend.core.unified_consciousness_engine import UnifiedConsciousnessEngine
+    from backend.core.enhanced_websocket_manager import EnhancedWebSocketManager
+    UNIFIED_CONSCIOUSNESS_AVAILABLE = True
+    logger.info("✅ Unified consciousness engine available")
+except ImportError as e:
+    logger.warning(f"Unified consciousness engine not available: {e}")
+    UnifiedConsciousnessEngine = None
+    EnhancedWebSocketManager = None
+    UNIFIED_CONSCIOUSNESS_AVAILABLE = False
+
 # Global service instances - using Any to avoid type annotation issues
 godelos_integration = None
 websocket_manager = None
+enhanced_websocket_manager = None
+unified_consciousness_engine = None
 tool_based_llm = None
 cognitive_manager = None
-cognitive_streaming_task = None
+# Removed cognitive_streaming_task - no longer using synthetic streaming
 
 # Observability instances
 correlation_tracker = CorrelationTracker()
@@ -338,14 +364,25 @@ cognitive_state = {
 
 async def initialize_core_services():
     """Initialize core services with proper error handling."""
-    global godelos_integration, websocket_manager, tool_based_llm, cognitive_manager, transparency_engine
+    global godelos_integration, websocket_manager, enhanced_websocket_manager, unified_consciousness_engine, tool_based_llm, cognitive_manager, transparency_engine
     
     # Initialize WebSocket manager
     websocket_manager = WebSocketManager()
     logger.info("✅ WebSocket manager initialized")
     
+    # Initialize enhanced WebSocket manager for consciousness streaming
+    if UNIFIED_CONSCIOUSNESS_AVAILABLE:
+        try:
+            enhanced_websocket_manager = EnhancedWebSocketManager()
+            logger.info("✅ Enhanced WebSocket manager initialized for consciousness streaming")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize enhanced WebSocket manager: {e}")
+            enhanced_websocket_manager = websocket_manager  # Fallback to basic manager
+    else:
+        enhanced_websocket_manager = websocket_manager
+    
     # Initialize transparency engine with websocket manager
-    transparency_engine = initialize_transparency_engine(websocket_manager)
+    transparency_engine = initialize_transparency_engine(enhanced_websocket_manager)
     logger.info("✅ Cognitive transparency engine initialized with WebSocket integration")
     
     # Initialize GödelOS integration if available
@@ -409,6 +446,32 @@ async def initialize_core_services():
         except Exception as e:
             logger.error(f"❌ Failed to initialize cognitive manager: {e}")
             cognitive_manager = None
+
+    # Initialize unified consciousness engine if available
+    if UNIFIED_CONSCIOUSNESS_AVAILABLE:
+        try:
+            # Use the enhanced websocket manager and LLM driver
+            llm_driver_for_consciousness = llm_cognitive_driver if llm_cognitive_driver else tool_based_llm
+            
+            unified_consciousness_engine = UnifiedConsciousnessEngine(
+                websocket_manager=enhanced_websocket_manager,
+                llm_driver=llm_driver_for_consciousness
+            )
+            
+            await unified_consciousness_engine.initialize_components()
+            logger.info("✅ Unified consciousness engine initialized successfully")
+            
+            # Set the consciousness engine reference in the enhanced websocket manager for real-time data
+            if hasattr(enhanced_websocket_manager, 'set_consciousness_engine'):
+                enhanced_websocket_manager.set_consciousness_engine(unified_consciousness_engine)
+            
+            # Start the consciousness loop
+            await unified_consciousness_engine.start_consciousness_loop()
+            logger.info("🧠 Unified consciousness loop started")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize unified consciousness engine: {e}")
+            unified_consciousness_engine = None
 
 async def initialize_optional_services():
     """Initialize optional advanced services."""
@@ -498,84 +561,14 @@ async def initialize_optional_services():
             import traceback
             logger.error(f"❌ Detailed error: {traceback.format_exc()}")
 
-async def continuous_cognitive_streaming():
-    """Background task for continuous cognitive state streaming."""
-    global websocket_manager, godelos_integration, cognitive_state
-    
-    logger.info("Starting continuous cognitive streaming...")
-    
-    while True:
-        try:
-            if websocket_manager and websocket_manager.has_connections():
-                # Get cognitive state from GödelOS or use fallback
-                if godelos_integration:
-                    try:
-                        state = await godelos_integration.get_cognitive_state()
-                        # Ensure state is a dictionary, not a list
-                        if not isinstance(state, dict):
-                            logger.debug(f"Invalid state type from GödelOS: {type(state)}, using fallback")
-                            state = cognitive_state
-                    except Exception as e:
-                        logger.debug(f"Using fallback cognitive state: {e}")
-                        state = cognitive_state
-                else:
-                    state = cognitive_state
-                
-                # Ensure state is always a dict to avoid .get() errors
-                if not isinstance(state, dict):
-                    logger.warning(f"State is not a dict (type: {type(state)}), using default cognitive_state")
-                    state = cognitive_state
-                
-                # Format for frontend with robust type checking
-                # Safely get attention focus
-                attention_data = state.get("attention_focus", {})
-                if not isinstance(attention_data, dict):
-                    attention_data = {}
-                
-                # Safely get working memory
-                working_memory_data = state.get("working_memory", {})
-                if not isinstance(working_memory_data, dict):
-                    working_memory_data = {}
-                
-                formatted_data = {
-                    "timestamp": time.time(),
-                    "manifest_consciousness": {
-                        "attention_focus": attention_data.get("intensity", 0.7) * 100,
-                        "working_memory": working_memory_data.get("items", 
-                            ["System monitoring", "Background processing"])
-                    },
-                    "agentic_processes": [
-                        {"name": "Query Parser", "status": "idle", "cpu_usage": 20, "memory_usage": 30},
-                        {"name": "Knowledge Retriever", "status": "idle", "cpu_usage": 15, "memory_usage": 25},
-                        {"name": "Inference Engine", "status": "active", "cpu_usage": 45, "memory_usage": 60},
-                        {"name": "Response Generator", "status": "idle", "cpu_usage": 10, "memory_usage": 20},
-                        {"name": "Meta-Reasoner", "status": "active", "cpu_usage": 35, "memory_usage": 40}
-                    ],
-                    "daemon_threads": [
-                        {"name": "Memory Consolidation", "active": True, "activity_level": 60},
-                        {"name": "Background Learning", "active": True, "activity_level": 40},
-                        {"name": "System Monitoring", "active": True, "activity_level": 80},
-                        {"name": "Knowledge Indexing", "active": False, "activity_level": 10},
-                        {"name": "Pattern Recognition", "active": True, "activity_level": 70}
-                    ]
-                }
-                
-                await websocket_manager.broadcast({
-                    "type": "cognitive_state_update",
-                    "timestamp": time.time(),
-                    "data": formatted_data
-                })
-                
-            await asyncio.sleep(4)  # Stream every 4 seconds
-            
-        except Exception as e:
-            logger.error(f"Error in cognitive streaming: {e}")
-            await asyncio.sleep(5)
+# REMOVED: continuous_cognitive_streaming() function
+# This function was generating synthetic cognitive events every 4 seconds with hardcoded values.
+# Real cognitive events should be generated by actual system state changes, not periodic broadcasting.
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
-    global cognitive_streaming_task, startup_time
+    global startup_time
     
     # Startup
     startup_time = time.time()
@@ -587,9 +580,18 @@ async def lifespan(app: FastAPI):
     # Initialize optional services
     await initialize_optional_services()
     
-    # Start cognitive streaming
-    cognitive_streaming_task = asyncio.create_task(continuous_cognitive_streaming())
-    logger.info("✅ Cognitive streaming started")
+    # Set up consciousness engine in endpoints after initialization
+    if UNIFIED_CONSCIOUSNESS_AVAILABLE and unified_consciousness_engine and enhanced_websocket_manager:
+        try:
+            from backend.api.consciousness_endpoints import set_consciousness_engine
+            set_consciousness_engine(unified_consciousness_engine, enhanced_websocket_manager)
+            logger.info("✅ Consciousness engine connected to API endpoints")
+        except Exception as e:
+            logger.error(f"Failed to connect consciousness engine to endpoints: {e}")
+    
+    # REMOVED: Synthetic cognitive streaming - replaced with real event-driven updates
+    # cognitive_streaming_task = asyncio.create_task(continuous_cognitive_streaming())
+    logger.info("✅ Synthetic cognitive streaming disabled - using event-driven updates only")
     
     logger.info("🎉 GödelOS Unified Server fully initialized!")
     
@@ -598,13 +600,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("🛑 Shutting down GödelOS Unified Server...")
     
-    if cognitive_streaming_task:
-        cognitive_streaming_task.cancel()
-        try:
-            await cognitive_streaming_task
-        except asyncio.CancelledError:
-            pass
-    
+    # No synthetic streaming task to cancel
     logger.info("✅ Shutdown complete")
 
 # Server start time for metrics
@@ -644,6 +640,16 @@ if VECTOR_DATABASE_AVAILABLE and vector_db_router:
 if DISTRIBUTED_VECTOR_AVAILABLE and distributed_vector_router:
     app.include_router(distributed_vector_router, prefix="/api/distributed-vector", tags=["Distributed Vector Search"])
 
+# Include adaptive ingestion router
+try:
+    from backend.api.adaptive_ingestion_endpoints import router as adaptive_ingestion_router
+    app.include_router(adaptive_ingestion_router, tags=["Adaptive Ingestion"])
+    logger.info("Adaptive ingestion endpoints included")
+except ImportError as e:
+    logger.warning(f"Adaptive ingestion endpoints not available: {e}")
+except Exception as e:
+    logger.error(f"Failed to setup adaptive ingestion endpoints: {e}")
+
 # Include agentic daemon management router
 try:
     from backend.api.agentic_daemon_endpoints import router as agentic_daemon_router
@@ -669,6 +675,26 @@ except ImportError as e:
 except Exception as e:
     logger.error(f"Failed to setup knowledge management endpoints: {e}")
     KNOWLEDGE_MANAGEMENT_AVAILABLE = False
+
+# Include unified consciousness endpoints
+try:
+    from backend.api.consciousness_endpoints import router as consciousness_router, set_consciousness_engine
+    app.include_router(consciousness_router, tags=["Unified Consciousness"])
+    
+    # Set consciousness engine reference after initialization
+    if UNIFIED_CONSCIOUSNESS_AVAILABLE and unified_consciousness_engine and enhanced_websocket_manager:
+        set_consciousness_engine(unified_consciousness_engine, enhanced_websocket_manager)
+        logger.info("✅ Unified consciousness endpoints available with engine integration")
+    else:
+        logger.info("✅ Unified consciousness endpoints available (engine will be set later)")
+    
+    CONSCIOUSNESS_ENDPOINTS_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Consciousness endpoints not available: {e}")
+    CONSCIOUSNESS_ENDPOINTS_AVAILABLE = False
+except Exception as e:
+    logger.error(f"Failed to setup consciousness endpoints: {e}")
+    CONSCIOUSNESS_ENDPOINTS_AVAILABLE = False
 
 # Setup replay harness endpoints
 try:

@@ -37,8 +37,7 @@
       updateVisualizations();
     });
     
-    // Simulate real-time process updates
-    simulateProcessUpdates();
+    // simulateProcessUpdates() call REMOVED - no synthetic process updates
   });
   
   onDestroy(() => {
@@ -292,13 +291,7 @@
       .attr('stroke', d => d === process ? '#FFD700' : '#fff');
   }
   
-  function simulateProcessUpdates() {
-    // Simulate real-time updates every 5 seconds
-    setInterval(() => {
-      generateTimelineData();
-      updateTimeline();
-    }, 5000);
-  }
+  // simulateProcessUpdates function REMOVED - no synthetic process simulation
   
   // Health status indicator
   $: healthStatus = getHealthStatus(systemHealth);

@@ -7,7 +7,7 @@
   let activeSessions = [];
   let isLoading = true;
   let error = null;
-  let pollInterval;
+  // Removed pollInterval - using WebSocket for real-time updates only
   let selectedSession = null;
   let showDetailView = false;
   let selectedNode = null;
@@ -26,18 +26,13 @@
   onMount(async () => {
     await loadDashboardData();
 
-    // Poll for updates every 5 seconds
-    pollInterval = setInterval(loadDashboardData, 5000);
-
+    // Removed aggressive 5-second polling - WebSocket provides real-time updates
     // Connect to reasoning and provenance streams
     connectStreams();
   });
 
   onDestroy(() => {
-    if (pollInterval) {
-      clearInterval(pollInterval);
-    }
-
+    // No polling to clear - WebSocket only
     if (reasoningSocket) reasoningSocket.close();
     if (provenanceSocket) provenanceSocket.close();
   });

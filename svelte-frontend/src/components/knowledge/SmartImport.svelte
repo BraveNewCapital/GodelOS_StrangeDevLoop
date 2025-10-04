@@ -1,5 +1,5 @@
 <script>
-  import { onMount, createEventDispatcher } from 'svelte';
+  import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { fade, scale } from 'svelte/transition';
   import { knowledgeState, uiState } from '../../stores/cognitive.js';
   import { importProgressState, handleProgressUpdate, PROGRESS_STEPS } from '../../stores/importProgress.js';
@@ -7,6 +7,7 @@
   import { get } from 'svelte/store';
   import { apiHelpers } from '../../stores/cognitive.js';
   import LoadingState from '../ui/LoadingState.svelte';
+  import { WS_BASE_URL } from '../../config.js';
 
   // Modal props
   export let show = false;
@@ -36,8 +37,8 @@
   $: importProgress = $importProgressState;
   $: activeImportsArray = [...activeImports.values()];
 
-  // Fallback polling for import progress if websocket events are missing
-  let pollingIntervals = new Map();
+  // WebSocket for real-time import progress updates
+  let importProgressSocket = null;
 
   // Utility function to format file sizes
   function formatFileSize(bytes) {
@@ -69,27 +70,68 @@
     }
   }
 
-  function startPolling(importId) {
-    if (pollingIntervals.has(importId)) return;
-    const poll = async () => {
-  console.debug('[Import] polling progress for', importId);
-  const progress = await GödelOSAPI.getImportProgress(importId);
-  console.debug('[Import] poll result for', importId, progress);
-      if (progress && progress.status) {
-        importProgressState.update(state => ({
-          ...state,
-          [importId]: progress
-        }));
-        if (progress.status === 'completed' || progress.status === 'failed') {
-          clearInterval(pollingIntervals.get(importId));
-          pollingIntervals.delete(importId);
+  // Import progress WebSocket connection
+  function connectImportProgressWebSocket() {
+    if (importProgressSocket) {
+      importProgressSocket.close();
+    }
+
+    try {
+      // Connect to import progress WebSocket endpoint
+      importProgressSocket = new WebSocket(`${WS_BASE_URL}/api/knowledge/import/progress/stream`);
+      
+      importProgressSocket.onopen = () => {
+        console.log('Import progress WebSocket connected');
+      };
+
+      importProgressSocket.onmessage = (event) => {
+        try {
+          const progressUpdate = JSON.parse(event.data);
+          const { importId, ...progress } = progressUpdate;
+          
+          if (importId && progress) {
+            importProgressState.update(state => ({
+              ...state,
+              [importId]: progress
+            }));
+
+            // Remove completed/failed imports from active tracking after delay
+            if (progress.status === 'completed' || progress.status === 'failed') {
+              setTimeout(() => {
+                activeImports.delete(importId);
+                activeImports = activeImports;
+              }, 3000);
+            }
+          }
+        } catch (err) {
+          console.error('Invalid import progress WebSocket message:', err);
         }
-      }
-    };
-    const interval = setInterval(poll, 2000);
-    pollingIntervals.set(importId, interval);
-    poll();
+      };
+
+      importProgressSocket.onerror = (error) => {
+        console.error('Import progress WebSocket error:', error);
+      };
+
+      importProgressSocket.onclose = () => {
+        console.log('Import progress WebSocket disconnected');
+        // Attempt to reconnect after delay
+        setTimeout(connectImportProgressWebSocket, 5000);
+      };
+    } catch (err) {
+      console.error('Failed to connect to import progress WebSocket:', err);
+    }
   }
+
+  // Lifecycle management
+  onMount(() => {
+    connectImportProgressWebSocket();
+  });
+
+  onDestroy(() => {
+    if (importProgressSocket) {
+      importProgressSocket.close();
+    }
+  });
 
   // --- Import handlers (restored) ---
   async function handleFileSelect(event) {
@@ -128,8 +170,8 @@
           [importId]: { status: 'started', progress: 0, message: 'Upload started' }
         }));
 
-        // start polling for progress (websocket will update if available)
-        startPolling(importId);
+        // Progress updates will come via WebSocket
+        console.log(`Import ${importId} started - progress updates via WebSocket`);
       } catch (err) {
         importProgressState.update(state => ({
           ...state,
@@ -167,7 +209,7 @@
         activeImports = activeImports;
       }
       importProgressState.update(s => ({ ...s, [importId]: { status: 'started', progress: 0, message: 'URL import started' } }));
-      startPolling(importId);
+      console.log(`URL import ${importId} started - progress updates via WebSocket`);
       urlInput = '';
     } catch (err) {
       importProgressState.update(s => ({ ...s, [tempId]: { status: 'failed', progress: 0, message: err?.message || 'URL import failed' } }));
@@ -195,7 +237,7 @@
         activeImports = activeImports;
       }
       importProgressState.update(s => ({ ...s, [importId]: { status: 'started', progress: 0, message: 'Processing text' } }));
-      startPolling(importId);
+      console.log(`Text import ${importId} started - progress updates via WebSocket`);
       // clear text input after sending
       textInput = '';
       textTitle = 'Text Import';
@@ -224,9 +266,7 @@
       window.removeEventListener('dragover', handleDragOver);
       window.removeEventListener('dragleave', handleDragLeave);
       window.removeEventListener('drop', handleDrop);
-      // clear any polling intervals
-      for (const interval of pollingIntervals.values()) clearInterval(interval);
-      pollingIntervals.clear();
+      // No polling intervals to clear - using WebSocket only
     };
   });
 

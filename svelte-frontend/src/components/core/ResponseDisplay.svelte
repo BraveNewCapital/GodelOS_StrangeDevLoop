@@ -102,34 +102,8 @@
     URL.revokeObjectURL(url);
   }
   
-  // Simulate streaming response (for development)
-  function simulateStreamingResponse(text) {
-    isStreaming = true;
-    currentResponse = '';
-    
-    let index = 0;
-    const streamInterval = setInterval(() => {
-      if (index < text.length) {
-        currentResponse += text[index];
-        index++;
-      } else {
-        clearInterval(streamInterval);
-        isStreaming = false;
-        // Add completed response to history
-        responseHistory = [{
-          id: Date.now(),
-          query: $cognitiveState.manifestConsciousness.currentQuery || "Test query",
-          response: currentResponse,
-          confidence: 0.85,
-          timestamp: Date.now(),
-          reasoning: ["Processing query", "Generating response", "Validating output"],
-          concepts: ["test", "response"],
-          processingTime: 2.1
-        }, ...responseHistory.slice(0, 9)];
-        currentResponse = null;
-      }
-    }, 50);
-  }
+  // simulateStreamingResponse function REMOVED - no synthetic response simulation
+  
 </script>
 
 <div class="response-display">

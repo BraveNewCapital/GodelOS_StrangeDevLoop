@@ -1,5 +1,8 @@
 # Repository Guidelines
 
+## FIRST AND FOREMOST: 95% of the time you will not need to stop or start the backend or frontend servers, they are hotreloading and once started can just be forgotten!
+
+
 ## Project Structure & Module Organization
 - `backend/` — FastAPI backend (unified server in `unified_server.py`, utilities, models, WebSocket manager). Env in `backend/.env` (see `.env.example`).
 - `svelte-frontend/` — Svelte UI (Vite). UI tests live here and at repo root.
