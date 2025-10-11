@@ -5,6 +5,8 @@
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-teal.svg)](https://fastapi.tiangolo.com/)
 [![Svelte](https://img.shields.io/badge/Svelte-4%2B-brightgreen.svg)](https://svelte.dev/)
+[![Stars](https://img.shields.io/github/stars/steake/godelos)]
+
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg?style=flat-square)](https://github.com/Steake/GodelOS)
 [![Version](https://img.shields.io/badge/version-0.2.0--beta-blue.svg?style=flat-square)](https://github.com/Steake/GodelOS/releases)
