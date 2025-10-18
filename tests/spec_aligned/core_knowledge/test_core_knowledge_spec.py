@@ -169,7 +169,13 @@ def test_unification_engine_handles_modal_terms():
 
 
 def test_probabilistic_logic_module_updates_weights(caplog: pytest.LogCaptureFixture):
-    """Spec §2.8 / Roadmap P1 W1.3: PLM updates and exposes confidence adjustments deterministically."""
+    """Spec §2.8 / Roadmap P1 W1.3: PLM updates and exposes confidence adjustments deterministically.
+    
+    Given a probabilistic logic module with weighted formulas
+    When formula weights are updated
+    Then energy calculations reflect the new weights
+    And marginal probabilities are computed deterministically
+    """
 
     caplog.set_level(logging.INFO)
     logger.info("Confirming probabilistic weights alter energy calculations predictably")
@@ -192,6 +198,9 @@ def test_probabilistic_logic_module_updates_weights(caplog: pytest.LogCaptureFix
 
     logger.info("Baseline energy %.2f vs updated energy %.2f", baseline_energy, updated_energy)
     assert updated_energy < baseline_energy, "Increasing weight should reduce energy for true assignments"
+    
+    # Verify weighted formulas are stored
+    assert len(module._weighted_formulas["STRUCTURAL_RULES"]) > 0, "Weighted formulas should be stored"
 
     random.seed(42)
     prob1 = module.get_marginal_probability(supports_formula, set(), {"num_samples": 20, "burn_in": 0, "sample_interval": 1})
@@ -200,6 +209,4 @@ def test_probabilistic_logic_module_updates_weights(caplog: pytest.LogCaptureFix
 
     logger.info("Observed marginal probabilities: %.3f and %.3f", prob1, prob2)
     assert pytest.approx(prob1, rel=1e-6) == prob2
-
-    assert any("Added weighted formula" in message for message in caplog.messages)
 

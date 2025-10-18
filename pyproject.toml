@@ -85,7 +85,9 @@ include = [
   "MVP",
   "MVP.*",
   "backend",
-  "backend.*"
+  "backend.*",
+  "godelOS",
+  "godelOS.*"
 ]
 exclude = [
   "tests",

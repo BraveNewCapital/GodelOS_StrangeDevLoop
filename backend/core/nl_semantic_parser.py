@@ -291,6 +291,152 @@ class InferenceEngine:
     def set_broadcaster(self, websocket_manager: Optional[Any]) -> None:
         self._ws = websocket_manager
 
+    async def _attempt_forward_chaining(self, goal_ast: Any, context_ids: List[str], steps: List[ProofStep]) -> Tuple[bool, Optional[Dict[str, Any]]]:
+        """
+        Attempt to prove goal via forward chaining from implication rules.
+        
+        Algorithm:
+        1. Retrieve all implication rules from KB using KSI's internal storage
+        2. For each rule, try to unify goal with the consequent
+        3. If unification succeeds, ground the antecedent with the bindings
+        4. Recursively check if the grounded antecedent exists in KB or can be proven
+        
+        Returns:
+            (success, bindings) tuple where success is True if goal was proven
+        """
+        # Imports should already be available via module-level imports
+        if not (CORE_KR_AST_AVAILABLE and CORE_KR_UNIFICATION_AVAILABLE):
+            return (False, None)
+            
+        try:
+            from godelOS.core_kr.ast.nodes import (
+                ApplicationNode, ConstantNode, QuantifierNode, 
+                ConnectiveNode, VariableNode
+            )
+            from godelOS.core_kr.unification_engine.engine import UnificationEngine
+            from godelOS.core_kr.type_system.manager import TypeSystemManager
+            
+            # Get type system from KSI or create a new one
+            type_system = None
+            if hasattr(self._ksi, '_type_system'):
+                type_system = self._ksi._type_system
+            elif hasattr(self._ksi, '_ksi') and hasattr(self._ksi._ksi, 'type_system'):
+                type_system = self._ksi._ksi.type_system
+            else:
+                type_system = TypeSystemManager()
+            
+            unif_engine = UnificationEngine(type_system)
+            
+            # Direct access to KSI's internal statement storage to find rules
+            # This is necessary because KSI doesn't expose get_all_statements()
+            all_rules = []
+            
+            if not hasattr(self._ksi, '_ksi') or not hasattr(self._ksi._ksi, '_backend'):
+                logger.debug("Cannot access KSI internal storage for forward chaining")
+                return (False, None)
+            
+            backend = self._ksi._ksi._backend
+            
+            # Access the backend's statement storage directly
+            for ctx in context_ids:
+                try:
+                    if not hasattr(backend, '_statements') or ctx not in backend._statements:
+                        continue
+                    
+                    statements = backend._statements[ctx]
+                    
+                    # Filter for universally quantified implications
+                    for statement_ast in statements:
+                        if isinstance(statement_ast, QuantifierNode):
+                            if statement_ast.quantifier_type == "FORALL" and isinstance(statement_ast.scope, ConnectiveNode):
+                                if statement_ast.scope.connective_type in ["IMPLIES", "=>"]:
+                                    all_rules.append(statement_ast)
+                except Exception as e:
+                    logger.debug(f"Error retrieving statements from {ctx}: {e}")
+                    continue
+            
+            logger.debug(f"Found {len(all_rules)} implication rules for forward chaining")
+            
+            # Now try to apply each rule to the goal
+            for rule in all_rules:
+                try:
+                    # rule structure: forall vars. (antecedent => consequent)
+                    implication = rule.scope  # The ConnectiveNode for =>
+                    antecedent = implication.operands[0]
+                    consequent = implication.operands[1]
+                    
+                    # Try to unify goal with consequent
+                    bindings, errors = unif_engine.unify(goal_ast, consequent)
+                    
+                    if bindings is not None:
+                        logger.debug(f"Goal unified with rule consequent: {bindings}")
+                        # Unification succeeded! Now check if antecedent holds
+                        # Apply the bindings to the antecedent to ground it
+                        grounded_antecedent = self._apply_bindings(antecedent, bindings)
+                        
+                        logger.debug(f"Checking if grounded antecedent exists: {grounded_antecedent}")
+                        
+                        # Check if the grounded antecedent exists in KB
+                        antecedent_holds = await self._ksi.statement_exists(
+                            grounded_antecedent, 
+                            context_ids=context_ids
+                        )
+                        
+                        if antecedent_holds:
+                            logger.debug("Antecedent holds! Forward chaining succeeded")
+                            # Success! We proved the goal via forward chaining
+                            normalized_bindings = {}
+                            for var_id, ast_node in bindings.items():
+                                normalized_bindings[f"var_{var_id}"] = _serialize_ast(ast_node)
+                            return (True, normalized_bindings)
+                        else:
+                            logger.debug("Antecedent does not hold in KB")
+                except Exception as e:
+                    logger.debug(f"Error applying rule: {e}", exc_info=True)
+                    continue
+            
+            return (False, None)
+            
+        except Exception as e:
+            logger.error(f"Forward chaining attempt failed: {e}", exc_info=True)
+            return (False, None)
+    
+    def _apply_bindings(self, ast: Any, bindings: Dict[int, Any]) -> Any:
+        """
+        Apply variable bindings to an AST node.
+        
+        Args:
+            ast: The AST node to apply bindings to
+            bindings: Dict mapping variable IDs to their bound values
+            
+        Returns:
+            New AST with bindings applied
+        """
+        try:
+            from godelOS.core_kr.ast.nodes import VariableNode
+            
+            # If this is a variable and it's in the bindings, return the bound value
+            if isinstance(ast, VariableNode) and ast.var_id in bindings:
+                return bindings[ast.var_id]
+            
+            # Otherwise use the AST's substitute method if available
+            if hasattr(ast, 'substitute'):
+                # Convert bindings dict to VariableNode -> AST_Node format
+                var_bindings = {}
+                for var_id, bound_ast in bindings.items():
+                    # Find or create the corresponding VariableNode
+                    # This is a simplification - in practice we'd need to track the actual VariableNode
+                    var_type = bound_ast.type if hasattr(bound_ast, 'type') else None
+                    var_node = VariableNode(f"?var{var_id}", var_id, var_type)
+                    var_bindings[var_node] = bound_ast
+                return ast.substitute(var_bindings)
+            
+            # Fallback: return original AST
+            return ast
+        except Exception as e:
+            logger.debug(f"Error applying bindings: {e}")
+            return ast
+
     async def _proof_step(self, steps: List[ProofStep], description: str, success: bool, rule: Optional[str] = None,
                           bindings: Optional[Dict[str, Any]] = None) -> ProofStep:
         step = ProofStep(index=len(steps), description=description, success=success, rule=rule, bindings=bindings)
@@ -388,9 +534,28 @@ class InferenceEngine:
             except Exception as e:
                 await self._proof_step(steps, f"Pattern query error: {e}", False, rule="query")
 
-        # Step 3: (Future) UnificationEngine-based reasoning (placeholder)
+        # Step 3: Forward chaining inference
+        if (not success) and CORE_KR_UNIFICATION_AVAILABLE and CORE_KR_AST_AVAILABLE:
+            await self._proof_step(steps, "Attempting forward chaining from rules", True, rule="forward-chain-init")
+            
+            try:
+                # Check if goal can be proven via forward chaining
+                success_fc, binding_fc = await self._attempt_forward_chaining(goal_ast, ctxs, steps)
+                
+                if success_fc:
+                    success = True
+                    binding_used = binding_fc
+                    await self._proof_step(steps, "Forward chaining succeeded", True, rule="forward-chain", bindings=binding_fc)
+                else:
+                    await self._proof_step(steps, "No applicable forward chaining rules found", False, rule="forward-chain")
+                    
+            except Exception as e:
+                await self._proof_step(steps, f"Forward chaining error: {e}", False, rule="forward-chain")
+                logger.debug(f"Forward chaining failed: {e}", exc_info=True)
+
+        # Step 4: (Future) More advanced reasoning (placeholder)
         if (not success) and CORE_KR_UNIFICATION_AVAILABLE:
-            await self._proof_step(steps, "UnificationEngine extension not yet integrated", False, rule="unification-stub")
+            await self._proof_step(steps, "Advanced reasoning extensions not yet integrated", False, rule="advanced-stub")
 
         duration = _now() - t0
 
@@ -427,7 +592,19 @@ class InferenceEngine:
         if not (self._ksi and self._ksi.available()):
             return []
         try:
-            raw = await self._ksi.query(query_pattern_ast, context_ids=context_ids or ["TRUTHS"])
+            # Handle existential/universal quantifiers - extract the scope for pattern matching
+            pattern_to_match = query_pattern_ast
+            if CORE_KR_AST_AVAILABLE:
+                try:
+                    from godelOS.core_kr.ast.nodes import QuantifierNode
+                    if isinstance(query_pattern_ast, QuantifierNode):
+                        # Extract the scope of the quantified expression
+                        # e.g., "exists ?x. Human(?x)" -> "Human(?x)"
+                        pattern_to_match = query_pattern_ast.scope
+                except ImportError:
+                    pass
+            
+            raw = await self._ksi.query(pattern_to_match, context_ids=context_ids or ["TRUTHS"])
             return [self._normalize_bindings(b) for b in raw]
         except Exception:
             return []

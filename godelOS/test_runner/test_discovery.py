@@ -129,15 +129,24 @@ class TestDiscovery:
         # Get all members of the module
         for name, obj in inspect.getmembers(module):
             # Check if it's a test function
-            if name.startswith('test_') and callable(obj):
-                test_items.append(self._process_test_function(name, obj, file_path))
+            if name.startswith('test_') and callable(obj) and not inspect.isclass(obj):
+                # Only include if it's defined in this module (not imported)
+                if hasattr(obj, '__module__') and obj.__module__ == module.__name__:
+                    test_items.append(self._process_test_function(name, obj, file_path))
             
             # Check if it's a test class
             elif name.startswith('Test') and inspect.isclass(obj):
-                # Extract test methods from the class
-                for method_name, method in inspect.getmembers(obj, predicate=inspect.isfunction):
-                    if method_name.startswith('test_'):
-                        test_items.append(self._process_test_method(name, method_name, method, file_path))
+                # Only process if the class is defined in this module
+                if hasattr(obj, '__module__') and obj.__module__ == module.__name__:
+                    # Extract test methods from the class
+                    for method_name in dir(obj):
+                        if method_name.startswith('test_'):
+                            try:
+                                method = getattr(obj, method_name)
+                                if callable(method) and method_name in obj.__dict__:
+                                    test_items.append(self._process_test_method(name, method_name, method, file_path))
+                            except AttributeError:
+                                pass
         
         return test_items
     
@@ -174,7 +183,7 @@ class TestDiscovery:
         return {
             'type': 'function',
             'name': name,
-            'full_name': f"{os.path.basename(file_path)}::{name}",
+            'full_name': f"{file_path}::{name}",  # Use full path to avoid conflicts
             'doc': doc,
             'source': source,
             'line_number': line_number,
@@ -217,7 +226,7 @@ class TestDiscovery:
             'type': 'method',
             'name': method_name,
             'class_name': class_name,
-            'full_name': f"{os.path.basename(file_path)}::{class_name}::{method_name}",
+            'full_name': f"{file_path}::{class_name}::{method_name}",  # Use full path to avoid conflicts
             'doc': doc,
             'source': source,
             'line_number': line_number,

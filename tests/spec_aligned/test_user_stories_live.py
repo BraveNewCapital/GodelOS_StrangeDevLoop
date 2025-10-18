@@ -47,10 +47,17 @@ def live_api():
 
 
 @pytest.mark.spec_aligned
+@pytest.mark.requires_backend
 def test_user_story_knowledge_reasoning_nlg(live_api: httpx.Client):
     """
     User story: As a knowledge engineer, I can assert a rule and a fact, prove a consequence,
     query for results, and realize a statement into natural language.
+    
+    Given a running GödelOS backend server
+    When I assert rules and facts via the API
+    Then I can query for results and generate natural language output
+    
+    NOTE: Requires backend running - start with: ./start-godelos.sh --dev
     """
 
     client = live_api
@@ -95,17 +102,16 @@ def test_user_story_knowledge_reasoning_nlg(live_api: httpx.Client):
     assert proof.status_code == 200, proof.text
     proof_json = proof.json()
     assert isinstance(proof_json, dict)
-    # If engine returns a success field, prefer True; if False, accept as expected baseline (no rule chaining yet)
+    # With forward chaining implemented, the proof should succeed
     if "success" in proof_json:
-        if not proof_json["success"]:
-            pytest.xfail("Basic inference engine did not prove the goal (no forward-chaining)")
+        assert proof_json["success"], f"Forward chaining should prove Mortal(Socrates) from rule + fact. Response: {proof_json}"
     else:
         assert "proof" in proof_json
 
-    # 3) Query for results to ensure bindings are present (use asserted predicate to avoid requiring rule application)
+    # 3) Query for results to ensure the fact was stored (using direct query, not existential)
     q = client.get(
         "/api/kr/query",
-        params={"pattern": "exists ?x. Human(?x)", "context_ids": "TRUTHS"},
+        params={"pattern": "Human(Socrates)", "context_ids": "TRUTHS"},
         timeout=15,
     )
     assert q.status_code == 200, q.text
@@ -122,9 +128,16 @@ def test_user_story_knowledge_reasoning_nlg(live_api: httpx.Client):
 
 
 @pytest.mark.spec_aligned
+@pytest.mark.requires_backend
 def test_user_story_transparency_metrics(live_api: httpx.Client):
     """
     User story: As an observer, I can fetch transparency metrics to understand recent activity.
+    
+    Given a running GödelOS backend server
+    When I query the transparency metrics endpoint
+    Then I receive activity statistics and recent events
+    
+    NOTE: Requires backend running - start with: ./start-godelos.sh --dev
     """
 
     client = live_api

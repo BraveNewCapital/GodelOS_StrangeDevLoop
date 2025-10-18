@@ -249,7 +249,15 @@ def _constant_text(node: ConstantNode) -> str:
 
 @pytest.mark.asyncio
 async def test_nl_to_proof_round_trip():
-    """Roadmap P0 W0.2: NL → AST → KSI → Proof → NLG round-trip integrates transparency."""
+    """Roadmap P0 W0.2: NL → AST → KSI → Proof → NLG round-trip integrates transparency.
+    
+    Given parsed natural language input
+    When semantic interpretation creates AST
+    And AST is submitted to KSI
+    And proof engine validates the expression
+    Then NLG generates readable output
+    And transparency events are broadcast
+    """
     _log("test_start", name="test_nl_to_proof_round_trip")
 
     loves = _make_token("loves", lemma="love", pos="VERB", dep="ROOT", idx=6, i=0)
@@ -364,7 +372,13 @@ async def test_nl_to_proof_round_trip():
 
 @pytest.mark.asyncio
 async def test_capabilities_endpoint_and_fallbacks(monkeypatch: pytest.MonkeyPatch):
-    """Roadmap P1 W1.1: /capabilities reports optional components with graceful degradation."""
+    """Roadmap P1 W1.1: /capabilities reports optional components with graceful degradation.
+    
+    Given a unified server with optional components
+    When capabilities endpoint is queried
+    Then it reports available components
+    And gracefully degrades when components unavailable
+    """
     _log("test_start", name="test_capabilities_endpoint_and_fallbacks")
 
     class DummyKSIAdapterConfig:
@@ -437,7 +451,13 @@ async def test_capabilities_endpoint_and_fallbacks(monkeypatch: pytest.MonkeyPat
 
 @pytest.mark.asyncio
 async def test_transparency_event_schema_contract():
-    """Roadmap P0 W0.3: WebSocket broadcasts enforce canonical transparency envelope."""
+    """Roadmap P0 W0.3: WebSocket broadcasts enforce canonical transparency envelope.
+    
+    Given a WebSocket manager with active connections
+    When events are broadcast
+    Then all events have canonical envelope structure
+    And missing fields trigger schema warnings
+    """
     _log("test_start", name="test_transparency_event_schema_contract")
     manager = WebSocketManager()
 
@@ -472,7 +492,14 @@ async def test_transparency_event_schema_contract():
 
 
 def test_learning_grounding_feedback_loop():
-    """Roadmap P1 W1.3 & P3 W3.2: Learning-grounding loop integrates across modules."""
+    """Roadmap P1 W1.3 & P3 W3.2: Learning-grounding loop integrates across modules.
+    
+    Given a simulated environment with perception and grounding modules
+    When agent perceives objects and records experiences
+    Then perceptual categorizer generates symbolic facts
+    And symbol grounding associator learns feature mappings
+    And internal state monitor emits telemetry to knowledge store
+    """
     _log("test_start", name="test_learning_grounding_feedback_loop")
 
     type_system = TypeSystemManager()
