@@ -1427,6 +1427,135 @@ async def get_knowledge_graph_summary():
         logger.error(f"Error getting knowledge graph summary: {e}")
         raise _structured_http_error(500, code="kg_summary_error", message=str(e), service="knowledge_graph")
 
+# LLM KNOWLEDGE MINING ENDPOINTS
+
+@app.post("/api/v1/knowledge-mining/bootstrap")
+async def bootstrap_knowledge_from_llm():
+    """Bootstrap the knowledge graph with LLM-generated system knowledge"""
+    try:
+        from backend.llm_knowledge_miner import get_llm_knowledge_miner
+        
+        logger.info("Starting LLM knowledge mining bootstrap")
+        
+        # Get the knowledge miner
+        miner = await get_llm_knowledge_miner(
+            llm_driver=llm_driver if 'llm_driver' in globals() else None,
+            knowledge_graph=cognitive_manager.knowledge_graph_evolution if cognitive_manager else None
+        )
+        
+        # Bootstrap system knowledge
+        result = await miner.bootstrap_system_knowledge()
+        
+        logger.info(f"Bootstrap completed: {result}")
+        return JSONResponse(content={
+            "status": "success",
+            "message": "Knowledge graph bootstrapped successfully",
+            "result": result
+        })
+        
+    except Exception as e:
+        logger.error(f"Error bootstrapping knowledge from LLM: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/knowledge-mining/mine-domain")
+async def mine_domain_knowledge(request: Dict[str, Any]):
+    """Mine knowledge for a specific domain from the LLM"""
+    try:
+        from backend.llm_knowledge_miner import get_llm_knowledge_miner
+        
+        domain = request.get("domain")
+        if not domain:
+            raise HTTPException(status_code=400, detail="Domain name is required")
+        
+        depth = request.get("depth", 2)
+        if depth not in [1, 2, 3]:
+            raise HTTPException(status_code=400, detail="Depth must be 1 (basic), 2 (intermediate), or 3 (comprehensive)")
+        
+        logger.info(f"Mining domain knowledge: {domain} at depth {depth}")
+        
+        # Get the knowledge miner
+        miner = await get_llm_knowledge_miner(
+            llm_driver=llm_driver if 'llm_driver' in globals() else None,
+            knowledge_graph=cognitive_manager.knowledge_graph_evolution if cognitive_manager else None
+        )
+        
+        # Mine the domain
+        result = await miner.mine_domain_knowledge(domain, depth)
+        
+        logger.info(f"Domain mining completed: {result}")
+        return JSONResponse(content={
+            "status": "success",
+            "message": f"Successfully mined knowledge for domain: {domain}",
+            "result": result
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error mining domain knowledge: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/knowledge-mining/mine-multiple-domains")
+async def mine_multiple_domains(request: Dict[str, Any]):
+    """Mine knowledge for multiple interconnected domains"""
+    try:
+        from backend.llm_knowledge_miner import get_llm_knowledge_miner
+        
+        domains = request.get("domains", [])
+        if not domains or not isinstance(domains, list):
+            raise HTTPException(status_code=400, detail="Domains list is required")
+        
+        if len(domains) > 10:
+            raise HTTPException(status_code=400, detail="Maximum 10 domains allowed per request")
+        
+        logger.info(f"Mining multiple interconnected domains: {domains}")
+        
+        # Get the knowledge miner
+        miner = await get_llm_knowledge_miner(
+            llm_driver=llm_driver if 'llm_driver' in globals() else None,
+            knowledge_graph=cognitive_manager.knowledge_graph_evolution if cognitive_manager else None
+        )
+        
+        # Mine interconnected domains
+        result = await miner.mine_interconnected_domains(domains)
+        
+        logger.info(f"Multi-domain mining completed: {result}")
+        return JSONResponse(content={
+            "status": "success",
+            "message": f"Successfully mined {len(domains)} interconnected domains",
+            "result": result
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error mining multiple domains: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/knowledge-mining/status")
+async def get_knowledge_mining_status():
+    """Get the status of the knowledge mining system"""
+    try:
+        from backend.llm_knowledge_miner import _llm_knowledge_miner
+        
+        if _llm_knowledge_miner is None:
+            return JSONResponse(content={
+                "initialized": False,
+                "message": "Knowledge miner not yet initialized"
+            })
+        
+        return JSONResponse(content={
+            "initialized": True,
+            "concepts_mined": len(_llm_knowledge_miner.mined_concepts),
+            "relationships_mined": len(_llm_knowledge_miner.mined_relationships),
+            "llm_driver_available": _llm_knowledge_miner.llm_driver is not None,
+            "knowledge_graph_connected": _llm_knowledge_miner.knowledge_graph is not None
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting knowledge mining status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # PHENOMENAL EXPERIENCE ENDPOINTS
 
 @app.post("/api/v1/phenomenal/generate-experience")
