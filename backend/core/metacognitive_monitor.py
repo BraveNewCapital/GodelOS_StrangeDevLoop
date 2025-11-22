@@ -567,16 +567,23 @@ class MetaCognitiveMonitor:
 
         INTEGRATION POINT: Metacognitive reflection deepens recursive awareness
         in the consciousness loop in real-time.
+        
+        NOTE: This is a partial integration. For full integration, the unified
+        consciousness engine instance needs to be accessible here. Currently,
+        metacognitive state updates are stored locally and propagate through
+        the cognitive manager's consciousness assessment pipeline rather than
+        directly updating the unified consciousness state.
+        
+        Future enhancement: Pass unified consciousness engine reference during
+        initialization or implement an observer pattern for state propagation.
         """
         try:
             # Try to get unified consciousness engine from context
             from backend.core.unified_consciousness_engine import UnifiedConsciousnessEngine
 
-            # We need access to the global unified consciousness engine instance
-            # This would typically be passed in during initialization or stored as class variable
-            # For now, we'll update the local metacognitive state and let it propagate
-
             # Update meta-observations to reflect recursive depth
+            # These updates will be picked up by the unified consciousness engine
+            # when it queries metacognitive state during consciousness assessment
             self.current_state.meta_thoughts.append(
                 f"Recursive thinking at depth {depth}: {recursive_elements.get('patterns', [])}"
             )

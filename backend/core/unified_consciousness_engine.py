@@ -573,10 +573,14 @@ class UnifiedConsciousnessEngine:
                 # Strange loop stability from consistency of recursive patterns
                 if len(self.consciousness_history) > 5:
                     depth_history = [s.recursive_awareness.get("recursive_depth", 1) for s in self.consciousness_history[-5:]]
-                    depth_variance = sum((d - sum(depth_history)/len(depth_history))**2 for d in depth_history) / len(depth_history)
-                    # Lower variance = higher stability
-                    stability = max(0.0, min(1.0, 1.0 - (depth_variance / 4.0)))
-                    current_state.recursive_awareness["strange_loop_stability"] = stability
+                    if len(depth_history) > 0:
+                        mean_depth = sum(depth_history) / len(depth_history)
+                        depth_variance = sum((d - mean_depth)**2 for d in depth_history) / len(depth_history)
+                        # Lower variance = higher stability
+                        stability = max(0.0, min(1.0, 1.0 - (depth_variance / 4.0)))
+                        current_state.recursive_awareness["strange_loop_stability"] = stability
+                    else:
+                        current_state.recursive_awareness["strange_loop_stability"] = 0.5
                 else:
                     current_state.recursive_awareness["strange_loop_stability"] = 0.5
 

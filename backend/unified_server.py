@@ -439,14 +439,8 @@ async def initialize_core_services():
             if hasattr(cognitive_manager, 'consciousness_engine') and cognitive_manager.consciousness_engine:
                 try:
                     ce = cognitive_manager.consciousness_engine
-                    # Check if bootstrap already completed to avoid duplicate calls
-                    bootstrap_done = False
-                    if (hasattr(ce, 'current_state') and 
-                        hasattr(ce.current_state, 'phenomenal_experience') and 
-                        ce.current_state.phenomenal_experience):
-                        bootstrap_done = ce.current_state.phenomenal_experience.get('bootstrap_complete', False)
                     
-                    if not bootstrap_done:
+                    if not ce.is_bootstrap_complete():
                         logger.info("🌅 Bootstrapping consciousness in cognitive manager...")
                         await ce.bootstrap_consciousness()
                         logger.info("✅ Consciousness engine bootstrapped successfully")
@@ -2725,7 +2719,7 @@ async def enhanced_cognitive_query(query_request: dict):
                         "awareness_level": consciousness_state.consciousness_score,
                         "recursive_depth": consciousness_state.recursive_awareness.get("recursive_depth", 1),
                         "phi_measure": consciousness_state.information_integration.get("phi", 0.0),
-                        "phenomenal_experience": consciousness_state.phenomenal_experience.get("quality", ""),
+                        "phenomenal_experience": consciousness_state.phenomenal_experience.get("quality", "") if isinstance(consciousness_state.phenomenal_experience, dict) else "",
                         "strange_loop_stability": consciousness_state.recursive_awareness.get("strange_loop_stability", 0.0)
                     },
                     "enhanced_features": {

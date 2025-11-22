@@ -13,11 +13,13 @@ This script demonstrates all the consciousness integrations working together:
 
 import asyncio
 import sys
+import os
 import time
 from datetime import datetime
 
-# Add project to path
-sys.path.insert(0, '/workspace/GodelOS')
+# Add project to path dynamically
+project_root = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, project_root)
 
 # Backend imports - moved to top for better organization
 from backend.core.consciousness_engine import ConsciousnessEngine
