@@ -362,6 +362,25 @@ cognitive_state = {
     }
 }
 
+def is_consciousness_bootstrap_complete(cognitive_manager) -> bool:
+    """
+    Check if consciousness bootstrap has already been completed.
+    
+    Args:
+        cognitive_manager: The cognitive manager instance with consciousness_engine
+        
+    Returns:
+        bool: True if bootstrap is complete, False otherwise
+    """
+    if not cognitive_manager or not hasattr(cognitive_manager, 'consciousness_engine'):
+        return False
+    
+    ce = cognitive_manager.consciousness_engine
+    if hasattr(ce, "current_state") and hasattr(ce.current_state, "phenomenal_experience"):
+        return ce.current_state.phenomenal_experience.get("bootstrap_complete", False)
+    
+    return False
+
 async def initialize_core_services():
     """Initialize core services with proper error handling."""
     global godelos_integration, websocket_manager, enhanced_websocket_manager, unified_consciousness_engine, tool_based_llm, cognitive_manager, transparency_engine
@@ -438,15 +457,10 @@ async def initialize_core_services():
             # Bootstrap consciousness after initialization
             if hasattr(cognitive_manager, 'consciousness_engine') and cognitive_manager.consciousness_engine:
                 try:
-                    ce = cognitive_manager.consciousness_engine
                     # Check if bootstrap has already completed
-                    bootstrap_done = False
-                    if hasattr(ce, "current_state") and hasattr(ce.current_state, "phenomenal_experience"):
-                        bootstrap_done = ce.current_state.phenomenal_experience.get("bootstrap_complete", False)
-                    
-                    if not bootstrap_done:
+                    if not is_consciousness_bootstrap_complete(cognitive_manager):
                         logger.info("🌅 Bootstrapping consciousness in cognitive manager...")
-                        await ce.bootstrap_consciousness()
+                        await cognitive_manager.consciousness_engine.bootstrap_consciousness()
                         logger.info("✅ Consciousness engine bootstrapped successfully")
                     else:
                         logger.info("🟡 Consciousness engine bootstrap already completed; skipping duplicate call.")
@@ -492,13 +506,7 @@ async def initialize_core_services():
             logger.info("🌅 Checking consciousness bootstrap state...")
             try:
                 # Check if bootstrap was already completed
-                bootstrap_done = False
-                if cognitive_manager and hasattr(cognitive_manager, 'consciousness_engine'):
-                    ce = cognitive_manager.consciousness_engine
-                    if hasattr(ce, "current_state") and hasattr(ce.current_state, "phenomenal_experience"):
-                        bootstrap_done = ce.current_state.phenomenal_experience.get("bootstrap_complete", False)
-                
-                if not bootstrap_done:
+                if not is_consciousness_bootstrap_complete(cognitive_manager):
                     # Check if system needs bootstrapping based on awareness level
                     bootstrap_state = await unified_consciousness_engine.cognitive_state_injector.capture_current_state()
                     if hasattr(bootstrap_state, 'awareness_level') and bootstrap_state.awareness_level < 0.5:
