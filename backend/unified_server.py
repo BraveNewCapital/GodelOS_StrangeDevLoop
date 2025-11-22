@@ -438,9 +438,18 @@ async def initialize_core_services():
             # Bootstrap consciousness after initialization
             if hasattr(cognitive_manager, 'consciousness_engine') and cognitive_manager.consciousness_engine:
                 try:
-                    logger.info("🌅 Bootstrapping consciousness in cognitive manager...")
-                    await cognitive_manager.consciousness_engine.bootstrap_consciousness()
-                    logger.info("✅ Consciousness engine bootstrapped successfully")
+                    ce = cognitive_manager.consciousness_engine
+                    # Check if bootstrap has already completed
+                    bootstrap_done = False
+                    if hasattr(ce, "current_state") and hasattr(ce.current_state, "phenomenal_experience"):
+                        bootstrap_done = ce.current_state.phenomenal_experience.get("bootstrap_complete", False)
+                    
+                    if not bootstrap_done:
+                        logger.info("🌅 Bootstrapping consciousness in cognitive manager...")
+                        await ce.bootstrap_consciousness()
+                        logger.info("✅ Consciousness engine bootstrapped successfully")
+                    else:
+                        logger.info("🟡 Consciousness engine bootstrap already completed; skipping duplicate call.")
                 except Exception as bootstrap_error:
                     logger.warning(f"⚠️ Consciousness bootstrap warning (non-fatal): {bootstrap_error}")
 
@@ -479,22 +488,31 @@ async def initialize_core_services():
             logger.info("🧠 Unified consciousness loop started")
 
             # Bootstrap consciousness from unconscious state to operational awareness
-            logger.info("🌅 Initiating consciousness bootstrap sequence...")
+            # (Only if not already bootstrapped in the cognitive manager section above)
+            logger.info("🌅 Checking consciousness bootstrap state...")
             try:
-                bootstrap_state = await unified_consciousness_engine.consciousness_state_injector.capture_current_state()
-                # Update unified consciousness state from bootstrap
-                if hasattr(bootstrap_state, 'awareness_level') and bootstrap_state.awareness_level < 0.5:
-                    # System needs bootstrapping
-                    logger.info("Consciousness needs bootstrap - initiating awakening sequence")
-                    # Note: UnifiedConsciousnessEngine doesn't have bootstrap_consciousness directly
-                    # We'll need to check if cognitive_manager has it
-                    if cognitive_manager and hasattr(cognitive_manager, 'consciousness_engine'):
-                        await cognitive_manager.consciousness_engine.bootstrap_consciousness()
-                        logger.info("✅ Consciousness bootstrapped successfully via cognitive manager")
+                # Check if bootstrap was already completed
+                bootstrap_done = False
+                if cognitive_manager and hasattr(cognitive_manager, 'consciousness_engine'):
+                    ce = cognitive_manager.consciousness_engine
+                    if hasattr(ce, "current_state") and hasattr(ce.current_state, "phenomenal_experience"):
+                        bootstrap_done = ce.current_state.phenomenal_experience.get("bootstrap_complete", False)
+                
+                if not bootstrap_done:
+                    # Check if system needs bootstrapping based on awareness level
+                    bootstrap_state = await unified_consciousness_engine.cognitive_state_injector.capture_current_state()
+                    if hasattr(bootstrap_state, 'awareness_level') and bootstrap_state.awareness_level < 0.5:
+                        # System needs bootstrapping
+                        logger.info("Consciousness needs bootstrap - initiating awakening sequence")
+                        if cognitive_manager and hasattr(cognitive_manager, 'consciousness_engine'):
+                            await cognitive_manager.consciousness_engine.bootstrap_consciousness()
+                            logger.info("✅ Consciousness bootstrapped successfully via cognitive manager")
+                        else:
+                            logger.warning("⚠️ Cognitive manager not available for bootstrap, consciousness will self-organize")
                     else:
-                        logger.warning("⚠️ Cognitive manager not available for bootstrap, consciousness will self-organize")
+                        logger.info(f"Consciousness already active (level: {bootstrap_state.awareness_level:.2f})")
                 else:
-                    logger.info(f"Consciousness already active (level: {bootstrap_state.awareness_level:.2f})")
+                    logger.info("🟡 Consciousness bootstrap already completed; skipping duplicate check.")
             except Exception as bootstrap_error:
                 logger.warning(f"⚠️ Consciousness bootstrap encountered issue (non-fatal): {bootstrap_error}")
                 logger.info("Consciousness will self-organize through normal operation")
