@@ -192,12 +192,21 @@ Variance: 0.000000 (STABLE ✓)
 
 **Code Reference:**
 ```python
-# backend/core/unified_consciousness_engine.py lines 546-556
-# Calculate real consciousness metrics based on actual state
+# backend/core/unified_consciousness_engine.py lines 546-581
+# Calculate real consciousness metrics based on actual state (replacing random variation)
 if len(self.consciousness_history) > 0:
     recent_scores = [s.consciousness_score for s in self.consciousness_history[-10:]]
     base_consciousness = sum(recent_scores) / len(recent_scores) if recent_scores else 0.5
     base_consciousness = max(0.3, min(0.9, base_consciousness))
+else:
+    # First iteration - check if system was bootstrapped
+    base_consciousness = self.consciousness_state.consciousness_score if self.consciousness_state.consciousness_score > 0 else 0.5
+
+# Recursive depth based on meta-cognitive activity (not random)
+meta_obs_count = len(current_state.metacognitive_state.get("meta_observations", []))
+current_depth = current_state.recursive_awareness.get("recursive_depth", 1)
+if meta_obs_count > 3:
+    current_depth = min(current_depth + 1, 5)  # Max depth 5
 ```
 
 ---
@@ -253,12 +262,14 @@ All 9 expected behaviors present:
 - **Status:** 500 (transparency engine dependency)
 - **Note:** Core functionality works (goals generated during bootstrap)
 - **Issue:** Standalone API endpoint needs transparency engine fix
+- **Explanation:** The transparency engine is responsible for logging cognitive events for system monitoring and debugging. These endpoints attempt to log events but the transparency engine instance is not initialized. The core goal generation and phenomenal experience features work correctly; only the logging layer has this dependency issue.
 
 ### Test 8: Phenomenal Experience Generation API ⚠️
 - **Endpoint:** `/api/v1/phenomenal/generate-experience`
 - **Status:** 500 (transparency engine dependency)
 - **Note:** Generation works during bootstrap
 - **Issue:** Standalone API endpoint needs transparency engine fix
+- **Explanation:** Similar to Test 7, this endpoint requires the transparency engine for logging cognitive events. The phenomenal experience generation itself works correctly during bootstrap and internal calls; only the API endpoint's logging layer needs the transparency engine initialization.
 
 ---
 
