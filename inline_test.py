@@ -20,7 +20,9 @@ except Exception as e:
 # Test 2: Unified consciousness
 try:
     from backend.core.unified_consciousness_engine import UnifiedConsciousnessEngine
-    print("✓ Unified consciousness engine loads")
+    unified_engine = UnifiedConsciousnessEngine()
+    assert hasattr(unified_engine, 'assess_unified_consciousness')
+    print("✓ Unified consciousness engine integration exists")
 except Exception as e:
     print(f"✗ Unified: {e}")
 
