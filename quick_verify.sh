@@ -5,7 +5,9 @@ echo "🔍 Quick Verification of Consciousness Integrations"
 echo "===================================================="
 echo ""
 
-cd /workspace/GodelOS
+# Change to the script's directory, then to project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
 echo "1. Checking Python syntax of modified files..."
 echo ""

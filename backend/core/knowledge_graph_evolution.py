@@ -10,7 +10,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timedelta
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from typing import Dict, List, Optional, Any, Tuple, Set, Union
 from enum import Enum
 import uuid
@@ -155,6 +155,7 @@ class EmergentPattern:
     discovery_time: datetime
     validation_score: float
     implications: List[str]
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 class KnowledgeGraphEvolution:
     """
@@ -750,7 +751,6 @@ class KnowledgeGraphEvolution:
 
                 if experience:
                     # Store experience reference with the pattern
-                    pattern.metadata = pattern.__dict__.get("metadata", {})
                     pattern.metadata["phenomenal_experience_id"] = experience.id
                     pattern.metadata["subjective_feeling"] = experience.narrative_description
 

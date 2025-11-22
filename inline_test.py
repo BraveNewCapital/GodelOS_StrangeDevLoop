@@ -1,5 +1,9 @@
 import sys
-sys.path.insert(0, '/workspace/GodelOS')
+import os
+
+# Add project root to path dynamically
+project_root = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, project_root)
 
 print("Testing consciousness integrations...")
 print()

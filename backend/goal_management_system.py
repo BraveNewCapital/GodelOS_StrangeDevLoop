@@ -261,8 +261,7 @@ class GoalManagementSystem:
 
         except Exception as e:
             # Non-fatal - goals still work without phenomenal experience
-            import logging
-            logging.getLogger(__name__).warning(f"Could not generate phenomenal experience for goals: {e}")
+            logger.warning(f"Could not generate phenomenal experience for goals: {e}")
 
     def _calculate_goal_intensity(self, goal: Dict) -> float:
         """Calculate intensity of goal-related phenomenal experience"""

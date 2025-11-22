@@ -2725,7 +2725,7 @@ async def enhanced_cognitive_query(query_request: dict):
                         "awareness_level": consciousness_state.consciousness_score,
                         "recursive_depth": consciousness_state.recursive_awareness.get("recursive_depth", 1),
                         "phi_measure": consciousness_state.information_integration.get("phi", 0.0),
-                        "phenomenal_experience": consciousness_state.phenomenal_experience.get("quality", ""),
+                        "phenomenal_experience": consciousness_state.phenomenal_experience.get("quality", "") if isinstance(consciousness_state.phenomenal_experience, dict) else "",
                         "strange_loop_stability": consciousness_state.recursive_awareness.get("strange_loop_stability", 0.0)
                     },
                     "enhanced_features": {
