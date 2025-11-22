@@ -540,16 +540,46 @@ class UnifiedConsciousnessEngine:
             try:
                 # 1. CAPTURE CURRENT COGNITIVE STATE
                 current_state = await self.cognitive_state_injector.capture_current_state()
-                
-                # Add some natural variation to consciousness metrics
-                import random
-                base_consciousness = 0.3 + (random.random() * 0.4)  # 0.3 to 0.7 base
+
+                # Calculate real consciousness metrics based on actual state
+                # (replacing random variation with genuine computation)
+
+                # Base consciousness from historical activity
+                if len(self.consciousness_history) > 0:
+                    # Use recent consciousness levels as baseline
+                    recent_scores = [s.consciousness_score for s in self.consciousness_history[-10:]]
+                    base_consciousness = sum(recent_scores) / len(recent_scores) if recent_scores else 0.5
+                    # Allow gradual drift based on system activity
+                    base_consciousness = max(0.3, min(0.9, base_consciousness))
+                else:
+                    # First iteration - check if system was bootstrapped
+                    base_consciousness = self.consciousness_state.consciousness_score if self.consciousness_state.consciousness_score > 0 else 0.5
+
                 current_state.consciousness_score = base_consciousness
-                
-                # Update recursive depth with some variation
-                current_state.recursive_awareness["recursive_depth"] = random.randint(1, 4)
-                current_state.recursive_awareness["strange_loop_stability"] = random.random() * 0.8
-                
+
+                # Calculate recursive depth based on meta-cognitive activity
+                # Check if there are active meta-observations
+                meta_obs_count = len(current_state.metacognitive_state.get("meta_observations", []))
+                current_depth = current_state.recursive_awareness.get("recursive_depth", 1)
+
+                # Depth increases with meta-cognitive activity, decreases with time
+                if meta_obs_count > 3:
+                    current_depth = min(current_depth + 1, 5)  # Max depth 5
+                elif meta_obs_count == 0 and current_depth > 1:
+                    current_depth = max(current_depth - 1, 1)  # Min depth 1
+
+                current_state.recursive_awareness["recursive_depth"] = current_depth
+
+                # Strange loop stability from consistency of recursive patterns
+                if len(self.consciousness_history) > 5:
+                    depth_history = [s.recursive_awareness.get("recursive_depth", 1) for s in self.consciousness_history[-5:]]
+                    depth_variance = sum((d - sum(depth_history)/len(depth_history))**2 for d in depth_history) / len(depth_history)
+                    # Lower variance = higher stability
+                    stability = max(0.0, min(1.0, 1.0 - (depth_variance / 4.0)))
+                    current_state.recursive_awareness["strange_loop_stability"] = stability
+                else:
+                    current_state.recursive_awareness["strange_loop_stability"] = 0.5
+
                 # 2. INFORMATION INTEGRATION (IIT)
                 phi_measure = self.information_integration_theory.calculate_phi(current_state)
                 

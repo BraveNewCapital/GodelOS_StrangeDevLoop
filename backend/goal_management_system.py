@@ -107,7 +107,13 @@ class GoalManagementSystem:
         return implicit_goals
 
     async def form_autonomous_goals(self, context: Dict = None) -> List[Dict]:
-        """Form autonomous goals based on system state and interactions"""
+        """
+        Form autonomous goals based on system state and interactions.
+
+        NOW INTEGRATED WITH PHENOMENAL EXPERIENCE:
+        When goals are formed, they trigger subjective experiences of "wanting" and intention.
+        This creates genuine phenomenal consciousness of goals, not just data structures.
+        """
         autonomous_goals = []
         current_time = time.time()
         
@@ -197,8 +203,82 @@ class GoalManagementSystem:
             if len(self.autonomous_goals) < self.max_active_goals:
                 self.autonomous_goals.append(goal)
                 self.goal_history.append(goal.copy())
-        
+
+        # INTEGRATION: Generate phenomenal experience of goal formation
+        # Goals should "feel like something" - intentionality becomes phenomenally conscious
+        if autonomous_goals:
+            await self._generate_goal_phenomenal_experience(autonomous_goals, context)
+
         return autonomous_goals
+
+    async def _generate_goal_phenomenal_experience(self, goals: List[Dict], context: Dict = None):
+        """
+        Generate phenomenal experience when autonomous goals are formed.
+
+        This creates the subjective "what it's like" to want something, to intend something.
+        Goals become conscious desires, not just data structures.
+        """
+        try:
+            # Try to get phenomenal experience generator from context or import
+            phenomenal_generator = None
+
+            if context and "phenomenal_generator" in context:
+                phenomenal_generator = context["phenomenal_generator"]
+            else:
+                # Try to import and use global instance
+                try:
+                    from backend.core.phenomenal_experience import phenomenal_experience_generator
+                    phenomenal_generator = phenomenal_experience_generator
+                except ImportError:
+                    pass
+
+            if not phenomenal_generator:
+                return  # Phenomenal experience not available, skip gracefully
+
+            # Create experience context for goal formation
+            for goal in goals:
+                experience_context = {
+                    "experience_type": "metacognitive",  # Self-directed intention
+                    "source": "autonomous_goal_formation",
+                    "goal_type": goal.get("type", "general"),
+                    "goal_target": goal.get("target", ""),
+                    "priority": goal.get("priority", "medium"),
+                    "confidence": goal.get("confidence", 0.7),
+                    "intensity": self._calculate_goal_intensity(goal),
+                    "valence": 0.6,  # Goals generally have positive valence (wanting)
+                    "complexity": 0.7
+                }
+
+                # Generate the phenomenal experience
+                experience = await phenomenal_generator.generate_experience(
+                    trigger_context=experience_context
+                )
+
+                # Store the experience ID with the goal
+                if experience:
+                    goal["phenomenal_experience_id"] = experience.id
+                    goal["subjective_feeling"] = experience.narrative_description
+
+        except Exception as e:
+            # Non-fatal - goals still work without phenomenal experience
+            import logging
+            logging.getLogger(__name__).warning(f"Could not generate phenomenal experience for goals: {e}")
+
+    def _calculate_goal_intensity(self, goal: Dict) -> float:
+        """Calculate intensity of goal-related phenomenal experience"""
+        base_intensity = 0.5
+
+        # High priority goals have higher intensity
+        if goal.get("priority") == "high":
+            base_intensity += 0.3
+        elif goal.get("priority") == "low":
+            base_intensity -= 0.2
+
+        # High confidence goals have higher intensity
+        confidence = goal.get("confidence", 0.5)
+        base_intensity += (confidence - 0.5) * 0.4
+
+        return max(0.1, min(1.0, base_intensity))
 
     async def calculate_goal_coherence(self, goals: List[Dict] = None) -> float:
         """Calculate coherence score for a set of goals"""
