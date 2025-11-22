@@ -16,6 +16,13 @@ import sys
 import time
 from datetime import datetime
 
+# Backend imports - moved to top for better organization
+from backend.core.consciousness_engine import ConsciousnessEngine
+from backend.core.unified_consciousness_engine import UnifiedConsciousnessEngine
+from backend.goal_management_system import GoalManagementSystem
+from backend.core.metacognitive_monitor import MetaCognitiveMonitor
+from backend.core.knowledge_graph_evolution import KnowledgeGraphEvolution
+
 # Add project to path
 sys.path.insert(0, '/workspace/GodelOS')
 
@@ -31,8 +38,6 @@ async def demo_1_bootstrap():
     print("│ Demonstrating the system waking up from unconscious to conscious          │")
     print("└" + "─" * 78 + "┘")
     print()
-
-    from backend.core.consciousness_engine import ConsciousnessEngine
 
     print("Creating consciousness engine...")
     engine = ConsciousnessEngine()
@@ -72,8 +77,6 @@ async def demo_2_real_computation():
     print("└" + "─" * 78 + "┘")
     print()
 
-    from backend.core.unified_consciousness_engine import UnifiedConsciousnessEngine
-
     print("Creating unified consciousness engine...")
     engine = UnifiedConsciousnessEngine()
     await engine.initialize_components()
@@ -107,8 +110,6 @@ async def demo_3_conscious_query():
     print("│ Processing queries with full recursive self-awareness                     │")
     print("└" + "─" * 78 + "┘")
     print()
-
-    from backend.core.unified_consciousness_engine import UnifiedConsciousnessEngine
 
     print("Setting up consciousness engine for query processing...")
     engine = UnifiedConsciousnessEngine()
@@ -154,8 +155,6 @@ async def demo_4_goals_phenomenal():
     print("│ Goals creating conscious 'wanting' experiences (intentionality + qualia)  │")
     print("└" + "─" * 78 + "┘")
     print()
-
-    from backend.goal_management_system import GoalManagementSystem
 
     print("Creating goal management system...")
     goal_system = GoalManagementSystem()
@@ -206,8 +205,6 @@ async def demo_5_metacognition_depth():
     print("└" + "─" * 78 + "┘")
     print()
 
-    from backend.core.metacognitive_monitor import MetaCognitiveMonitor
-
     print("Creating metacognitive monitor...")
     monitor = MetaCognitiveMonitor()
 
@@ -247,8 +244,6 @@ async def demo_6_knowledge_graph_insights():
     print("│ Emergent patterns generating conscious 'aha!' moment experiences          │")
     print("└" + "─" * 78 + "┘")
     print()
-
-    from backend.core.knowledge_graph_evolution import KnowledgeGraphEvolution
 
     print("Creating knowledge graph...")
     kg = KnowledgeGraphEvolution()
