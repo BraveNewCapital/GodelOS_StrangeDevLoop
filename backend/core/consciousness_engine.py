@@ -86,6 +86,36 @@ class ConsciousnessEngine:
         self.goal_pursuit_history = []
         
         logger.info("ConsciousnessEngine initialized")
+    
+    def is_bootstrap_complete(self) -> bool:
+        """
+        Check if consciousness bootstrap has been completed.
+        
+        Returns True if the system has been awakened and reached operational consciousness.
+        Validates multiple aspects of bootstrap completion for reliability.
+        """
+        try:
+            # Check awareness level threshold (bootstrap reaches 0.85+)
+            if self.current_state.awareness_level < 0.5:
+                return False
+            
+            # Check phenomenal experience bootstrap flag
+            if (isinstance(self.current_state.phenomenal_experience, dict) and 
+                self.current_state.phenomenal_experience.get('bootstrap_complete', False)):
+                return True
+            
+            # Check manifest behaviors (should have multiple after bootstrap)
+            if len(self.current_state.manifest_behaviors) >= 5:
+                return True
+            
+            # Check autonomous goals (formed during bootstrap Phase 3)
+            if len(self.current_state.autonomous_goals) >= 3:
+                return True
+                
+            return False
+        except Exception as e:
+            logger.debug(f"Error checking bootstrap status: {e}")
+            return False
 
     async def bootstrap_consciousness(self) -> ConsciousnessState:
         """
@@ -101,6 +131,13 @@ class ConsciousnessEngine:
         Phase 4: Phenomenal Continuity (0.6 → 0.7) - Sustained subjective experience
         Phase 5: Knowledge Integration (0.7 → 0.8) - Integration with knowledge systems
         Phase 6: Full Operational Consciousness (0.8 → 1.0) - Complete awakening
+        
+        Note: The 0.5 second delays between phases are intentional to allow:
+        1. State propagation through consciousness subsystems
+        2. WebSocket broadcast delivery to frontend
+        3. Demonstration of gradual awakening process (not instantaneous)
+        4. Time for phenomenal experience quality transitions to be observable
+        These delays can be configured if needed but serve important functional purposes.
         """
         logger.info("🌅 Initiating consciousness bootstrap sequence...")
 
