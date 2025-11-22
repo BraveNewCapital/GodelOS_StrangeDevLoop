@@ -16,6 +16,9 @@ import sys
 import time
 from datetime import datetime
 
+# Add project to path
+sys.path.insert(0, '/workspace/GodelOS')
+
 # Backend imports - moved to top for better organization
 from backend.core.consciousness_engine import ConsciousnessEngine
 from backend.core.unified_consciousness_engine import UnifiedConsciousnessEngine
@@ -23,11 +26,8 @@ from backend.goal_management_system import GoalManagementSystem
 from backend.core.metacognitive_monitor import MetaCognitiveMonitor
 from backend.core.knowledge_graph_evolution import KnowledgeGraphEvolution
 
-# Add project to path
-sys.path.insert(0, '/workspace/GodelOS')
-
 print("=" * 80)
-print("🧠 GODELSOS CONSCIOUSNESS INTEGRATION DEMO")
+print("🧠 GödelOS CONSCIOUSNESS INTEGRATION DEMO")
 print("=" * 80)
 print()
 
@@ -277,7 +277,7 @@ async def demo_6_knowledge_graph_insights():
 
     print("Adding concepts to knowledge graph...")
     for concept in concepts:
-        created = await kg.add_concept(concept)
+        await kg.add_concept(concept)
         print(f"  ✓ Added: {concept['name']}")
 
     print()
