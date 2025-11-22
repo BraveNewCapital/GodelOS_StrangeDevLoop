@@ -441,7 +441,9 @@ async def initialize_core_services():
                     ce = cognitive_manager.consciousness_engine
                     # Check if bootstrap already completed to avoid duplicate calls
                     bootstrap_done = False
-                    if hasattr(ce, 'current_state') and hasattr(ce.current_state, 'phenomenal_experience'):
+                    if (hasattr(ce, 'current_state') and 
+                        hasattr(ce.current_state, 'phenomenal_experience') and 
+                        ce.current_state.phenomenal_experience):
                         bootstrap_done = ce.current_state.phenomenal_experience.get('bootstrap_complete', False)
                     
                     if not bootstrap_done:
