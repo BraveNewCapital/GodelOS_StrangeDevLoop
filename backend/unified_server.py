@@ -372,17 +372,15 @@ def is_consciousness_bootstrap_complete(cognitive_manager) -> bool:
     Returns:
         bool: True if bootstrap is complete, False otherwise
     """
+    # Check if cognitive_manager and its consciousness_engine exist and are not None
     if not cognitive_manager or not hasattr(cognitive_manager, 'consciousness_engine'):
         return False
     
     ce = cognitive_manager.consciousness_engine
-    if not ce:
+    if not ce or not hasattr(ce, "current_state") or not hasattr(ce.current_state, "phenomenal_experience"):
         return False
-        
-    if hasattr(ce, "current_state") and hasattr(ce.current_state, "phenomenal_experience"):
-        return ce.current_state.phenomenal_experience.get("bootstrap_complete", False)
     
-    return False
+    return ce.current_state.phenomenal_experience.get("bootstrap_complete", False)
 
 async def initialize_core_services():
     """Initialize core services with proper error handling."""
@@ -511,8 +509,9 @@ async def initialize_core_services():
                 # Check if bootstrap was already completed
                 if not is_consciousness_bootstrap_complete(cognitive_manager):
                     # Check if system needs bootstrapping based on awareness level
-                    if unified_consciousness_engine.cognitive_state_injector:
-                        bootstrap_state = await unified_consciousness_engine.cognitive_state_injector.capture_current_state()
+                    state_injector = unified_consciousness_engine.cognitive_state_injector
+                    if state_injector:
+                        bootstrap_state = await state_injector.capture_current_state()
                         if hasattr(bootstrap_state, 'awareness_level') and bootstrap_state.awareness_level < 0.5:
                             # System needs bootstrapping
                             logger.info("Consciousness needs bootstrap - initiating awakening sequence")
