@@ -83,6 +83,17 @@ class KnowledgeGap:
     confidence: float = 1.0
 
 
+async def _safe_transparency_log(log_method_name: str, *args, **kwargs):
+    """Safely log to transparency engine if available"""
+    if transparency_engine:
+        try:
+            log_method = getattr(transparency_engine, log_method_name, None)
+            if log_method:
+                await log_method(*args, **kwargs)
+        except Exception as e:
+            logger.debug(f"Transparency logging skipped ({log_method_name}): {e}")
+
+
 class CognitiveManager:
     """
     Central orchestrator for all cognitive processes in GodelOS.
@@ -1180,7 +1191,7 @@ class CognitiveManager:
         consciousness_state = await self.consciousness_engine.assess_consciousness_state(context)
         
         # Log transparency event
-        await transparency_engine.log_consciousness_assessment(
+        await _safe_transparency_log("log_consciousness_assessment", 
             assessment_data={
                 "awareness_level": consciousness_state.awareness_level,
                 "self_reflection_depth": consciousness_state.self_reflection_depth,
@@ -1201,8 +1212,8 @@ class CognitiveManager:
         """Generate autonomous goals based on current consciousness state"""
         goals = await self.consciousness_engine.initiate_autonomous_goal_generation(context)
         
-        # Log transparency event
-        await transparency_engine.log_autonomous_goal_creation(
+        # Log transparency event (if transparency engine is available)
+        await _safe_transparency_log("log_autonomous_goal_creation", 
             goals=goals,
             context={"input_context": context, "consciousness_driven": True},
             reasoning="Autonomous goal generation based on current consciousness state and identified learning opportunities"
@@ -1243,7 +1254,7 @@ class CognitiveManager:
             meta_state = await metacognitive_monitor.initiate_self_monitoring(context)
             
             # Log transparency event
-            await transparency_engine.log_meta_cognitive_reflection(
+            await _safe_transparency_log("log_meta_cognitive_reflection", 
                 reflection_data={
                     "self_awareness_level": meta_state.self_awareness_level,
                     "reflection_depth": meta_state.reflection_depth,
@@ -1269,7 +1280,7 @@ class CognitiveManager:
             analysis = await metacognitive_monitor.perform_meta_cognitive_analysis(query, context)
             
             # Log transparency event for meta-cognitive analysis
-            await transparency_engine.log_meta_cognitive_reflection(
+            await _safe_transparency_log("log_meta_cognitive_reflection", 
                 reflection_data=analysis,
                 depth=analysis.get("self_reference_depth", 1),
                 reasoning="Deep meta-cognitive analysis performed on query and cognitive processes"
@@ -1286,7 +1297,7 @@ class CognitiveManager:
             assessment = await metacognitive_monitor.assess_self_awareness()
             
             # Log transparency event
-            await transparency_engine.log_meta_cognitive_reflection(
+            await _safe_transparency_log("log_meta_cognitive_reflection", 
                 reflection_data=assessment,
                 depth=3,  # Self-awareness assessment is deep reflection
                 reasoning="Comprehensive self-awareness assessment conducted"
@@ -1312,7 +1323,7 @@ class CognitiveManager:
             gaps = await autonomous_learning_system.analyze_knowledge_gaps(context or {})
             
             # Log transparency event
-            await transparency_engine.log_knowledge_integration(
+            await _safe_transparency_log("log_knowledge_integration", 
                 domains=list(set([gap.domain.value for gap in gaps])),
                 connections=len(gaps),
                 novel_insights=[gap.gap_description for gap in gaps[:3]],
@@ -1351,7 +1362,7 @@ class CognitiveManager:
             )
             
             # Log transparency event
-            await transparency_engine.log_autonomous_goal_creation(
+            await _safe_transparency_log("log_autonomous_goal_creation", 
                 goals=[goal.description for goal in goals],
                 context={
                     "focus_domains": focus_domains,
@@ -1477,7 +1488,7 @@ class CognitiveManager:
             )
             
             # Log transparency event
-            await transparency_engine.log_cognitive_event(
+            await _safe_transparency_log("log_cognitive_event", 
                 event_type="knowledge_graph_evolution",
                 content=f"Knowledge graph evolved due to {trigger}",
                 metadata={
@@ -1505,7 +1516,7 @@ class CognitiveManager:
             )
             
             # Log transparency event
-            await transparency_engine.log_cognitive_event(
+            await _safe_transparency_log("log_cognitive_event", 
                 event_type="concept_addition",
                 content=f"New concept added: {concept.name}",
                 metadata={
@@ -1571,7 +1582,7 @@ class CognitiveManager:
             )
             
             # Log transparency event
-            await transparency_engine.log_cognitive_event(
+            await _safe_transparency_log("log_cognitive_event", 
                 event_type="relationship_creation",
                 content=f"Relationship created: {source_concept} -> {target_concept} ({relationship_type})",
                 metadata={
@@ -1626,7 +1637,7 @@ class CognitiveManager:
             patterns = await knowledge_graph_evolution.detect_emergent_patterns()
             
             # Log transparency event
-            await transparency_engine.log_cognitive_event(
+            await _safe_transparency_log("log_cognitive_event", 
                 event_type="pattern_detection",
                 content=f"Detected {len(patterns)} emergent patterns in knowledge graph",
                 metadata={
@@ -1668,7 +1679,7 @@ class CognitiveManager:
             )
             
             # Log transparency event
-            await transparency_engine.log_cognitive_event(
+            await _safe_transparency_log("log_cognitive_event", 
                 event_type="neighborhood_analysis",
                 content=f"Analyzed neighborhood for concept {concept_id} at depth {depth}",
                 metadata={
@@ -1753,7 +1764,7 @@ class CognitiveManager:
             })
             
             # Log integrated cognitive event
-            await transparency_engine.log_cognitive_event(
+            await _safe_transparency_log("log_cognitive_event", 
                 event_type="integrated_kg_pe_evolution",
                 content=f"Knowledge graph evolution '{trigger}' triggered phenomenal experience '{experience_type}'",
                 metadata={
@@ -1852,7 +1863,7 @@ class CognitiveManager:
                 })
             
             # Log integrated cognitive event
-            await transparency_engine.log_cognitive_event(
+            await _safe_transparency_log("log_cognitive_event", 
                 event_type="integrated_pe_kg_evolution",
                 content=f"Phenomenal experience '{experience_type}' triggered knowledge graph evolution '{kg_trigger}'",
                 metadata={
@@ -1940,7 +1951,7 @@ class CognitiveManager:
             coherence_score = successful_steps / len(loop_results) if loop_results else 0
             
             # Log cognitive loop completion
-            await transparency_engine.log_cognitive_event(
+            await _safe_transparency_log("log_cognitive_event", 
                 event_type="cognitive_loop_completion",
                 content=f"Completed cognitive loop with {successful_steps}/{len(loop_results)} successful integrations",
                 metadata={
