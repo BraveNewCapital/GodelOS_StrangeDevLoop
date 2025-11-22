@@ -88,7 +88,7 @@ async def _safe_transparency_log(log_method_name: str, *args, **kwargs):
     if transparency_engine:
         try:
             log_method = getattr(transparency_engine, log_method_name, None)
-            if log_method and callable(log_method):
+            if log_method:
                 await log_method(*args, **kwargs)
         except TypeError as e:
             logger.debug(f"Transparency logging skipped ({log_method_name}): method not awaitable - {e}")
