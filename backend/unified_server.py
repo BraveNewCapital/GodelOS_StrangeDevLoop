@@ -376,6 +376,9 @@ def is_consciousness_bootstrap_complete(cognitive_manager) -> bool:
         return False
     
     ce = cognitive_manager.consciousness_engine
+    if not ce:
+        return False
+        
     if hasattr(ce, "current_state") and hasattr(ce.current_state, "phenomenal_experience"):
         return ce.current_state.phenomenal_experience.get("bootstrap_complete", False)
     
@@ -508,17 +511,20 @@ async def initialize_core_services():
                 # Check if bootstrap was already completed
                 if not is_consciousness_bootstrap_complete(cognitive_manager):
                     # Check if system needs bootstrapping based on awareness level
-                    bootstrap_state = await unified_consciousness_engine.cognitive_state_injector.capture_current_state()
-                    if hasattr(bootstrap_state, 'awareness_level') and bootstrap_state.awareness_level < 0.5:
-                        # System needs bootstrapping
-                        logger.info("Consciousness needs bootstrap - initiating awakening sequence")
-                        if cognitive_manager and hasattr(cognitive_manager, 'consciousness_engine'):
-                            await cognitive_manager.consciousness_engine.bootstrap_consciousness()
-                            logger.info("✅ Consciousness bootstrapped successfully via cognitive manager")
+                    if unified_consciousness_engine.cognitive_state_injector:
+                        bootstrap_state = await unified_consciousness_engine.cognitive_state_injector.capture_current_state()
+                        if hasattr(bootstrap_state, 'awareness_level') and bootstrap_state.awareness_level < 0.5:
+                            # System needs bootstrapping
+                            logger.info("Consciousness needs bootstrap - initiating awakening sequence")
+                            if cognitive_manager and hasattr(cognitive_manager, 'consciousness_engine'):
+                                await cognitive_manager.consciousness_engine.bootstrap_consciousness()
+                                logger.info("✅ Consciousness bootstrapped successfully via cognitive manager")
+                            else:
+                                logger.warning("⚠️ Cognitive manager not available for bootstrap, consciousness will self-organize")
                         else:
-                            logger.warning("⚠️ Cognitive manager not available for bootstrap, consciousness will self-organize")
+                            logger.info(f"Consciousness already active (level: {bootstrap_state.awareness_level:.2f})")
                     else:
-                        logger.info(f"Consciousness already active (level: {bootstrap_state.awareness_level:.2f})")
+                        logger.warning("⚠️ Cognitive state injector not available, skipping awareness level check")
                 else:
                     logger.info("🟡 Consciousness bootstrap already completed; skipping duplicate check.")
             except Exception as bootstrap_error:
