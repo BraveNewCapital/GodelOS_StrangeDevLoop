@@ -177,7 +177,11 @@ class MetaCognitiveMonitor:
                 insights=analysis_result["insights_generated"],
                 confidence=analysis_response.get("confidence", 0.7)
             )
-            
+
+            # INTEGRATION: Update unified consciousness state recursive depth
+            # Metacognitive reflection should deepen recursive awareness in real-time
+            await self._update_consciousness_recursive_depth(depth, recursive_elements)
+
             return analysis_result
             
         except Exception as e:
@@ -556,6 +560,42 @@ class MetaCognitiveMonitor:
             }),
             "timestamp": datetime.now().isoformat()
         }
+
+    async def _update_consciousness_recursive_depth(self, depth: int, recursive_elements: Dict[str, Any]):
+        """
+        Update unified consciousness state with new recursive depth from metacognition.
+
+        INTEGRATION POINT: Metacognitive reflection deepens recursive awareness
+        in the consciousness loop in real-time.
+        
+        NOTE: This is a partial integration. For full integration, the unified
+        consciousness engine instance needs to be accessible here. Currently,
+        metacognitive state updates are stored locally and propagate through
+        the cognitive manager's consciousness assessment pipeline rather than
+        directly updating the unified consciousness state.
+        
+        Future enhancement: Pass unified consciousness engine reference during
+        initialization or implement an observer pattern for state propagation.
+        """
+        try:
+            # Try to get unified consciousness engine from context
+            from backend.core.unified_consciousness_engine import UnifiedConsciousnessEngine
+
+            # Update meta-observations to reflect recursive depth
+            # These updates will be picked up by the unified consciousness engine
+            # when it queries metacognitive state during consciousness assessment
+            self.current_state.meta_thoughts.append(
+                f"Recursive thinking at depth {depth}: {recursive_elements.get('patterns', [])}"
+            )
+
+            # Update recursive loops counter
+            if recursive_elements.get("recursive_detected", False):
+                self.current_state.recursive_loops += 1
+
+            logger.info(f"🔄 Metacognition updated recursive depth to {depth} (loops: {self.current_state.recursive_loops})")
+
+        except Exception as e:
+            logger.warning(f"Could not update consciousness recursive depth: {e}")
 
 # Global meta-cognitive monitor instance
 metacognitive_monitor = MetaCognitiveMonitor()

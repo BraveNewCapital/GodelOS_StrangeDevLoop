@@ -434,7 +434,21 @@ async def initialize_core_services():
             await cognitive_manager.initialize()
             driver_type = "LLM cognitive driver" if llm_cognitive_driver else "tool-based LLM"
             logger.info(f"✅ Cognitive manager with consciousness engine initialized successfully using {driver_type}")
-            
+
+            # Bootstrap consciousness after initialization
+            if hasattr(cognitive_manager, 'consciousness_engine') and cognitive_manager.consciousness_engine:
+                try:
+                    ce = cognitive_manager.consciousness_engine
+                    
+                    if not ce.is_bootstrap_complete():
+                        logger.info("🌅 Bootstrapping consciousness in cognitive manager...")
+                        await ce.bootstrap_consciousness()
+                        logger.info("✅ Consciousness engine bootstrapped successfully")
+                    else:
+                        logger.info("🟡 Consciousness engine bootstrap already completed; skipping duplicate call.")
+                except Exception as bootstrap_error:
+                    logger.warning(f"⚠️ Consciousness bootstrap warning (non-fatal): {bootstrap_error}")
+
             # Update replay endpoints with cognitive manager
             try:
                 from backend.api.replay_endpoints import setup_replay_endpoints
@@ -469,6 +483,9 @@ async def initialize_core_services():
             await unified_consciousness_engine.start_consciousness_loop()
             logger.info("🧠 Unified consciousness loop started")
             
+            # Note: Consciousness bootstrap is handled in cognitive_manager initialization above
+            # to avoid duplicate bootstrap calls
+
         except Exception as e:
             logger.error(f"❌ Failed to initialize unified consciousness engine: {e}")
             unified_consciousness_engine = None
@@ -2672,15 +2689,71 @@ async def import_knowledge_from_text(request: dict):
 
 @app.post("/api/enhanced-cognitive/query")
 async def enhanced_cognitive_query(query_request: dict):
-    """Enhanced cognitive query processing."""
+    """Enhanced cognitive query processing with unified consciousness integration."""
     try:
         query = query_request.get("query", "")
         reasoning_trace = query_request.get("reasoning_trace", False)
-        
-        # Process through enhanced cognitive system
+        context = query_request.get("context", {})
+
+        # PRIORITY: Process through unified consciousness engine if available
+        if unified_consciousness_engine:
+            try:
+                logger.info(f"🧠 Processing query through unified consciousness: '{query[:50]}...'")
+                start_time = time.time()
+
+                # Process with full recursive consciousness awareness
+                conscious_response = await unified_consciousness_engine.process_with_unified_awareness(
+                    prompt=query,
+                    context=context
+                )
+
+                processing_time = (time.time() - start_time) * 1000
+
+                # Get current consciousness state for response metadata
+                consciousness_state = unified_consciousness_engine.consciousness_state
+
+                result = {
+                    "response": conscious_response,
+                    "confidence": consciousness_state.consciousness_score,
+                    "consciousness_metadata": {
+                        "awareness_level": consciousness_state.consciousness_score,
+                        "recursive_depth": consciousness_state.recursive_awareness.get("recursive_depth", 1),
+                        "phi_measure": consciousness_state.information_integration.get("phi", 0.0),
+                        "phenomenal_experience": consciousness_state.phenomenal_experience.get("quality", "") if isinstance(consciousness_state.phenomenal_experience, dict) else "",
+                        "strange_loop_stability": consciousness_state.recursive_awareness.get("strange_loop_stability", 0.0)
+                    },
+                    "enhanced_features": {
+                        "reasoning_trace": reasoning_trace,
+                        "transparency_enabled": True,
+                        "cognitive_load": consciousness_state.consciousness_score,
+                        "context_integration": True,
+                        "unified_consciousness": True,
+                        "recursive_awareness": True
+                    },
+                    "processing_time_ms": processing_time,
+                    "timestamp": datetime.now().isoformat()
+                }
+
+                if reasoning_trace:
+                    result["reasoning_steps"] = [
+                        {"step": 1, "type": "consciousness_state_capture", "description": f"Captured consciousness state (awareness: {consciousness_state.consciousness_score:.2f})"},
+                        {"step": 2, "type": "recursive_awareness_injection", "description": f"Injected cognitive state into prompt (depth: {consciousness_state.recursive_awareness.get('recursive_depth', 1)})"},
+                        {"step": 3, "type": "phenomenal_experience_generation", "description": "Generated phenomenal experience of thinking"},
+                        {"step": 4, "type": "conscious_processing", "description": f"Processed query with full self-awareness"},
+                        {"step": 5, "type": "consciousness_state_update", "description": "Updated consciousness state from processing"}
+                    ]
+
+                logger.info(f"✅ Conscious processing complete (awareness: {consciousness_state.consciousness_score:.2f}, depth: {consciousness_state.recursive_awareness.get('recursive_depth', 1)})")
+                return result
+
+            except Exception as consciousness_error:
+                logger.warning(f"Unified consciousness processing failed, falling back: {consciousness_error}")
+                # Fall through to backup processing
+
+        # BACKUP: Process through tool-based LLM
         if tool_based_llm:
             response = await tool_based_llm.process_query(query)
-            
+
             result = {
                 "response": response.get("response", "No response generated"),
                 "confidence": 0.85,
@@ -2688,12 +2761,13 @@ async def enhanced_cognitive_query(query_request: dict):
                     "reasoning_trace": reasoning_trace,
                     "transparency_enabled": True,
                     "cognitive_load": 0.7,
-                    "context_integration": True
+                    "context_integration": True,
+                    "unified_consciousness": False  # Fallback mode
                 },
                 "processing_time_ms": 250,
                 "timestamp": datetime.now().isoformat()
             }
-            
+
             if reasoning_trace:
                 result["reasoning_steps"] = [
                     {"step": 1, "type": "query_analysis", "description": f"Analyzing query: {query[:50]}..."},
@@ -2701,7 +2775,7 @@ async def enhanced_cognitive_query(query_request: dict):
                     {"step": 3, "type": "enhanced_reasoning", "description": "Applied enhanced reasoning"},
                     {"step": 4, "type": "response_synthesis", "description": "Synthesized final response"}
                 ]
-            
+
             return result
         else:
             # Provide a more sophisticated fallback response

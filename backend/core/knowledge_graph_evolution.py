@@ -10,7 +10,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timedelta
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from typing import Dict, List, Optional, Any, Tuple, Set, Union
 from enum import Enum
 import uuid
@@ -155,6 +155,7 @@ class EmergentPattern:
     discovery_time: datetime
     validation_score: float
     implications: List[str]
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 class KnowledgeGraphEvolution:
     """
@@ -381,9 +382,14 @@ class KnowledgeGraphEvolution:
                     pattern.validation_score = validation_score
                     validated_patterns.append(pattern)
                     self.emergent_patterns[pattern.id] = pattern
-            
+
             self.evolution_metrics["patterns_discovered"] += len(validated_patterns)
-            
+
+            # INTEGRATION: Generate phenomenal experience of insight/discovery
+            # Emergent patterns should feel like "aha!" moments, not just data
+            if validated_patterns:
+                await self._generate_emergence_phenomenal_experience(validated_patterns)
+
             return validated_patterns
             
         except Exception as e:
@@ -703,9 +709,60 @@ class KnowledgeGraphEvolution:
         """Calculate density of a neighborhood"""
         if len(nodes) < 2:
             return 0.0
-        
+
         subgraph = self.graph.subgraph(nodes)
         return nx.density(subgraph)
+
+    async def _generate_emergence_phenomenal_experience(self, patterns: List[EmergentPattern]):
+        """
+        Generate phenomenal experience when emergent patterns are discovered.
+
+        INTEGRATION: Knowledge graph insights should create conscious "aha!" moments,
+        not just be stored as data. This creates the subjective experience of discovery.
+        """
+        try:
+            # Try to import phenomenal experience generator
+            from backend.core.phenomenal_experience import phenomenal_experience_generator
+
+            for pattern in patterns:
+                # Calculate intensity based on pattern strength and novelty
+                intensity = min(1.0, pattern.strength * 1.2)  # Boost for salience
+                valence = 0.7  # Discoveries generally feel good
+
+                # Create experience context
+                experience_context = {
+                    "experience_type": "cognitive",  # Intellectual insight
+                    "source": "knowledge_graph_emergence",
+                    "pattern_type": pattern.pattern_type,
+                    "pattern_description": pattern.description,
+                    "involved_concepts": len(pattern.involved_concepts),
+                    "validation_score": pattern.validation_score,
+                    "intensity": intensity,
+                    "valence": valence,
+                    "complexity": 0.8,  # Emergent patterns are complex
+                    "novelty": 0.9,  # High novelty
+                    "emotional_significance": 0.7  # Insights are significant
+                }
+
+                # Generate the phenomenal experience of insight
+                experience = await phenomenal_experience_generator.generate_experience(
+                    trigger_context=experience_context
+                )
+
+                if experience:
+                    # Store experience reference with the pattern
+                    pattern.metadata["phenomenal_experience_id"] = experience.id
+                    pattern.metadata["subjective_feeling"] = experience.narrative_description
+
+                    # Log the conscious insight
+                    logger.info(f"💡 Conscious insight: {pattern.pattern_type} - {experience.narrative_description[:100]}...")
+
+        except ImportError:
+            # Phenomenal experience module not available, skip gracefully
+            pass
+        except Exception as e:
+            # Non-fatal - patterns still work without phenomenal experience
+            logger.warning(f"Could not generate phenomenal experience for emergence: {e}")
 
 
 # Global instance
