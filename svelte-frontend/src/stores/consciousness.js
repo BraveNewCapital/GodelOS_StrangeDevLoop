@@ -2,6 +2,7 @@
 // Based on GODELOS_UNIFIED_CONSCIOUSNESS_BLUEPRINT.md
 
 import { writable, derived } from 'svelte/store';
+import { WS_BASE_URL } from '../config.js';
 
 // Core consciousness state store
 export const consciousnessStore = writable({
@@ -94,6 +95,16 @@ export const consciousnessStore = writable({
     // Historical data
     consciousness_history: [],
     emergence_timeline: []
+    ,
+    // Bootstrap sequence tracking
+    bootstrap: {
+        in_progress: false,
+        started_at: null,
+        completed_at: null,
+        last_phase: null,
+        awareness_level: 0,
+        events: [] // {phase, awareness_level, timestamp, message}
+    }
 });
 
 // Derived stores for specific aspects of consciousness
@@ -402,6 +413,30 @@ export const consciousnessActions = {
             consciousness_history: [],
             emergence_timeline: []
         });
+    },
+
+    // Record bootstrap progress event
+    recordBootstrapProgress: (payload) => {
+        const { phase, awareness_level = 0, timestamp = Date.now(), message } = payload || {};
+        consciousnessStore.update(state => {
+            const started = state.bootstrap.started_at;
+            const inProgress = true;
+            const events = [...state.bootstrap.events, { phase, awareness_level, timestamp, message }].slice(-100);
+            const completed = (typeof awareness_level === 'number' && awareness_level >= 0.85) ||
+                              (typeof phase === 'string' && /Full Operational/i.test(phase));
+
+            return {
+                ...state,
+                bootstrap: {
+                    in_progress: completed ? false : inProgress,
+                    started_at: started ?? (timestamp || Date.now()),
+                    completed_at: completed ? (timestamp || Date.now()) : state.bootstrap.completed_at,
+                    last_phase: phase || state.bootstrap.last_phase,
+                    awareness_level: typeof awareness_level === 'number' ? awareness_level : state.bootstrap.awareness_level,
+                    events
+                }
+            };
+        });
     }
 };
 
@@ -415,7 +450,7 @@ export class ConsciousnessWebSocketClient {
         this.connected = false;
     }
     
-    connect(url = 'ws://localhost:8000/api/consciousness/stream') {
+    connect(url = `${WS_BASE_URL}/api/consciousness/stream`) {
         try {
             this.ws = new WebSocket(url);
             
@@ -456,9 +491,15 @@ export class ConsciousnessWebSocketClient {
     
     handleMessage(data) {
         switch (data.type) {
-            case 'consciousness_update':
-                consciousnessActions.updateConsciousnessState(data.data);
+            case 'consciousness_update': {
+                // Consciousness updates may carry nested bootstrap events
+                if (data && data.data && data.data.type === 'bootstrap_progress') {
+                    consciousnessActions.recordBootstrapProgress(data.data);
+                } else {
+                    consciousnessActions.updateConsciousnessState(data.data);
+                }
                 break;
+            }
                 
             case 'consciousness_breakthrough':
                 consciousnessActions.recordBreakthrough(data.data);

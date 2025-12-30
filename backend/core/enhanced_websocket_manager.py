@@ -70,6 +70,13 @@ class ConsciousnessStreamManager:
         self.emergence_clients.discard(websocket)
         logger.info(f"Emergence client unregistered. Total: {len(self.emergence_clients)}")
     
+    def has_connections(self) -> bool:
+        """Return True if there are any connected consciousness clients."""
+        try:
+            return bool(self.consciousness_clients)
+        except Exception:
+            return False
+    
     async def broadcast_consciousness_update(self, consciousness_data: Dict[str, Any]):
         """Broadcast unified consciousness state to all connected clients"""
         if not self.consciousness_clients:
@@ -563,6 +570,13 @@ class EnhancedWebSocketManager(WebSocketManager):
             **base_stats,
             'consciousness': consciousness_stats
         }
+
+    def has_connections(self) -> bool:
+        """Expose whether any consciousness clients are connected."""
+        try:
+            return self.consciousness_stream.has_connections()
+        except Exception:
+            return False
 
 # Export classes
 __all__ = ['ConsciousnessStreamManager', 'EnhancedWebSocketManager']

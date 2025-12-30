@@ -25,12 +25,17 @@ FRONTEND_TYPE=${GODELOS_FRONTEND_TYPE:-auto}
 
 # Directories
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BACKEND_DIR="$SCRIPT_DIR/backend"
-FRONTEND_DIR="$SCRIPT_DIR/svelte-frontend"
-LOGS_DIR="$SCRIPT_DIR/logs"
+# Resolve repo root whether this script lives at repo root or in scripts/
+if [ -d "$SCRIPT_DIR/../backend" ] && [ -d "$SCRIPT_DIR/../svelte-frontend" ]; then
+    ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+else
+    ROOT_DIR="$SCRIPT_DIR"
+fi
+BACKEND_DIR="$ROOT_DIR/backend"
+FRONTEND_DIR="$ROOT_DIR/svelte-frontend"
+LOGS_DIR="$ROOT_DIR/logs"
 
 # Auto-detect frontend type
-FRONTEND_DIR=""
 DETECTED_FRONTEND_TYPE=""
 
 # PID storage
@@ -114,10 +119,12 @@ command_exists() {
 # Detect and set frontend type
 detect_frontend() {
     # Default to Svelte frontend as per project structure
-    if [ -d "$FRONTEND_DIR" ] && [ -f "$FRONTEND_DIR/package.json" ]; then
+    local candidate_dir="$ROOT_DIR/svelte-frontend"
+    if [ -d "$candidate_dir" ] && [ -f "$candidate_dir/package.json" ]; then
+        FRONTEND_DIR="$candidate_dir"
         DETECTED_FRONTEND_TYPE="svelte"
     else
-        log_error "Svelte frontend not found at $FRONTEND_DIR"
+        log_error "Svelte frontend not found at $candidate_dir"
         exit 1
     fi
 }
@@ -168,8 +175,8 @@ setup_directories() {
     mkdir -p "$LOGS_DIR"
     mkdir -p "$BACKEND_DIR/logs"
     mkdir -p "$BACKEND_DIR/storage"
-    mkdir -p "$SCRIPT_DIR/knowledge_storage"
-    mkdir -p "$SCRIPT_DIR/meta_knowledge_store"
+    mkdir -p "$ROOT_DIR/knowledge_storage"
+    mkdir -p "$ROOT_DIR/meta_knowledge_store"
     log_success "Directories created"
 }
 
@@ -239,10 +246,10 @@ install_dependencies() {
     detect_frontend
     
     # Backend dependencies - create/use godelos_venv as mentioned by user
-    local venv_path="$SCRIPT_DIR/godelos_venv"
+    local venv_path="$ROOT_DIR/godelos_venv"
     if [ ! -d "$venv_path" ] && [ -z "$VIRTUAL_ENV" ]; then
         log_step "Creating godelos_venv Python virtual environment..."
-        cd "$SCRIPT_DIR"
+        cd "$ROOT_DIR"
         python3 -m venv godelos_venv
         source godelos_venv/bin/activate
         pip install --upgrade pip setuptools wheel
@@ -270,7 +277,7 @@ install_dependencies() {
     local requirements_installed=false
     
     # Ensure we're using the right virtual environment
-    local venv_path="$SCRIPT_DIR/godelos_venv"
+    local venv_path="$ROOT_DIR/godelos_venv"
     if [ -d "$venv_path" ] && [ -z "$VIRTUAL_ENV" ]; then
         log_step "Activating godelos_venv for dependency installation..."
         source "$venv_path/bin/activate"
@@ -287,9 +294,9 @@ install_dependencies() {
     fi
     
     # Then install comprehensive requirements from root
-    if [ -f "$SCRIPT_DIR/requirements.txt" ]; then
+    if [ -f "$ROOT_DIR/requirements.txt" ]; then
         log_step "Installing comprehensive Python dependencies..."
-        pip install -r "$SCRIPT_DIR/requirements.txt" --disable-pip-version-check || true
+        pip install -r "$ROOT_DIR/requirements.txt" --disable-pip-version-check || true
         requirements_installed=true
         log_success "Root requirements installed"
     fi
@@ -431,20 +438,20 @@ cache_models() {
     log_step "Checking ML model cache..."
     
     # Ensure we're in the right virtual environment
-    local venv_path="$SCRIPT_DIR/godelos_venv"
+    local venv_path="$ROOT_DIR/godelos_venv"
     if [ -d "$venv_path" ] && [ -z "$VIRTUAL_ENV" ]; then
         log_info "Activating virtual environment..."
         source "$venv_path/bin/activate"
     fi
     
     # Check if cache_models.py script exists
-    if [ ! -f "$SCRIPT_DIR/scripts/cache_models.py" ]; then
+    if [ ! -f "$ROOT_DIR/scripts/cache_models.py" ]; then
         log_warning "Model caching script not found - skipping cache check"
         return 0
     fi
     
     # Check if models are already cached
-    local cache_dir="$SCRIPT_DIR/data/vector_db/model_cache"
+    local cache_dir="$ROOT_DIR/data/vector_db/model_cache"
     if [ -d "$cache_dir" ] && [ "$(ls -A "$cache_dir" 2>/dev/null | wc -l)" -gt 2 ]; then
         log_info "ML models already cached - skipping download"
         return 0
@@ -454,7 +461,7 @@ cache_models() {
     log_info "This may take a few minutes on first run..."
     
     # Run the caching script
-    if python3 "$SCRIPT_DIR/scripts/cache_models.py"; then
+    if python3 "$ROOT_DIR/scripts/cache_models.py"; then
         log_success "ML models cached successfully"
     else
         log_warning "Model caching failed - models will be downloaded on demand"
@@ -502,7 +509,7 @@ start_backend() {
     cd "$BACKEND_DIR"
     
     # Activate virtual environment if it exists (prefer godelos_venv)
-    local venv_path="$SCRIPT_DIR/godelos_venv"
+    local venv_path="$ROOT_DIR/godelos_venv"
     if [ -d "$venv_path" ] && [ -z "$VIRTUAL_ENV" ]; then
         log_step "Using godelos_venv for backend startup..."
         source "$venv_path/bin/activate"
@@ -520,7 +527,7 @@ start_backend() {
         # Test again
         if ! python3 -c "from transformers import pipeline; print('✅ transformers.pipeline fixed')" 2>/dev/null; then
             log_error "transformers.pipeline still not working - ML features may be limited"
-        else:
+        else
             log_success "transformers.pipeline dependency fixed"
         fi
     fi
@@ -538,7 +545,7 @@ start_backend() {
     
     echo $BACKEND_PID > "$LOGS_DIR/backend.pid"
     
-    cd "$SCRIPT_DIR"
+    cd "$ROOT_DIR"
     
     # Wait for backend to start with sophisticated health checking
     log_step "Waiting for backend initialization..."
@@ -661,7 +668,7 @@ start_frontend() {
     
     echo $FRONTEND_PID > "$LOGS_DIR/frontend.pid"
     
-    cd "$SCRIPT_DIR"
+    cd "$ROOT_DIR"
     
     # Wait for frontend to start
     local attempts=0
@@ -857,16 +864,16 @@ main() {
             install_dependencies
         fi
         
-        if [ -f "$SCRIPT_DIR/test_transformers_fix.py" ]; then
+        if [ -f "$ROOT_DIR/test_transformers_fix.py" ]; then
             # Ensure we use the right virtual environment for testing
-            local venv_path="$SCRIPT_DIR/godelos_venv"
+            local venv_path="$ROOT_DIR/godelos_venv"
             if [ -d "$venv_path" ]; then
                 source "$venv_path/bin/activate"
             elif [ -d "$BACKEND_DIR/venv" ]; then
                 source "$BACKEND_DIR/venv/bin/activate" 
             fi
             
-            python3 "$SCRIPT_DIR/test_transformers_fix.py"
+            python3 "$ROOT_DIR/test_transformers_fix.py"
         else
             log_error "Test script not found: test_transformers_fix.py"
             exit 1

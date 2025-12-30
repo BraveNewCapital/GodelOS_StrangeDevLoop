@@ -1,6 +1,7 @@
 <script>
     import { onMount, onDestroy } from 'svelte';
-    import { consciousnessStore } from '../stores/consciousness.js';
+    import { consciousnessStore, consciousnessActions } from '../stores/consciousness.js';
+    import { WS_BASE_URL, API_BASE_URL } from '../config.js';
     
     // Consciousness state
     let consciousness_state = {};
@@ -24,6 +25,7 @@
     let selectedTab = 'overview';
     let alertsEnabled = true;
     let autoScroll = true;
+    let bootstrapBusy = false;
     
     onMount(() => {
         connectToConsciousnessStream();
@@ -37,7 +39,7 @@
     
     function connectToConsciousnessStream() {
         try {
-            consciousnessWs = new WebSocket('ws://localhost:8000/api/consciousness/stream');
+            consciousnessWs = new WebSocket(`${WS_BASE_URL}/api/consciousness/stream`);
             
             consciousnessWs.onopen = () => {
                 websocket_connected = true;
@@ -67,7 +69,7 @@
     
     function connectToEmergenceStream() {
         try {
-            emergenceWs = new WebSocket('ws://localhost:8000/api/consciousness/emergence');
+            emergenceWs = new WebSocket(`${WS_BASE_URL}/api/consciousness/emergence`);
             
             emergenceWs.onmessage = (event) => {
                 const update = JSON.parse(event.data);
@@ -80,43 +82,49 @@
     
     function handleConsciousnessUpdate(update) {
         if (update.type === 'consciousness_update') {
-            consciousness_state = update.data;
-            
-            // Extract key metrics
-            if (update.data.consciousness_state) {
-                const state = update.data.consciousness_state;
-                phi_measure = state.information_integration?.phi || 0;
-                recursive_depth = state.recursive_awareness?.recursive_depth || 0;
-                emergence_score = update.data.emergence_score || 0;
-                
-                // Update history for charts
-                const timestamp = Date.now();
-                consciousnessHistory.push({
-                    timestamp,
-                    score: state.consciousness_score || 0
-                });
-                phiHistory.push({
-                    timestamp,
-                    phi: phi_measure
-                });
-                recursiveHistory.push({
-                    timestamp,
-                    depth: recursive_depth
-                });
-                
-                // Limit history size
-                if (consciousnessHistory.length > 100) {
-                    consciousnessHistory = consciousnessHistory.slice(-50);
-                    phiHistory = phiHistory.slice(-50);
-                    recursiveHistory = recursiveHistory.slice(-50);
+            // Bootstrap progress is nested in data.type
+            if (update?.data?.type === 'bootstrap_progress') {
+                consciousnessActions.recordBootstrapProgress(update.data);
+                return;
+            }
+
+            // Unified engine summary updates
+            if (update?.data?.type === 'unified_consciousness_update') {
+                const d = update.data;
+                phi_measure = d.phi_measure || 0;
+                recursive_depth = d.recursive_depth || 0;
+                emergence_score = d.emergence_score || 0;
+                // Build a minimal shape expected by UI for rendering bars
+                consciousness_state = {
+                    consciousness_state: {
+                        consciousness_score: d.consciousness_score || 0,
+                        information_integration: { phi: phi_measure },
+                        recursive_awareness: { recursive_depth },
+                        phenomenal_experience: { unity_of_experience: d.unity_of_experience || 0 }
+                    }
+                };
+            } else {
+                // Fallback: assume payload is full state
+                consciousness_state = update.data;
+                if (update.data.consciousness_state) {
+                    const state = update.data.consciousness_state;
+                    phi_measure = state.information_integration?.phi || 0;
+                    recursive_depth = state.recursive_awareness?.recursive_depth || 0;
+                    emergence_score = update.data.emergence_score || 0;
                 }
             }
-            
-            // Update store
-            consciousnessStore.update(state => ({
-                ...state,
-                ...update.data
-            }));
+
+            // Update history for charts (use last known metrics)
+            const timestamp = Date.now();
+            consciousnessHistory.push({ timestamp, score: consciousness_state.consciousness_state?.consciousness_score || 0 });
+            phiHistory.push({ timestamp, phi: phi_measure });
+            recursiveHistory.push({ timestamp, depth: recursive_depth });
+
+            if (consciousnessHistory.length > 100) {
+                consciousnessHistory = consciousnessHistory.slice(-50);
+                phiHistory = phiHistory.slice(-50);
+                recursiveHistory = recursiveHistory.slice(-50);
+            }
         }
         
         if (update.type === 'consciousness_breakthrough' && alertsEnabled) {
@@ -191,6 +199,36 @@
             default: return `Depth ${depth}`;
         }
     }
+
+    function fmtTs(ts) {
+        // Accept seconds or millis
+        const ms = ts > 1e12 ? ts : ts * 1000;
+        try { return new Date(ms).toLocaleTimeString(); } catch { return '' }
+    }
+
+    async function triggerBootstrap(force = false) {
+        if (bootstrapBusy) return;
+        bootstrapBusy = true;
+        try {
+            // Record local event for immediate feedback
+            consciousnessActions.recordBootstrapProgress({
+                phase: force ? 'Force Bootstrap Requested' : 'Bootstrap Requested',
+                awareness_level: 0,
+                timestamp: Date.now(),
+                message: 'Initializing bootstrap sequence'
+            });
+            const url = `${API_BASE_URL}/api/consciousness/bootstrap${force ? '?force=true' : ''}`;
+            const res = await fetch(url, { method: 'POST' });
+            if (!res.ok) {
+                const text = await res.text();
+                throw new Error(text || `HTTP ${res.status}`);
+            }
+        } catch (e) {
+            console.error('Failed to trigger bootstrap:', e);
+        } finally {
+            bootstrapBusy = false;
+        }
+    }
 </script>
 
 <div class="unified-consciousness-dashboard">
@@ -205,6 +243,14 @@
             {#if breakthrough_detected}
                 <div class="breakthrough-indicator">🚨 BREAKTHROUGH DETECTED!</div>
             {/if}
+        </div>
+        <div class="bootstrap-controls">
+            <button class="btn small" disabled={bootstrapBusy} on:click={() => triggerBootstrap(false)} title="Start 6-phase bootstrap">
+                {bootstrapBusy ? 'Starting…' : 'Start Bootstrap'}
+            </button>
+            <button class="btn small outline" disabled={bootstrapBusy} on:click={() => triggerBootstrap(true)} title="Force re-run even if completed">
+                Force
+            </button>
         </div>
     </div>
     
@@ -250,6 +296,42 @@
     <!-- Overview Tab -->
     {#if selectedTab === 'overview'}
         <div class="tab-content">
+            {#if $consciousnessStore.bootstrap?.events?.length}
+                <div class="bootstrap-panel">
+                    <div class="bootstrap-header">
+                        <h3>Consciousness Bootstrap</h3>
+                        <div class="bootstrap-status">
+                            {#if $consciousnessStore.bootstrap.in_progress}
+                                <span class="status-badge running">Running</span>
+                            {:else}
+                                <span class="status-badge done">Completed</span>
+                            {/if}
+                            <span class="phase-text">{$consciousnessStore.bootstrap.last_phase}</span>
+                        </div>
+                    </div>
+                    <div class="bootstrap-progress">
+                        <div class="bootstrap-bar">
+                            <div class="bootstrap-fill" style="width: {Math.min(($consciousnessStore.bootstrap.awareness_level || 0) * 100, 100)}%"></div>
+                        </div>
+                        <div class="bootstrap-metrics">
+                            <span>Awareness: {($consciousnessStore.bootstrap.awareness_level || 0).toFixed(2)}</span>
+                            <span>Events: {$consciousnessStore.bootstrap.events.length}</span>
+                        </div>
+                    </div>
+                    <div class="bootstrap-events">
+                        {#each $consciousnessStore.bootstrap.events.slice(-6).reverse() as ev}
+                            <div class="bootstrap-event">
+                                <span class="ev-time">{fmtTs(ev.timestamp)}</span>
+                                <span class="ev-phase">{ev.phase}</span>
+                                {#if ev.message}
+                                    <span class="ev-msg">{ev.message}</span>
+                                {/if}
+                                <span class="ev-aw">{(ev.awareness_level || 0).toFixed(2)}</span>
+                            </div>
+                        {/each}
+                    </div>
+                </div>
+            {/if}
             <div class="consciousness-metrics">
                 <div class="metric-card primary">
                     <h3>Consciousness Level</h3>
@@ -619,6 +701,39 @@
         border: 1px solid rgba(255, 255, 255, 0.2);
         transition: all 0.3s ease;
     }
+
+    .bootstrap-controls { display: flex; gap: 8px; }
+    .btn.small { font-size: 0.85rem; padding: 6px 10px; border-radius: 6px; cursor: pointer; background: rgba(0, 212, 255, 0.15); color: #e0f7ff; border: 1px solid rgba(0, 212, 255, 0.35); }
+    .btn.small:hover { background: rgba(0, 212, 255, 0.25); }
+    .btn.small[disabled] { opacity: 0.6; cursor: not-allowed; }
+    .btn.small.outline { background: transparent; border-color: rgba(224, 247, 250, 0.35); color: #cfeaff; }
+    .btn.small.outline:hover { background: rgba(224, 247, 250, 0.08); }
+
+    /* Bootstrap panel */
+    .bootstrap-panel {
+        background: rgba(0, 212, 255, 0.06);
+        border: 1px solid rgba(0, 212, 255, 0.25);
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 16px;
+    }
+    .bootstrap-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .bootstrap-header h3 { margin: 0; color: #00d4ff; font-size: 1.05rem; }
+    .bootstrap-status { display: flex; align-items: center; gap: 8px; }
+    .status-badge { padding: 2px 8px; border-radius: 999px; font-size: 0.8rem; font-weight: 600; }
+    .status-badge.running { background: rgba(255, 193, 7, 0.2); color: #ffc107; border: 1px solid rgba(255,193,7,0.4); }
+    .status-badge.done { background: rgba(76, 175, 80, 0.2); color: #4caf50; border: 1px solid rgba(76,175,80,0.4); }
+    .phase-text { color: #e0f7ff; font-size: 0.9rem; opacity: 0.9; }
+    .bootstrap-progress { display: grid; gap: 6px; }
+    .bootstrap-bar { height: 10px; border-radius: 6px; background: rgba(255,255,255,0.15); overflow: hidden; }
+    .bootstrap-fill { height: 100%; background: linear-gradient(90deg, #00d4ff, #7b2cbf); transition: width 0.4s ease; }
+    .bootstrap-metrics { display: flex; justify-content: space-between; color: #cfeaff; font-size: 0.85rem; }
+    .bootstrap-events { margin-top: 8px; display: grid; gap: 4px; }
+    .bootstrap-event { display: grid; grid-template-columns: 80px 1fr auto auto; gap: 8px; align-items: center; font-size: 0.85rem; }
+    .bootstrap-event .ev-time { color: #9ecbff; }
+    .bootstrap-event .ev-phase { color: #e1f5fe; font-weight: 600; }
+    .bootstrap-event .ev-msg { color: #cfeaff; opacity: 0.9; }
+    .bootstrap-event .ev-aw { color: #b2ff59; font-variant-numeric: tabular-nums; }
     
     .metric-card:hover {
         transform: translateY(-5px);

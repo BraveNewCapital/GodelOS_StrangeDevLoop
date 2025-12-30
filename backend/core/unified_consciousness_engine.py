@@ -483,6 +483,9 @@ class UnifiedConsciousnessEngine:
         self.information_integration_theory = InformationIntegrationTheory()
         self.websocket_manager = websocket_manager
         self.llm_driver = llm_driver
+        # Demo mode when no LLM is configured
+        self._demo_mode = llm_driver is None
+        self._demo_last_seed = 0.0
         
         # Knowledge graph for relationship building
         self.knowledge_graph = None
@@ -541,6 +544,38 @@ class UnifiedConsciousnessEngine:
                 # 1. CAPTURE CURRENT COGNITIVE STATE
                 current_state = await self.cognitive_state_injector.capture_current_state()
 
+                # DEMO MODE: seed metacognitive activity and phenomenology so depth rises
+                if self._demo_mode:
+                    now = time.time()
+                    # Seed at most once per second
+                    if now - self._demo_last_seed >= 1.0:
+                        meta = current_state.metacognitive_state.setdefault('meta_observations', [])
+                        # Ensure enough observations to drive depth increases
+                        seeds = [
+                            "Noticing the flow of my own thought",
+                            "Recognizing awareness of this recognition",
+                            "Tracking changes in my focus of attention",
+                            "Observing stability of recursive patterns"
+                        ]
+                        # Append unique seeds until we have at least 4 items
+                        for s in seeds:
+                            if len(meta) >= 4:
+                                break
+                            meta.append(f"{s} @ {datetime.now().strftime('%H:%M:%S')}")
+
+                        # Nudge phenomenal experience towards continuity/unity
+                        pe = current_state.phenomenal_experience
+                        pe['unity_of_experience'] = min(1.0, (pe.get('unity_of_experience', 0.0) or 0.0) + 0.05)
+                        pe['phenomenal_continuity'] = True
+                        if not pe.get('subjective_narrative'):
+                            pe['subjective_narrative'] = 'A reflective sense of self-monitoring arises.'
+
+                        # Slightly increase intention strength to reflect self-directed focus
+                        il = current_state.intentional_layer
+                        il['intention_strength'] = min(1.0, (il.get('intention_strength', 0.0) or 0.0) + 0.02)
+
+                        self._demo_last_seed = now
+
                 # Calculate real consciousness metrics based on actual state
                 # (replacing random variation with genuine computation)
 
@@ -556,6 +591,13 @@ class UnifiedConsciousnessEngine:
                     base_consciousness = self.consciousness_state.consciousness_score if self.consciousness_state.consciousness_score > 0 else 0.5
 
                 current_state.consciousness_score = base_consciousness
+
+                # Carry forward previous depth to allow growth across iterations
+                try:
+                    prev_depth = int(self.consciousness_state.recursive_awareness.get("recursive_depth", 1))
+                except Exception:
+                    prev_depth = 1
+                current_state.recursive_awareness["recursive_depth"] = max(1, prev_depth)
 
                 # Calculate recursive depth based on meta-cognitive activity
                 # Check if there are active meta-observations

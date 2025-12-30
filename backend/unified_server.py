@@ -429,7 +429,7 @@ async def initialize_core_services():
                 godelos_integration=godelos_integration,
                 llm_driver=llm_driver_for_consciousness,
                 knowledge_pipeline=None,
-                websocket_manager=websocket_manager,
+                websocket_manager=enhanced_websocket_manager,
             )
             await cognitive_manager.initialize()
             driver_type = "LLM cognitive driver" if llm_cognitive_driver else "tool-based LLM"
@@ -722,6 +722,56 @@ except ImportError as e:
     logger.warning(f"Replay endpoints not available: {e}")
 except Exception as e:
     logger.error(f"Failed to setup replay endpoints: {e}")
+
+# Consciousness bootstrap endpoint (manual trigger for 6-phase bootstrap)
+@app.post("/api/consciousness/bootstrap")
+async def api_consciousness_bootstrap(force: bool = Query(default=False)):
+    """Trigger the consciousness bootstrap sequence and stream progress.
+
+    Uses CognitiveManager.consciousness_engine if available.
+    Returns skipped if already completed and force is False.
+    """
+    try:
+        if not cognitive_manager or not hasattr(cognitive_manager, 'consciousness_engine') or cognitive_manager.consciousness_engine is None:
+            raise HTTPException(status_code=503, detail="Consciousness engine not available")
+
+        ce = cognitive_manager.consciousness_engine
+        # Skip duplicate unless force
+        if hasattr(ce, 'is_bootstrap_complete') and ce.is_bootstrap_complete() and not force:
+            # Notify clients that bootstrap is already complete
+            try:
+                if enhanced_websocket_manager and hasattr(enhanced_websocket_manager, 'broadcast_consciousness_update'):
+                    await enhanced_websocket_manager.broadcast_consciousness_update({
+                        'type': 'bootstrap_progress',
+                        'phase': 'Already Completed',
+                        'awareness_level': getattr(ce.current_state, 'awareness_level', 1.0) or 1.0,
+                        'timestamp': time.time(),
+                        'message': 'Bootstrap already completed'
+                    })
+            except Exception:
+                pass
+            return {"status": "skipped", "message": "Bootstrap already completed"}
+
+        # Announce initiation for immediate UI feedback
+        try:
+            if enhanced_websocket_manager and hasattr(enhanced_websocket_manager, 'broadcast_consciousness_update'):
+                await enhanced_websocket_manager.broadcast_consciousness_update({
+                    'type': 'bootstrap_progress',
+                    'phase': 'Bootstrap Initiated',
+                    'awareness_level': getattr(ce.current_state, 'awareness_level', 0.0) or 0.0,
+                    'timestamp': time.time(),
+                    'message': 'Starting 6-phase consciousness bootstrap'
+                })
+        except Exception:
+            pass
+        await ce.bootstrap_consciousness()
+        return {"status": "started", "message": "Bootstrap sequence executed"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error triggering consciousness bootstrap: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Root and health endpoints
 @app.get("/")
