@@ -47,7 +47,7 @@ The heart of the system's "awareness." It implements a continuous loop that simu
 *   **Recursive Self-Awareness:** Tracks "current thought," "awareness of thought," and "awareness of awareness."
 *   **Integrated Information Theory (IIT):** Calculates a $\Phi$ (Phi) score to measure the integration of information across subsystems.
 *   **Global Workspace Theory (GWT):** Broadcasts high-priority information to a "global workspace," making it accessible to all cognitive processes.
-*   **Phenomenal Experience (`phenomenal_experience.py`):** Generates subjective "feelings" or qualia (e.g., "confusion," "insight," "determination") based on system state and processing dynamics.
+*   **Phenomenal Experience (`backend/core/phenomenal_experience.py`):** Generates subjective "feelings" or qualia (e.g., "confusion," "insight," "determination") based on system state and processing dynamics.
 
 ### 2. Cognitive Manager (`backend/core/cognitive_manager.py`)
 
@@ -57,7 +57,7 @@ The central orchestrator that manages the cognitive workflow. It:
 *   **Self-Reflection:** Triggers metacognitive loops to evaluate reasoning quality and identify knowledge gaps.
 *   **Bidirectional Integration:** Links **Learning** (Knowledge Graph evolution) with **Feeling** (Phenomenal Experience), creating a loop where learning triggers "feelings" and "feelings" trigger learning.
 
-### 3. Symbolic Core (`godelOS/godelOS/`)
+### 3. Symbolic Core (`godelOS/`)
 
 The foundation of rigorous reasoning. It includes:
 *   **`core_kr/`**: Knowledge Representation system with formal types, beliefs, and a knowledge store.
@@ -109,12 +109,17 @@ sequenceDiagram
 ```python
 @dataclass
 class UnifiedConsciousnessState:
-    recursive_awareness: Dict[str, Any]    # Depth, current thought
-    phenomenal_experience: Dict[str, Any]  # Qualia, narrative
-    information_integration: Dict[str, Any]# Phi score, complexity
-    global_workspace: Dict[str, Any]       # Broadcast content
-    metacognitive_state: Dict[str, Any]    # Self-model, strategy
-    intentional_layer: Dict[str, Any]      # Goals, hierarchy
+    recursive_awareness: Dict[str, Any]     # Depth, current thought
+    phenomenal_experience: Dict[str, Any]   # Qualia, narrative
+    information_integration: Dict[str, Any] # Phi score, complexity
+    global_workspace: Dict[str, Any]        # Broadcast content
+    metacognitive_state: Dict[str, Any]     # Self-model, strategy
+    intentional_layer: Dict[str, Any]       # Goals, hierarchy
+    creative_synthesis: Dict[str, Any]      # Emergent ideas, novelty
+    embodied_cognition: Dict[str, Any]      # Sensorimotor simulation
+    timestamp: float                        # State creation time
+    consciousness_score: float              # Aggregate score (0.0–1.0)
+    emergence_level: int                    # Complexity tier
 ```
 
 ### Knowledge Item (Symbolic & Neural)

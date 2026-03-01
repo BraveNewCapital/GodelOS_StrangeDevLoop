@@ -2,7 +2,7 @@ Comprehensive project overview and audit complete.
 
 The key elements constituting the basis of the framework have been extracted to a markdown document with explanations and mermaid charts.
 
-**Document Location:** `/workspace/GodelOS/docs/FRAMEWORK_OVERVIEW.md`
+**Document Location:** `docs/FRAMEWORK_OVERVIEW.md`
 
 **Key Elements Covered:**
 1.  **Unified Consciousness Engine:** Recursive self-awareness, IIT, GWT, and Phenomenal Experience.
