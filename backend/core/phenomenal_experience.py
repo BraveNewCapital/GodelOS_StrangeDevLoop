@@ -156,6 +156,8 @@ class PhenomenalExperienceGenerator:
     
     # Feature keys used for prediction and surprise computation
     _FEATURE_KEYS = ("intensity", "valence", "coherence", "vividness")
+    _PREDICTION_ALPHA = 0.3      # EMA smoothing factor for predictions
+    _PREDICTION_WINDOW = 10      # lookback window for prediction EMA
 
     def __init__(self, llm_driver=None):
         self.llm_driver = llm_driver
@@ -386,13 +388,13 @@ class PhenomenalExperienceGenerator:
         two past experiences exist the prediction simply mirrors the current
         experience (zero surprise on the following step).
         """
-        alpha = 0.3  # smoothing factor
+        alpha = self._PREDICTION_ALPHA
         current = self._extract_features(current_experience)
         if not self.experience_history:
             return dict(current)
 
-        # EMA over up to 10 most-recent experiences
-        recent = self.experience_history[-10:]
+        # EMA over up to _PREDICTION_WINDOW most-recent experiences
+        recent = self.experience_history[-self._PREDICTION_WINDOW:]
         ema: Dict[str, float] = self._extract_features(recent[0])
         for past_exp in recent[1:]:
             past_f = self._extract_features(past_exp)

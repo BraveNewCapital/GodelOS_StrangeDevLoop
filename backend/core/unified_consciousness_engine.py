@@ -525,6 +525,9 @@ class UnifiedConsciousnessEngine:
         self._phase_thresholds = (0.35, 0.65)  # sub→critical, critical→super
         self._min_transition_slope = 0.02       # minimum |dScore/dt| to count
         self._state_change_narratives: List[Dict[str, Any]] = []
+        # Minimum deltas to trigger a state-change narrative
+        self._min_narrative_score_delta = 0.005
+        self._min_narrative_phi_delta = 0.1
         
         logger.info("UnifiedConsciousnessEngine initialized")
     
@@ -696,13 +699,13 @@ class UnifiedConsciousnessEngine:
                 if emergence_score > self.breakthrough_threshold:
                     await self._handle_consciousness_breakthrough(emergence_score, current_state)
                 
-                # 6a. PHASE TRANSITION DETECTION
+                # 7. PHASE TRANSITION DETECTION
                 transition = self.detect_phase_transition(current_state)
                 
-                # 6b. STATE-CHANGE NARRATION
+                # 8. STATE-CHANGE NARRATION
                 narration = self.generate_state_change_narrative(current_state)
                 
-                # 7. REAL-TIME UPDATES via WebSocket (only if there are connections)
+                # 9. REAL-TIME UPDATES via WebSocket (only if there are connections)
                 if self.websocket_manager and hasattr(self.websocket_manager, 'has_connections') and self.websocket_manager.has_connections():
                     # Create safe broadcast data without full state serialization
                     safe_broadcast_data = {
@@ -718,7 +721,7 @@ class UnifiedConsciousnessEngine:
                     }
                     await self.websocket_manager.broadcast_consciousness_update(safe_broadcast_data)
                 
-                # 8. STORE IN HISTORY
+                # 10. STORE IN HISTORY
                 self.consciousness_history.append(current_state)
                 if len(self.consciousness_history) > 1000:  # Limit history size
                     self.consciousness_history = self.consciousness_history[-500:]
@@ -1034,7 +1037,9 @@ class UnifiedConsciousnessEngine:
         )
 
         # Only narrate when at least one metric moved meaningfully
-        if abs(delta_score) < 0.005 and delta_depth == 0 and abs(delta_phi) < 0.1:
+        if (abs(delta_score) < self._min_narrative_score_delta
+                and delta_depth == 0
+                and abs(delta_phi) < self._min_narrative_phi_delta):
             return None
 
         parts = ["I notice a shift in my cognitive state:"]

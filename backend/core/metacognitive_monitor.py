@@ -110,6 +110,9 @@ class MetaCognitiveMonitor:
     # ── Self-model tracking (internal observer) ─────────────────────────
 
     _SELF_MODEL_KEYS = ("awareness", "depth", "load")
+    _PREDICTION_ALPHA = 0.3  # EMA smoothing factor for self-model predictions
+    # Normalization ranges: depth spans 1-5 (range 4), awareness/load are 0-1
+    _METRIC_NORM_RANGES = {"awareness": 1.0, "depth": 4.0, "load": 1.0}
 
     def _observe_current_metrics(self) -> Dict[str, float]:
         """Extract current observed metrics from the meta-cognitive state."""
@@ -124,7 +127,7 @@ class MetaCognitiveMonitor:
         observed = self._observe_current_metrics()
         if not self.self_model_history:
             return dict(observed)
-        alpha = 0.3
+        alpha = self._PREDICTION_ALPHA
         prev = self.self_model_history[-1].observed or observed
         return {
             k: alpha * observed[k] + (1 - alpha) * prev.get(k, observed[k])
@@ -147,8 +150,7 @@ class MetaCognitiveMonitor:
             accuracy = 1.0
             predicted = dict(observed)
         else:
-            # Normalisation ranges for each key
-            norm = {"awareness": 1.0, "depth": 4.0, "load": 1.0}
+            norm = self._METRIC_NORM_RANGES
             errors = [
                 abs(observed[k] - predicted.get(k, observed[k])) / norm.get(k, 1.0)
                 for k in self._SELF_MODEL_KEYS
