@@ -550,7 +550,7 @@ class UnifiedConsciousnessEngine:
         """Wire a ``KnowledgeStoreShim`` so its tracker feeds phase detection
         and its stats are included in the WebSocket broadcast."""
         self._knowledge_store_shim = shim
-        self._prediction_error_tracker = shim._tracker
+        self._prediction_error_tracker = shim.tracker
         logger.info("KnowledgeStoreShim attached — live prediction-error tracking active")
     
     async def initialize_components(self):
@@ -784,7 +784,7 @@ class UnifiedConsciousnessEngine:
                         'state_narrative': narration.get('narrative') if narration else None,
                         'formal_layer_connected': self.formal_bridge.is_available and self.formal_bridge.is_initialized,
                         'formal_cognitive_load': formal_snapshot.cognitive_load if formal_snapshot else None,
-                        'grounding': self._knowledge_store_shim.measurement_stats if self._knowledge_store_shim else None,
+                        'grounding': getattr(self._knowledge_store_shim, 'measurement_stats', None) if self._knowledge_store_shim else None,
                     }
                     await self.websocket_manager.broadcast_consciousness_update(safe_broadcast_data)
                 

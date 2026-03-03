@@ -87,6 +87,11 @@ class KnowledgeStoreShim:
     # ── stats ─────────────────────────────────────────────────────────
 
     @property
+    def tracker(self) -> PredictionErrorTracker:
+        """Public accessor for the underlying tracker."""
+        return self._tracker
+
+    @property
     def measurement_stats(self) -> Dict[str, int]:
         return {
             "measurements_recorded": self._measurements_recorded,
@@ -110,7 +115,7 @@ class KnowledgeStoreShim:
             return
 
         error = self._grounder.measure_prediction_error_at_activation(
-            symbol_id, self._observed_features, self._modality,
+            symbol_id, self._observed_features, self._modality
         )
 
         if error is None:
