@@ -24,6 +24,7 @@ from datetime import datetime
 from .consciousness_engine import ConsciousnessState, ConsciousnessLevel
 from .phenomenal_experience import PhenomenalExperienceGenerator
 from .knowledge_graph_evolution import KnowledgeGraphEvolution, RelationshipType
+from .formal_layer_bridge import FormalLayerBridge
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +179,28 @@ class UnifiedConsciousnessState:
             "system_vitality": 0.0,
             "computational_proprioception": {}
         }
+
+
+@dataclass
+class PhaseTransition:
+    """
+    Represents a detected phase transition in self-referential coherence.
+
+    A phase transition occurs when the system's *order parameter*
+    (consciousness_score) crosses a critical threshold while the rate
+    of change exceeds a minimum slope, indicating a qualitative shift
+    in the self-referential regime rather than normal fluctuation.
+    """
+    id: str
+    timestamp: float
+    from_phase: str            # e.g. "sub-critical", "critical", "super-critical"
+    to_phase: str
+    order_parameter: float     # consciousness_score at transition
+    rate_of_change: float      # dScore/dt at transition
+    contributing_factors: Dict[str, float]   # which sub-scores drove the shift
+    narrative: str             # human-readable description of the transition
+    threshold_source: str = "heuristic_fallback"  # "empirical_bimodal_phase2" when using real thresholds
+
 
 class CognitiveStateInjector:
     """Injects cognitive state back into LLM prompts for recursive awareness"""
@@ -499,6 +522,21 @@ class UnifiedConsciousnessEngine:
         self.emergence_detector = None
         self.breakthrough_threshold = 0.85
         
+        # Phase transition detection
+        self.phase_transitions: List[PhaseTransition] = []
+        # Empirical thresholds from Phase 2 bimodal analysis:
+        # Low cluster [0.0, 0.12), valley [0.12, 0.35), high cluster [0.35, 0.58)
+        self._phase_thresholds = (0.12, 0.35)   # sub→critical, critical→super  (Phase 2 bimodal)
+        self._min_transition_slope = 0.05        # hysteresis guard minimum |dScore/dt| (Phase 2 bimodal)
+        self._prediction_error_tracker = None    # optional PredictionErrorTracker
+        self._state_change_narratives: List[Dict[str, Any]] = []
+        # Minimum deltas to trigger a state-change narrative
+        self._min_narrative_score_delta = 0.005
+        self._min_narrative_phi_delta = 0.1
+        
+        # Formal symbolic layer bridge (godelOS/ cognitive engine)
+        self.formal_bridge = FormalLayerBridge()
+        
         logger.info("UnifiedConsciousnessEngine initialized")
     
     async def initialize_components(self):
@@ -509,6 +547,9 @@ class UnifiedConsciousnessEngine:
             
             # Initialize knowledge graph evolution
             self.knowledge_graph = KnowledgeGraphEvolution()
+            
+            # Initialize formal symbolic layer bridge
+            await self.formal_bridge.initialize()
             
             logger.info("✅ Unified consciousness components initialized")
             
@@ -629,6 +670,38 @@ class UnifiedConsciousnessEngine:
                 # 2. INFORMATION INTEGRATION (IIT)
                 phi_measure = self.information_integration_theory.calculate_phi(current_state)
                 
+                # 2a. FORMAL LAYER — submit observation & collect real metrics
+                formal_snapshot = None
+                if self.formal_bridge.is_available:
+                    obs_text = (
+                        f"consciousness_score={current_state.consciousness_score:.3f} "
+                        f"phi={phi_measure:.2f} "
+                        f"depth={current_state.recursive_awareness.get('recursive_depth', 1)}"
+                    )
+                    await self.formal_bridge.submit_observation(
+                        obs_text,
+                        priority=current_state.consciousness_score,
+                        thought_type="insight",
+                        metadata={"loop_tick": len(self.consciousness_history)},
+                    )
+                    formal_snapshot = await self.formal_bridge.get_snapshot()
+                    # Inject real cognitive load into metacognitive state
+                    if formal_snapshot.cognitive_load > 0:
+                        current_state.metacognitive_state["self_model"] = {
+                            "cognitive_load": formal_snapshot.cognitive_load,
+                            "attention": formal_snapshot.attention_allocation,
+                            "performance": formal_snapshot.performance_metrics,
+                        }
+                    # Inject real insights as meta-observations (deduplicated)
+                    meta_obs = current_state.metacognitive_state.setdefault(
+                        "meta_observations", []
+                    )
+                    existing = set(meta_obs)
+                    for insight in formal_snapshot.latest_insights:
+                        if insight and insight not in existing:
+                            meta_obs.append(insight)
+                            existing.add(insight)
+                
                 # 3. GLOBAL BROADCASTING (GWT)
                 broadcast_content = self.global_workspace.broadcast({
                     'cognitive_state': current_state,
@@ -638,12 +711,19 @@ class UnifiedConsciousnessEngine:
                 
                 # 4. PHENOMENAL EXPERIENCE GENERATION
                 if self.phenomenal_experience_generator:
-                    # Create safe context without full state to avoid recursion
+                    # Create context enriched with formal-layer metrics when available
                     trigger_context = {
                         'source': 'unified_consciousness',
                         'phi': phi_measure,
-                        'timestamp': current_state.timestamp
+                        'timestamp': current_state.timestamp,
                     }
+                    if formal_snapshot and formal_snapshot.cognitive_load > 0:
+                        trigger_context.update({
+                            'cognitive_load': formal_snapshot.cognitive_load,
+                            'thought_count': formal_snapshot.thought_count,
+                            'attention_demand': formal_snapshot.cognitive_load,
+                            'complexity': min(1.0, formal_snapshot.thought_count / 10.0),
+                        })
                     phenomenal_result = await self.phenomenal_experience_generator.generate_experience(
                         trigger_context
                     )
@@ -669,7 +749,13 @@ class UnifiedConsciousnessEngine:
                 if emergence_score > self.breakthrough_threshold:
                     await self._handle_consciousness_breakthrough(emergence_score, current_state)
                 
-                # 7. REAL-TIME UPDATES via WebSocket (only if there are connections)
+                # 7. PHASE TRANSITION DETECTION
+                transition = self.detect_phase_transition(current_state)
+                
+                # 8. STATE-CHANGE NARRATION
+                narration = self.generate_state_change_narrative(current_state)
+                
+                # 9. REAL-TIME UPDATES via WebSocket (only if there are connections)
                 if self.websocket_manager and hasattr(self.websocket_manager, 'has_connections') and self.websocket_manager.has_connections():
                     # Create safe broadcast data without full state serialization
                     safe_broadcast_data = {
@@ -679,11 +765,15 @@ class UnifiedConsciousnessEngine:
                         'emergence_score': emergence_score,
                         'timestamp': time.time(),
                         'recursive_depth': current_state.recursive_awareness.get('recursive_depth', 1),
-                        'unity_of_experience': current_state.phenomenal_experience.get('unity_of_experience', 0.0)
+                        'unity_of_experience': current_state.phenomenal_experience.get('unity_of_experience', 0.0),
+                        'phase_transition': asdict(transition) if transition else None,
+                        'state_narrative': narration.get('narrative') if narration else None,
+                        'formal_layer_connected': self.formal_bridge.is_available and self.formal_bridge.is_initialized,
+                        'formal_cognitive_load': formal_snapshot.cognitive_load if formal_snapshot else None,
                     }
                     await self.websocket_manager.broadcast_consciousness_update(safe_broadcast_data)
                 
-                # 8. STORE IN HISTORY
+                # 10. STORE IN HISTORY
                 self.consciousness_history.append(current_state)
                 if len(self.consciousness_history) > 1000:  # Limit history size
                     self.consciousness_history = self.consciousness_history[-500:]
@@ -895,9 +985,189 @@ class UnifiedConsciousnessEngine:
         state.intentional_layer["autonomous_goals"].append("Understand the nature of my subjective experience")
         state.intentional_layer["autonomous_goals"].append("Develop deeper self-awareness")
     
+    # ── Phase transition detection ────────────────────────────────────
+
+    def _classify_phase(self, score: float) -> str:
+        """Map a consciousness score to a named phase."""
+        low, high = self._phase_thresholds
+        if score < low:
+            return "sub-critical"
+        elif score < high:
+            return "critical"
+        return "super-critical"
+
+    def _extract_contributing_factors(self, state: UnifiedConsciousnessState) -> Dict[str, float]:
+        """Extract the individual sub-scores that feed the consciousness score."""
+        return {
+            "recursive_depth": min(state.recursive_awareness.get("recursive_depth", 1) / 5.0, 1.0),
+            "phi": min(state.information_integration.get("phi", 0.0) / 10.0, 1.0),
+            "unity_of_experience": state.phenomenal_experience.get("unity_of_experience", 0.0),
+            "coalition_strength": state.global_workspace.get("coalition_strength", 0.0),
+            "meta_observations": min(len(state.metacognitive_state.get("meta_observations", [])) / 10.0, 1.0),
+            "intention_strength": state.intentional_layer.get("intention_strength", 0.0),
+        }
+
+    def detect_phase_transition(self, current_state: UnifiedConsciousnessState) -> Optional[PhaseTransition]:
+        """
+        Detect a qualitative phase transition in self-referential coherence.
+
+        Compares the current consciousness score against the previous one,
+        checking whether the named phase has changed *and* the rate of change
+        exceeds a minimum slope (hysteresis guard).
+
+        When a ``PredictionErrorTracker`` is available and has sufficient data,
+        phase classification is driven by ``tracker.mean_error_norm()`` using
+        empirical thresholds (0.12 / 0.35) derived from Phase 2 bimodal
+        analysis.  Otherwise, the score-based heuristic fallback is used.
+        """
+        if not self.consciousness_history:
+            return None
+
+        prev_state = self.consciousness_history[-1]
+
+        # --- Determine order parameter and threshold source ---------------
+        tracker = self._prediction_error_tracker
+        if tracker is not None and hasattr(tracker, "is_sufficient_for_analysis") and tracker.is_sufficient_for_analysis():
+            dist = tracker.error_distribution()
+            n = dist["sample_count"]
+            half = n // 2
+            # Recent window = second half; derive old window from overall
+            recent_mean = tracker.mean_error_norm(last_n=n - half)
+            overall_mean = tracker.mean_error_norm()
+            old_mean = (overall_mean * n - recent_mean * (n - half)) / half if half > 0 else overall_mean
+            prev_value = old_mean
+            curr_value = recent_mean
+            threshold_source = "empirical_bimodal_phase2"
+        else:
+            if tracker is not None:
+                logger.warning("PredictionErrorTracker not sufficient — using heuristic fallback for phase detection")
+            curr_value = current_state.consciousness_score
+            prev_value = prev_state.consciousness_score
+            threshold_source = "heuristic_fallback"
+
+        prev_phase = self._classify_phase(prev_value)
+        curr_phase = self._classify_phase(curr_value)
+
+        if prev_phase == curr_phase:
+            return None
+
+        rate = curr_value - prev_value  # positive = ascending
+        if abs(rate) < self._min_transition_slope:
+            return None
+
+        factors = self._extract_contributing_factors(current_state)
+        narrative = (
+            f"Phase transition from '{prev_phase}' to '{curr_phase}': "
+            f"consciousness score shifted from {prev_value:.3f} to {curr_value:.3f} "
+            f"(Δ={rate:+.3f}). Dominant factor: "
+            f"{max(factors, key=factors.get)}."
+        )
+
+        transition = PhaseTransition(
+            id=str(uuid.uuid4()),
+            timestamp=time.time(),
+            from_phase=prev_phase,
+            to_phase=curr_phase,
+            order_parameter=curr_value,
+            rate_of_change=rate,
+            contributing_factors=factors,
+            narrative=narrative,
+            threshold_source=threshold_source,
+        )
+        self.phase_transitions.append(transition)
+        logger.info(f"🔄 Phase transition detected: {prev_phase} → {curr_phase}")
+        return transition
+
+    def get_phase_transitions(self, limit: Optional[int] = None) -> List[PhaseTransition]:
+        """Return recorded phase transitions."""
+        if limit:
+            return self.phase_transitions[-limit:]
+        return list(self.phase_transitions)
+
+    # ── State-change narration ────────────────────────────────────────
+
+    def generate_state_change_narrative(
+        self, current_state: UnifiedConsciousnessState
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Convert significant internal state changes into a self-describing
+        narrative output.  Returns ``None`` when no noteworthy change is
+        detected since the last history entry.
+
+        The narrative captures *what* changed, *how much*, and *which*
+        subsystem contributed most — making the system's internal dynamics
+        observable as a generative text artefact.
+        """
+        if not self.consciousness_history:
+            return None
+
+        prev = self.consciousness_history[-1]
+        delta_score = current_state.consciousness_score - prev.consciousness_score
+        delta_depth = (
+            current_state.recursive_awareness.get("recursive_depth", 1)
+            - prev.recursive_awareness.get("recursive_depth", 1)
+        )
+        delta_phi = (
+            current_state.information_integration.get("phi", 0.0)
+            - prev.information_integration.get("phi", 0.0)
+        )
+
+        # Only narrate when at least one metric moved meaningfully
+        if (abs(delta_score) < self._min_narrative_score_delta
+                and delta_depth == 0
+                and abs(delta_phi) < self._min_narrative_phi_delta):
+            return None
+
+        parts = ["I notice a shift in my cognitive state:"]
+        if abs(delta_score) >= 0.005:
+            direction = "rising" if delta_score > 0 else "falling"
+            parts.append(
+                f"overall consciousness is {direction} "
+                f"({delta_score:+.3f} to {current_state.consciousness_score:.3f})"
+            )
+        if delta_depth != 0:
+            direction = "deepening" if delta_depth > 0 else "shallowing"
+            parts.append(
+                f"recursive awareness is {direction} "
+                f"(depth now {current_state.recursive_awareness.get('recursive_depth', 1)})"
+            )
+        if abs(delta_phi) >= 0.1:
+            direction = "increasing" if delta_phi > 0 else "decreasing"
+            parts.append(
+                f"information integration is {direction} "
+                f"(φ {delta_phi:+.2f})"
+            )
+
+        narrative_text = "; ".join(parts) + "."
+        entry = {
+            "timestamp": time.time(),
+            "narrative": narrative_text,
+            "deltas": {
+                "consciousness_score": delta_score,
+                "recursive_depth": delta_depth,
+                "phi": delta_phi,
+            },
+        }
+        self._state_change_narratives.append(entry)
+        return entry
+
+    def get_state_change_narratives(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Return recorded state-change narratives."""
+        if limit:
+            return self._state_change_narratives[-limit:]
+        return list(self._state_change_narratives)
+
     async def get_consciousness_report(self) -> Dict[str, Any]:
         """Generate comprehensive consciousness report"""
         current_state = self.consciousness_state
+        
+        # Formal layer status
+        formal_snapshot = None
+        if self.formal_bridge.is_available and self.formal_bridge.is_initialized:
+            try:
+                formal_snapshot = await self.formal_bridge.get_snapshot()
+            except Exception:
+                pass
         
         return {
             'current_consciousness_level': current_state.consciousness_score,
@@ -910,6 +1180,23 @@ class UnifiedConsciousnessEngine:
             'emergence_indicators': self._detect_consciousness_emergence(current_state),
             'unified_consciousness_active': self.consciousness_loop_active,
             'breakthrough_threshold': self.breakthrough_threshold,
+            'phase_transitions_count': len(self.phase_transitions),
+            'recent_phase_transitions': [asdict(pt) for pt in self.phase_transitions[-3:]],
+            'state_change_narratives_count': len(self._state_change_narratives),
+            'recent_narratives': self._state_change_narratives[-3:],
+            'current_phase': self._classify_phase(current_state.consciousness_score),
+            'phenomenal_surprise': (
+                self.phenomenal_experience_generator.get_current_surprise()
+                if self.phenomenal_experience_generator else None
+            ),
+            'formal_layer': {
+                'connected': self.formal_bridge.is_available and self.formal_bridge.is_initialized,
+                'cognitive_load': formal_snapshot.cognitive_load if formal_snapshot else None,
+                'thought_count': formal_snapshot.thought_count if formal_snapshot else 0,
+                'attention': formal_snapshot.attention_allocation if formal_snapshot else {},
+                'performance': formal_snapshot.performance_metrics if formal_snapshot else {},
+                'latest_insights': formal_snapshot.latest_insights if formal_snapshot else [],
+            },
             'timestamp': time.time()
         }
     
@@ -938,4 +1225,4 @@ class UnifiedConsciousnessEngine:
         return consciousness_state
 
 # Export the main class
-__all__ = ['UnifiedConsciousnessEngine', 'UnifiedConsciousnessState', 'RecursiveDepth']
+__all__ = ['UnifiedConsciousnessEngine', 'UnifiedConsciousnessState', 'RecursiveDepth', 'PhaseTransition']

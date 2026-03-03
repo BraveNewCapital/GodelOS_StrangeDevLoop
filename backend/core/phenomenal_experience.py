@@ -124,6 +124,24 @@ class ExperienceMemory:
     timestamp: str
 
 
+@dataclass
+class PhenomenalSurprise:
+    """
+    Phenomenal Surprise metric (Pn) — measures prediction errors in the
+    self-model by comparing *predicted* experience features to *actual*
+    experience features produced by the generator.
+
+    Pn = weighted Euclidean distance between predicted and actual feature
+    vectors, where features are (intensity, valence, coherence, vividness).
+    """
+    id: str
+    predicted_features: Dict[str, float]   # expected {intensity, valence, coherence, vividness}
+    actual_features: Dict[str, float]       # observed after generation
+    surprise_value: float                    # Pn ∈ [0, 1]
+    feature_errors: Dict[str, float]        # per-feature absolute errors
+    timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
+
+
 class PhenomenalExperienceGenerator:
     """
     Generates and manages phenomenal conscious experiences.
@@ -133,15 +151,26 @@ class PhenomenalExperienceGenerator:
     - Generating coherent experience patterns
     - Maintaining temporal continuity of consciousness
     - Integrating with other cognitive components
+    - Computing phenomenal surprise (Pn) as prediction errors in self-modeling
     """
     
-    def __init__(self, llm_driver=None):
+    # Feature keys used for prediction and surprise computation
+    _FEATURE_KEYS = ("intensity", "valence", "coherence", "vividness")
+    _PREDICTION_ALPHA = 0.3      # EMA smoothing factor for predictions
+    _PREDICTION_WINDOW = 10      # lookback window for prediction EMA
+
+    def __init__(self, llm_driver=None, prediction_error_tracker=None):
         self.llm_driver = llm_driver
+        self._prediction_error_tracker = prediction_error_tracker
         
         # Experience state
         self.current_conscious_state: Optional[ConsciousState] = None
         self.experience_history: List[PhenomenalExperience] = []
         self.experience_memory: List[ExperienceMemory] = []
+        
+        # Phenomenal surprise tracking (self-model prediction errors)
+        self.surprise_history: List[PhenomenalSurprise] = []
+        self._predicted_features: Optional[Dict[str, float]] = None
         
         # Configuration
         self.base_experience_duration = 2.0  # seconds
@@ -245,6 +274,14 @@ class PhenomenalExperienceGenerator:
             
             experience = await generator(trigger_context, desired_intensity)
             
+            # Compute phenomenal surprise (Pn) — compare prediction to reality
+            surprise = self._compute_phenomenal_surprise(experience)
+            if surprise is not None:
+                self.surprise_history.append(surprise)
+            
+            # Generate prediction for the *next* experience based on current
+            self._predicted_features = self._predict_next_features(experience)
+            
             # Add to experience history
             self.experience_history.append(experience)
             
@@ -323,6 +360,125 @@ class PhenomenalExperienceGenerator:
         # Clamp to valid range
         return max(0.1, min(1.0, final_intensity))
     
+    # ── Phenomenal Surprise (Pn) ───────────────────────────────────────
+
+    @staticmethod
+    def _extract_features(experience: PhenomenalExperience) -> Dict[str, float]:
+        """Extract the canonical feature vector from a generated experience."""
+        avg_intensity = (
+            sum(q.intensity for q in experience.qualia_patterns)
+            / len(experience.qualia_patterns)
+        ) if experience.qualia_patterns else 0.5
+        avg_valence = (
+            sum(q.valence for q in experience.qualia_patterns)
+            / len(experience.qualia_patterns)
+        ) if experience.qualia_patterns else 0.0
+        return {
+            "intensity": avg_intensity,
+            "valence": avg_valence,
+            "coherence": experience.coherence,
+            "vividness": experience.vividness,
+        }
+
+    def _predict_next_features(
+        self, current_experience: PhenomenalExperience
+    ) -> Dict[str, float]:
+        """
+        Generate a prediction for the *next* experience's features using an
+        exponential moving average over the recent history.  When fewer than
+        two past experiences exist the prediction simply mirrors the current
+        experience (zero surprise on the following step).
+        """
+        alpha = self._PREDICTION_ALPHA
+        current = self._extract_features(current_experience)
+        if not self.experience_history:
+            return dict(current)
+
+        # EMA over up to _PREDICTION_WINDOW most-recent experiences
+        recent = self.experience_history[-self._PREDICTION_WINDOW:]
+        ema: Dict[str, float] = self._extract_features(recent[0])
+        for past_exp in recent[1:]:
+            past_f = self._extract_features(past_exp)
+            for k in self._FEATURE_KEYS:
+                ema[k] = alpha * past_f[k] + (1 - alpha) * ema[k]
+        # Blend EMA with current to form a one-step-ahead prediction
+        for k in self._FEATURE_KEYS:
+            ema[k] = alpha * current[k] + (1 - alpha) * ema[k]
+        return ema
+
+    def _compute_phenomenal_surprise(
+        self, experience: PhenomenalExperience
+    ) -> Optional[PhenomenalSurprise]:
+        """
+        Compute Pn — the phenomenal surprise metric.
+
+        When a ``PredictionErrorTracker`` is present and sufficient, the
+        surprise_value is ``tracker.mean_error_norm()`` — a real measurement
+        from Phase 2 empirical data.  Otherwise, the fabricated EMA-based
+        RMSE fallback is used (with a logged warning).
+
+        Returns ``None`` on the first experience (no prior prediction).
+        """
+        # --- Grounded path: use tracker when available --------------------
+        tracker = self._prediction_error_tracker
+        if tracker is not None and hasattr(tracker, "is_sufficient_for_analysis") and tracker.is_sufficient_for_analysis():
+            actual = self._extract_features(experience)
+            surprise_value = tracker.mean_error_norm()
+            return PhenomenalSurprise(
+                id=str(uuid.uuid4()),
+                predicted_features=self._predicted_features or {},
+                actual_features=actual,
+                surprise_value=surprise_value,
+                feature_errors={k: 0.0 for k in self._FEATURE_KEYS},
+            )
+
+        # --- Fabricated fallback: EMA-based RMSE --------------------------
+        if self._predicted_features is None:
+            return None
+
+        logger.warning(
+            "PredictionErrorTracker not available — using fabricated qualia fallback"
+        )
+
+        actual = self._extract_features(experience)
+        feature_errors: Dict[str, float] = {}
+        sq_sum = 0.0
+        for k in self._FEATURE_KEYS:
+            err = abs(actual[k] - self._predicted_features.get(k, actual[k]))
+            feature_errors[k] = err
+            sq_sum += err ** 2
+        surprise_value = min(1.0, (sq_sum / len(self._FEATURE_KEYS)) ** 0.5)
+
+        return PhenomenalSurprise(
+            id=str(uuid.uuid4()),
+            predicted_features=dict(self._predicted_features),
+            actual_features=actual,
+            surprise_value=surprise_value,
+            feature_errors=feature_errors,
+        )
+
+    def get_surprise_history(self, limit: Optional[int] = None) -> List[PhenomenalSurprise]:
+        """Return the recorded phenomenal surprise history."""
+        if limit:
+            return self.surprise_history[-limit:]
+        return list(self.surprise_history)
+
+    def get_current_surprise(self) -> Optional[float]:
+        """Return the most recent Pn value, or None if unavailable."""
+        if self.surprise_history:
+            return self.surprise_history[-1].surprise_value
+        return None
+
+    @property
+    def is_grounded(self) -> bool:
+        """True when surprise values are derived from real grounding data."""
+        tracker = self._prediction_error_tracker
+        return (
+            tracker is not None
+            and hasattr(tracker, "is_sufficient_for_analysis")
+            and tracker.is_sufficient_for_analysis()
+        )
+
     async def _generate_cognitive_experience(
         self, 
         context: Dict[str, Any], 

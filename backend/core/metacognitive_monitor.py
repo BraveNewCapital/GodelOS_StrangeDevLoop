@@ -49,18 +49,47 @@ class SelfMonitoringEvent:
     confidence: float                     # Confidence in the monitoring accuracy
     cognitive_load_impact: float          # How much this affected cognitive load
 
+
+@dataclass
+class SelfModelState:
+    """
+    Snapshot of the internal observer's self-model.
+
+    The self-model tracks *predicted* cognitive metrics (awareness_level,
+    reflection_depth, cognitive_load) and compares them to *observed* values
+    in order to compute ``self_model_accuracy``.
+    """
+    predicted: Dict[str, float] = None     # predicted {awareness, depth, load}
+    observed: Dict[str, float] = None      # observed values after monitoring
+    accuracy: float = 0.0                  # 0.0-1.0  (1 - normalised error)
+    timestamp: str = ""
+
+    def __post_init__(self):
+        if self.predicted is None:
+            self.predicted = {}
+        if self.observed is None:
+            self.observed = {}
+        if not self.timestamp:
+            self.timestamp = datetime.now().isoformat()
+
 class MetaCognitiveMonitor:
     """
     Enhanced meta-cognitive system that implements sophisticated self-monitoring,
     recursive self-reflection, and meta-cognitive analysis.
     """
     
-    def __init__(self, llm_driver=None):
+    def __init__(self, llm_driver=None, prediction_error_tracker=None):
         self.llm_driver = llm_driver
+        self._prediction_error_tracker = prediction_error_tracker
+        self._predicted_mean_error: Optional[float] = None
         self.current_state = MetaCognitiveState()
         self.monitoring_history: List[SelfMonitoringEvent] = []
         self.max_history_size = 500
         self.monitoring_enabled = True
+        
+        # Self-model state tracking (internal observer)
+        self.self_model_history: List[SelfModelState] = []
+        self._pending_prediction: Optional[Dict[str, float]] = None
         
         # Self-reflection triggers
         self.reflection_triggers = {
@@ -80,6 +109,109 @@ class MetaCognitiveMonitor:
             "recursive_query": r"think.*about.*how.*think|recursive|meta.*cognitive"
         }
     
+    # ── Self-model tracking (internal observer) ─────────────────────────
+
+    _SELF_MODEL_KEYS = ("awareness", "depth", "load")
+    _PREDICTION_ALPHA = 0.3  # EMA smoothing factor for self-model predictions
+    # Normalization ranges: depth spans 1-5 (range 4), awareness/load are 0-1
+    _METRIC_NORM_RANGES = {"awareness": 1.0, "depth": 4.0, "load": 1.0}
+
+    def _observe_current_metrics(self) -> Dict[str, float]:
+        """Extract current observed metrics from the meta-cognitive state."""
+        return {
+            "awareness": self.current_state.self_awareness_level,
+            "depth": float(self.current_state.reflection_depth),
+            "load": self.current_state.cognitive_load,
+        }
+
+    def _predict_next_metrics(self) -> Dict[str, float]:
+        """Predict the next monitoring cycle's metrics using a simple EMA."""
+        observed = self._observe_current_metrics()
+        if not self.self_model_history:
+            return dict(observed)
+        alpha = self._PREDICTION_ALPHA
+        prev = self.self_model_history[-1].observed or observed
+        return {
+            k: alpha * observed[k] + (1 - alpha) * prev.get(k, observed[k])
+            for k in self._SELF_MODEL_KEYS
+        }
+
+    def update_self_model(self) -> SelfModelState:
+        """
+        Compare the pending prediction to the currently observed state,
+        compute self-model accuracy, and generate the next prediction.
+
+        When a ``PredictionErrorTracker`` is present and sufficient, accuracy
+        is based on *second-order prediction error*: how well the monitor
+        predicted the tracker's mean error norm.  This replaces the old
+        self-consistency check with a genuine accuracy measurement.
+
+        Call this *after* ``initiate_self_monitoring`` has updated
+        ``current_state`` so that observed metrics are fresh.
+        """
+        # --- Grounded path: second-order prediction error -----------------
+        tracker = self._prediction_error_tracker
+        if tracker is not None and hasattr(tracker, "is_sufficient_for_analysis") and tracker.is_sufficient_for_analysis():
+            current_mean = tracker.mean_error_norm()
+            if self._predicted_mean_error is not None:
+                second_order_error = abs(current_mean - self._predicted_mean_error)
+                # Normalized against the super-critical threshold (0.35)
+                # from Phase 2 bimodal analysis so accuracy is 1.0 when
+                # prediction is perfect and 0.0 when off by a full unit
+                accuracy = max(0.0, 1.0 - (second_order_error / 0.35))
+            else:
+                accuracy = 1.0  # first cycle — no prediction yet
+            self._predicted_mean_error = current_mean
+            observed = self._observe_current_metrics()
+            snap = SelfModelState(
+                predicted={"mean_error": self._predicted_mean_error},
+                observed=observed,
+                accuracy=accuracy,
+            )
+            self.self_model_history.append(snap)
+            self.current_state.self_model_accuracy = accuracy
+            self._pending_prediction = self._predict_next_metrics()
+            return snap
+
+        # --- Fabricated fallback: internal self-consistency ----------------
+        if tracker is not None:
+            logger.warning(
+                "PredictionErrorTracker not sufficient — using fabricated self-model fallback"
+            )
+
+        observed = self._observe_current_metrics()
+        predicted = self._pending_prediction
+
+        if predicted is None:
+            # First cycle — no prediction to compare; accuracy starts at 1.0
+            accuracy = 1.0
+            predicted = dict(observed)
+        else:
+            norm = self._METRIC_NORM_RANGES
+            errors = [
+                abs(observed[k] - predicted.get(k, observed[k])) / norm.get(k, 1.0)
+                for k in self._SELF_MODEL_KEYS
+            ]
+            accuracy = max(0.0, 1.0 - (sum(errors) / len(errors)))
+
+        snap = SelfModelState(
+            predicted=predicted,
+            observed=observed,
+            accuracy=accuracy,
+        )
+        self.self_model_history.append(snap)
+        self.current_state.self_model_accuracy = accuracy
+
+        # Generate prediction for the *next* cycle
+        self._pending_prediction = self._predict_next_metrics()
+        return snap
+
+    def get_self_model_accuracy(self) -> float:
+        """Return the latest self-model accuracy value."""
+        if self.self_model_history:
+            return self.self_model_history[-1].accuracy
+        return self.current_state.self_model_accuracy
+
     async def initiate_self_monitoring(self, context: Dict[str, Any]) -> MetaCognitiveState:
         """Start comprehensive self-monitoring of cognitive processes"""
         try:

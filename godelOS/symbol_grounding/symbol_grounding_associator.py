@@ -51,6 +51,23 @@ class GroundingLink:
 
 
 @dataclass
+class GroundingPredictionError:
+    """
+    Prediction error for a symbol grounding activation.
+
+    Captures the discrepancy between the prototype the grounder has learned
+    for *symbol_ast_id* and the features actually observed.
+    """
+    symbol_ast_id: str
+    modality: str
+    timestamp: float = field(default_factory=time.time)
+    predicted_features: Dict[str, float] = field(default_factory=dict)
+    observed_features: Dict[str, float] = field(default_factory=dict)
+    feature_errors: Dict[str, float] = field(default_factory=dict)
+    error_norm: float = 0.0
+
+
+@dataclass
 class ExperienceTrace:
     """
     Represents a structured log entry for an experience.
@@ -271,6 +288,35 @@ class PrototypeModel(GroundingModel):
                 updated_prototype[key] = value
         
         return updated_prototype
+
+    @staticmethod
+    def compute_prediction_error(
+        predicted: Dict[str, Any], observed: Dict[str, Any]
+    ) -> Tuple[Dict[str, float], float]:
+        """
+        Compute per-feature absolute errors and RMSE norm between *predicted*
+        and *observed* feature dictionaries.
+
+        Only shared keys whose values are both numeric are compared.
+
+        Returns:
+            (feature_errors, rmse_norm) — empty dict and 0.0 when no shared
+            numerical keys exist.
+        """
+        feature_errors: Dict[str, float] = {}
+        for key in predicted:
+            if key not in observed:
+                continue
+            pv, ov = predicted[key], observed[key]
+            if isinstance(pv, (int, float)) and isinstance(ov, (int, float)):
+                feature_errors[key] = abs(float(pv) - float(ov))
+
+        if not feature_errors:
+            return {}, 0.0
+
+        sum_sq = sum(e * e for e in feature_errors.values())
+        rmse = (sum_sq / len(feature_errors)) ** 0.5
+        return feature_errors, rmse
 
 
 class ActionEffectModel(GroundingModel):
@@ -752,3 +798,46 @@ class SymbolGroundingAssociator:
         # Sort by confidence and return top-k
         confidences.sort(key=lambda x: x[1], reverse=True)
         return confidences[:top_k]
+
+    def measure_prediction_error_at_activation(
+        self,
+        symbol_ast_id: str,
+        observed_features: Dict[str, Any],
+        modality: str = "visual_features",
+    ) -> Optional[GroundingPredictionError]:
+        """
+        Compare the stored prototype for *symbol_ast_id* against
+        *observed_features* and return a ``GroundingPredictionError``.
+
+        Returns ``None`` when no grounding link exists for the symbol/modality
+        pair (cold-start case).
+        """
+        links = self.get_grounding_for_symbol(symbol_ast_id, modality_filter=modality)
+        if not links:
+            return None
+
+        prototype = links[0].sub_symbolic_representation
+        if not isinstance(prototype, dict):
+            return None
+
+        # Extract only numeric features from the prototype for prediction
+        predicted: Dict[str, float] = {
+            k: float(v) for k, v in prototype.items()
+            if isinstance(v, (int, float))
+        }
+        observed_numeric: Dict[str, float] = {
+            k: float(v) for k, v in observed_features.items()
+            if isinstance(v, (int, float))
+        }
+
+        feature_errors, error_norm = PrototypeModel.compute_prediction_error(
+            predicted, observed_numeric
+        )
+        return GroundingPredictionError(
+            symbol_ast_id=symbol_ast_id,
+            modality=modality,
+            predicted_features=predicted,
+            observed_features=observed_numeric,
+            feature_errors=feature_errors,
+            error_norm=error_norm,
+        )
