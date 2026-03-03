@@ -1028,13 +1028,15 @@ class UnifiedConsciousnessEngine:
         # --- Determine order parameter and threshold source ---------------
         tracker = self._prediction_error_tracker
         if tracker is not None and hasattr(tracker, "is_sufficient_for_analysis") and tracker.is_sufficient_for_analysis():
-            n = len(tracker._errors)
-            mid = n // 2
-            # First half represents the previous window, second half the current
-            first_half = tracker._errors[:mid]
-            second_half = tracker._errors[mid:]
-            prev_value = sum(e.error_norm for e in first_half) / len(first_half) if first_half else 0.0
-            curr_value = sum(e.error_norm for e in second_half) / len(second_half) if second_half else 0.0
+            dist = tracker.error_distribution()
+            n = dist["sample_count"]
+            half = n // 2
+            # Recent window = second half; derive old window from overall
+            recent_mean = tracker.mean_error_norm(last_n=n - half)
+            overall_mean = tracker.mean_error_norm()
+            old_mean = (overall_mean * n - recent_mean * (n - half)) / half if half > 0 else overall_mean
+            prev_value = old_mean
+            curr_value = recent_mean
             threshold_source = "empirical_bimodal_phase2"
         else:
             if tracker is not None:

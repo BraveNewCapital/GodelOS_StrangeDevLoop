@@ -249,9 +249,9 @@ backend/metacognition_modules/backups
 *_test_output*
 *_patch*
 *_patched*
-test_*.py
-test_*.txt
-test_*.json
+/test_*.py
+/test_*.txt
+/test_*.json
 final_field_test.py
 debug_responses.py
 patch_responses.py
