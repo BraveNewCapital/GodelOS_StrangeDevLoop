@@ -306,3 +306,6 @@ godelos_data/imports/
 backend/data/vector_db/
 .godelos_cli_state
 data/
+
+# Diagnostic script output (plots)
+diagnostic_output/

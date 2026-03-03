@@ -4,12 +4,15 @@ Live prediction-error diagnostic — starts a minimal GödelOS session,
 feeds real symbol activations through ``KnowledgeStoreShim``, and
 prints periodic histograms with a final synthetic-vs-live comparison.
 
+Matplotlib plots are saved alongside the text output for visual review.
+
 Usage:
     python scripts/diagnose_live_prediction_error.py
 
 Requirements:
     - Project root on ``sys.path``
     - All godelOS core_kr and symbol_grounding packages importable
+    - matplotlib (``pip install matplotlib``)
     - No running backend required (self-contained)
 """
 
@@ -20,7 +23,14 @@ import os
 import time
 
 # Ensure project root is on the path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _PROJECT_ROOT)
+
+# Matplotlib — headless backend for CI / server environments
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 
 from unittest.mock import MagicMock
 
@@ -46,6 +56,9 @@ ACTIVATION_DELAY = 0.05   # seconds between activations (simulated real-time)
 # Synthetic reference peaks from diagnose_prediction_error.py
 SYNTHETIC_PEAK_LOW = 0.0
 SYNTHETIC_PEAK_HIGH = 0.44
+
+# Output directory for plots
+_OUTPUT_DIR = os.path.join(_PROJECT_ROOT, "diagnostic_output")
 
 random.seed()
 
@@ -131,9 +144,14 @@ def print_snapshot(elapsed: float, tracker: PredictionErrorTracker):
 def _find_peaks(counts, min_fraction=0.05):
     """Return indices of local maxima (including edges).
 
-    Peaks whose bucket count is below *min_fraction* of the total sample
-    count are discarded — this prevents tiny tail noise from being
-    reported as a separate peak.
+    Parameters
+    ----------
+    counts : list[int]
+        Bucket counts from the histogram.
+    min_fraction : float
+        Minimum fraction of total samples (default 0.05 = 5%) a bucket
+        must contain to be considered a significant peak.  Prevents tiny
+        tail noise from inflating the peak list.
     """
     peaks = []
     if not counts:
@@ -159,7 +177,23 @@ def _peak_centers(peaks, edges):
 
 
 def _dominant_pair(peaks, counts, edges):
-    """Return (low_center, high_center) of the two tallest peaks."""
+    """Return ``(low_center, high_center)`` of the two tallest peaks.
+
+    Parameters
+    ----------
+    peaks : list[int]
+        Indices of significant peaks in the histogram.
+    counts : list[int]
+        Bucket counts for each histogram bin.
+    edges : list[float]
+        Bucket edge values (len = len(counts) + 1).
+
+    Returns
+    -------
+    tuple[float, float] | None
+        Center values of the two most-populated peaks, ordered low→high.
+        ``None`` when fewer than two peaks are provided.
+    """
     if len(peaks) < 2:
         return None
     # Sort peaks by count (descending), pick top-2, then order by position
@@ -171,24 +205,33 @@ def _dominant_pair(peaks, counts, edges):
 
 
 def print_comparison(tracker: PredictionErrorTracker):
-    """Print synthetic vs live comparison with threshold recommendation."""
+    """Print synthetic vs live comparison with threshold recommendation.
+
+    Returns the comparison text block so it can be embedded in plots.
+    """
     dist = tracker.error_distribution()
     counts = dist.get("bucket_counts", [])
     edges = dist.get("bucket_edges", [])
     n = dist.get("sample_count", 0)
 
-    print("\n=== SYNTHETIC vs LIVE COMPARISON ===")
-    print(f"Synthetic bimodal peaks:  ~{SYNTHETIC_PEAK_LOW} and ~{SYNTHETIC_PEAK_HIGH}")
+    lines = []
+
+    def _p(line=""):
+        print(line)
+        lines.append(line)
+
+    _p("\n=== SYNTHETIC vs LIVE COMPARISON ===")
+    _p(f"Synthetic bimodal peaks:  ~{SYNTHETIC_PEAK_LOW} and ~{SYNTHETIC_PEAK_HIGH}")
 
     if n < 10:
-        print("Live bimodal peaks:       INSUFFICIENT DATA")
-        print("Shape match:              INSUFFICIENT DATA")
-        print("Recommendation:           collect more data before deciding")
-        return
+        _p("Live bimodal peaks:       INSUFFICIENT DATA")
+        _p("Shape match:              INSUFFICIENT DATA")
+        _p("Recommendation:           collect more data before deciding")
+        return "\n".join(lines)
 
     peaks = _find_peaks(counts)
     centers = _peak_centers(peaks, edges)
-    print(f"Live detected peaks:      {[f'{c:.4f}' for c in centers]}")
+    _p(f"Live detected peaks:      {[f'{c:.4f}' for c in centers]}")
 
     # Determine shape match
     if len(peaks) >= 2:
@@ -201,39 +244,198 @@ def print_comparison(tracker: PredictionErrorTracker):
             # True bimodal — compare the two dominant peaks against synthetic
             pair = _dominant_pair(peaks, counts, edges)
             low_peak, high_peak = pair
-            print(f"Live dominant peaks:       ~{low_peak:.4f} and ~{high_peak:.4f}")
+            _p(f"Live dominant peaks:       ~{low_peak:.4f} and ~{high_peak:.4f}")
             low_match = abs(low_peak - SYNTHETIC_PEAK_LOW) < 0.15
             high_match = abs(high_peak - SYNTHETIC_PEAK_HIGH) < 0.15
             if low_match and high_match:
-                print("Shape match:              YES")
-                print("Recommendation:           thresholds valid")
+                _p("Shape match:              YES")
+                _p("Recommendation:           thresholds valid")
             else:
-                print("Shape match:              NO (peak positions differ)")
+                _p("Shape match:              NO (peak positions differ)")
                 # Valley detection for recalibration
                 valley_idx = counts[peaks[0]:peaks[-1] + 1].index(valley) + peaks[0]
                 valley_center = (edges[valley_idx] + edges[valley_idx + 1]) / 2.0
                 new_sub = valley_center
                 new_super = high_peak
-                print(f"Recommendation:           thresholds need recalibration")
-                print(f"  Suggested sub→critical threshold:  {new_sub:.4f}")
-                print(f"  Suggested critical→super threshold: {new_super:.4f}")
+                _p(f"Recommendation:           thresholds need recalibration")
+                _p(f"  Suggested sub→critical threshold:  {new_sub:.4f}")
+                _p(f"  Suggested critical→super threshold: {new_super:.4f}")
         else:
-            print("Shape match:              NO (no clear valley)")
-            print("Recommendation:           thresholds need recalibration")
+            _p("Shape match:              NO (no clear valley)")
+            _p("Recommendation:           thresholds need recalibration")
             # Use quartile-based fallback
             norms = sorted(e.error_norm for e in tracker._errors)
             q1 = norms[len(norms) // 4]
             q3 = norms[3 * len(norms) // 4]
-            print(f"  Suggested sub→critical threshold:  {q1:.4f}")
-            print(f"  Suggested critical→super threshold: {q3:.4f}")
+            _p(f"  Suggested sub→critical threshold:  {q1:.4f}")
+            _p(f"  Suggested critical→super threshold: {q3:.4f}")
     else:
-        print("Shape match:              NO (unimodal)")
-        print("Recommendation:           thresholds need recalibration")
+        _p("Shape match:              NO (unimodal)")
+        _p("Recommendation:           thresholds need recalibration")
         norms = sorted(e.error_norm for e in tracker._errors)
         q1 = norms[len(norms) // 4] if norms else 0.0
         q3 = norms[3 * len(norms) // 4] if norms else 0.0
-        print(f"  Suggested sub→critical threshold:  {q1:.4f}")
-        print(f"  Suggested critical→super threshold: {q3:.4f}")
+        _p(f"  Suggested sub→critical threshold:  {q1:.4f}")
+        _p(f"  Suggested critical→super threshold: {q3:.4f}")
+
+    return "\n".join(lines)
+
+
+# ── synthetic baseline (reused from diagnose_prediction_error.py) ─────
+
+def _run_synthetic_scenario():
+    """Run the Phase 2 synthetic scenario and return a tracker."""
+    kr = MagicMock(spec=KnowledgeStoreInterface)
+    kr.list_contexts.return_value = []
+    ts = MagicMock(spec=TypeSystemManager)
+    ts.get_type.return_value = MagicMock()
+    sga = SymbolGroundingAssociator(kr_system_interface=kr, type_system=ts)
+    tracker = PredictionErrorTracker(window_size=500)
+
+    rng = random.Random(42)  # deterministic
+    num_sym, act_per_sym, learn_phase = 5, 25, 15
+    prototypes = {
+        f"sym_{i}": {"brightness": 0.2 * i, "sharpness": 0.1 + 0.15 * i}
+        for i in range(num_sym)
+    }
+    t0 = time.time()
+    for sym, proto in prototypes.items():
+        for act in range(act_per_sym):
+            ts_now = t0 + (list(prototypes).index(sym) * act_per_sym + act) * 0.01
+            if act < learn_phase:
+                obs = {k: v + rng.gauss(0, 0.02) for k, v in proto.items()}
+            else:
+                roll = rng.random()
+                if roll < 0.33:
+                    obs = dict(proto)
+                elif roll < 0.66:
+                    obs = {k: v + rng.gauss(0, 0.08) for k, v in proto.items()}
+                else:
+                    obs = {k: v + rng.uniform(0.3, 0.6) for k, v in proto.items()}
+            sga.grounding_links[sym] = [
+                GroundingLink(symbol_ast_id=sym, sub_symbolic_representation=proto,
+                              modality="visual_features", confidence=0.9)
+            ]
+            result = sga.measure_prediction_error_at_activation(sym, obs, "visual_features")
+            if result is None:
+                continue
+            result = GroundingPredictionError(
+                symbol_ast_id=result.symbol_ast_id, modality=result.modality,
+                timestamp=ts_now, predicted_features=result.predicted_features,
+                observed_features=result.observed_features,
+                feature_errors=result.feature_errors, error_norm=result.error_norm,
+            )
+            tracker.record(result)
+    return tracker
+
+
+# ── matplotlib plotting ───────────────────────────────────────────────
+
+_COLORS = {
+    "live": "#3B82F6",       # blue
+    "synthetic": "#F59E0B",  # amber
+    "valley": "#EF4444",     # red
+    "accent": "#10B981",     # emerald
+}
+
+
+def plot_live_histogram(tracker: PredictionErrorTracker, path: str):
+    """Render the live error-norm histogram as a standalone PNG."""
+    norms = [e.error_norm for e in tracker._errors]
+    if not norms:
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.hist(norms, bins=30, color=_COLORS["live"], edgecolor="white",
+            linewidth=0.6, alpha=0.85, label="Live activations")
+    ax.set_xlabel("Prediction Error Norm", fontsize=12)
+    ax.set_ylabel("Frequency", fontsize=12)
+    ax.set_title("Live Prediction-Error Distribution (KnowledgeStoreShim)",
+                 fontsize=14, fontweight="bold")
+    ax.legend(fontsize=11)
+    ax.grid(axis="y", alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  📊 Saved: {path}")
+
+
+def plot_per_symbol(tracker: PredictionErrorTracker, path: str):
+    """Render per-symbol mean error as a horizontal bar chart."""
+    per_sym = tracker.per_symbol_error()
+    if not per_sym:
+        return
+
+    symbols = sorted(per_sym.keys())
+    means = [per_sym[s] for s in symbols]
+
+    fig, ax = plt.subplots(figsize=(10, max(4, len(symbols) * 0.5)))
+    bars = ax.barh(symbols, means, color=_COLORS["accent"], edgecolor="white",
+                   linewidth=0.6, height=0.6)
+    ax.set_xlabel("Mean Error Norm", fontsize=12)
+    ax.set_title("Per-Symbol Prediction Error", fontsize=14, fontweight="bold")
+    ax.grid(axis="x", alpha=0.3)
+    # Value labels
+    for bar, val in zip(bars, means):
+        ax.text(bar.get_width() + 0.005, bar.get_y() + bar.get_height() / 2,
+                f"{val:.4f}", va="center", fontsize=9, color="#374151")
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  📊 Saved: {path}")
+
+
+def plot_comparison(live_tracker: PredictionErrorTracker,
+                    synth_tracker: PredictionErrorTracker,
+                    comparison_text: str, path: str):
+    """Render overlaid synthetic vs live histograms with comparison metadata."""
+    live_norms = [e.error_norm for e in live_tracker._errors]
+    synth_norms = [e.error_norm for e in synth_tracker._errors]
+    if not live_norms:
+        return
+
+    fig, axes = plt.subplots(2, 1, figsize=(12, 9),
+                             gridspec_kw={"height_ratios": [3, 1]})
+
+    # ── Top panel: overlaid histograms ──
+    ax = axes[0]
+    lo = min(min(live_norms), min(synth_norms)) if synth_norms else min(live_norms)
+    hi = max(max(live_norms), max(synth_norms)) if synth_norms else max(live_norms)
+    bins = 30
+    bin_edges = [lo + (hi - lo) * i / bins for i in range(bins + 1)]
+
+    ax.hist(synth_norms, bins=bin_edges, color=_COLORS["synthetic"],
+            edgecolor="white", linewidth=0.5, alpha=0.55,
+            label=f"Synthetic (n={len(synth_norms)})", density=True)
+    ax.hist(live_norms, bins=bin_edges, color=_COLORS["live"],
+            edgecolor="white", linewidth=0.5, alpha=0.65,
+            label=f"Live (n={len(live_norms)})", density=True)
+
+    # Phase threshold reference lines
+    ax.axvline(0.12, color=_COLORS["valley"], linestyle="--", linewidth=1.2,
+               alpha=0.7, label="Sub→Critical (0.12)")
+    ax.axvline(0.35, color=_COLORS["valley"], linestyle="-.", linewidth=1.2,
+               alpha=0.7, label="Critical→Super (0.35)")
+
+    ax.set_xlabel("Prediction Error Norm", fontsize=12)
+    ax.set_ylabel("Density", fontsize=12)
+    ax.set_title("Synthetic vs Live Prediction-Error Distribution",
+                 fontsize=14, fontweight="bold")
+    ax.legend(fontsize=10, loc="upper right")
+    ax.grid(axis="y", alpha=0.3)
+
+    # ── Bottom panel: comparison text ──
+    ax2 = axes[1]
+    ax2.axis("off")
+    ax2.text(0.02, 0.95, comparison_text, transform=ax2.transAxes,
+             fontsize=10, fontfamily="monospace", verticalalignment="top",
+             bbox=dict(boxstyle="round,pad=0.5", facecolor="#F3F4F6",
+                       edgecolor="#D1D5DB", alpha=0.9))
+
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  📊 Saved: {path}")
 
 
 # ── main live session ─────────────────────────────────────────────────
@@ -324,7 +526,7 @@ def main():
 
     elapsed = time.time() - t_start
     print_snapshot(elapsed, tracker)
-    print_comparison(tracker)
+    comparison_text = print_comparison(tracker)
 
     stats = shim.measurement_stats
     print(f"\n=== SHIM MEASUREMENT STATS ===")
@@ -332,6 +534,23 @@ def main():
     print(f"  skipped_no_context:    {stats['skipped_no_context']}")
     print(f"  skipped_cold_start:    {stats['skipped_cold_start']}")
     print(f"  total activations:     {activation_count}")
+
+    # ── Matplotlib plots ──────────────────────────────────────────────
+
+    os.makedirs(_OUTPUT_DIR, exist_ok=True)
+    print(f"\n=== GENERATING PLOTS → {_OUTPUT_DIR}/ ===")
+
+    plot_live_histogram(
+        tracker, os.path.join(_OUTPUT_DIR, "live_histogram.png"))
+    plot_per_symbol(
+        tracker, os.path.join(_OUTPUT_DIR, "per_symbol_error.png"))
+
+    # Run synthetic baseline and render overlay comparison
+    print("  Running synthetic baseline for overlay comparison...")
+    synth_tracker = _run_synthetic_scenario()
+    plot_comparison(
+        tracker, synth_tracker, comparison_text,
+        os.path.join(_OUTPUT_DIR, "synthetic_vs_live.png"))
 
     print("\n=== DONE ===")
 
