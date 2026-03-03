@@ -9,14 +9,16 @@ output stream.  The ``SelfModelExtractor`` uses this as its primary detection
 heuristic alongside linguistic pattern matching.
 """
 
+from typing import Dict, Set
+
 # ── Mapping tables ────────────────────────────────────────────────────
 
 _BOLD_UPPER_START = 0x1D400  # 𝐀
 _BOLD_LOWER_START = 0x1D41A  # 𝐚
 
-_ASCII_TO_BOLD: dict[str, str] = {}
-_BOLD_TO_ASCII: dict[str, str] = {}
-_BOLD_CHARS: set[str] = set()
+_ASCII_TO_BOLD: Dict[str, str] = {}
+_BOLD_TO_ASCII: Dict[str, str] = {}
+_BOLD_CHARS: Set[str] = set()
 
 for _i in range(26):
     _upper_ascii = chr(ord("A") + _i)

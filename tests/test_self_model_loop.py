@@ -18,6 +18,7 @@ Tests for the self-model feedback loop.
 """
 
 import time
+from typing import List
 
 import pytest
 
@@ -41,7 +42,7 @@ from godelOS.consciousness.constitution import ECHO_CONSTITUTION
 # ── helpers ───────────────────────────────────────────────────────────
 
 
-def _make_tracker(error_norms: list[float]) -> PredictionErrorTracker:
+def _make_tracker(error_norms: List[float]) -> PredictionErrorTracker:
     """Create a tracker pre-loaded with errors at the given norms."""
     tracker = PredictionErrorTracker(window_size=200)
     for i, norm in enumerate(error_norms):
