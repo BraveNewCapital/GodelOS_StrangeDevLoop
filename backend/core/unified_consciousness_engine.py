@@ -24,6 +24,7 @@ from datetime import datetime
 from .consciousness_engine import ConsciousnessState, ConsciousnessLevel
 from .phenomenal_experience import PhenomenalExperienceGenerator
 from .knowledge_graph_evolution import KnowledgeGraphEvolution, RelationshipType
+from .formal_layer_bridge import FormalLayerBridge
 
 logger = logging.getLogger(__name__)
 
@@ -529,6 +530,9 @@ class UnifiedConsciousnessEngine:
         self._min_narrative_score_delta = 0.005
         self._min_narrative_phi_delta = 0.1
         
+        # Formal symbolic layer bridge (godelOS/ cognitive engine)
+        self.formal_bridge = FormalLayerBridge()
+        
         logger.info("UnifiedConsciousnessEngine initialized")
     
     async def initialize_components(self):
@@ -539,6 +543,9 @@ class UnifiedConsciousnessEngine:
             
             # Initialize knowledge graph evolution
             self.knowledge_graph = KnowledgeGraphEvolution()
+            
+            # Initialize formal symbolic layer bridge
+            await self.formal_bridge.initialize()
             
             logger.info("✅ Unified consciousness components initialized")
             
@@ -659,6 +666,36 @@ class UnifiedConsciousnessEngine:
                 # 2. INFORMATION INTEGRATION (IIT)
                 phi_measure = self.information_integration_theory.calculate_phi(current_state)
                 
+                # 2a. FORMAL LAYER — submit observation & collect real metrics
+                formal_snapshot = None
+                if self.formal_bridge.is_available:
+                    obs_text = (
+                        f"consciousness_score={current_state.consciousness_score:.3f} "
+                        f"phi={phi_measure:.2f} "
+                        f"depth={current_state.recursive_awareness.get('recursive_depth', 1)}"
+                    )
+                    await self.formal_bridge.submit_observation(
+                        obs_text,
+                        priority=current_state.consciousness_score,
+                        thought_type="insight",
+                        metadata={"loop_tick": len(self.consciousness_history)},
+                    )
+                    formal_snapshot = await self.formal_bridge.get_snapshot()
+                    # Inject real cognitive load into metacognitive state
+                    if formal_snapshot.cognitive_load > 0:
+                        current_state.metacognitive_state["self_model"] = {
+                            "cognitive_load": formal_snapshot.cognitive_load,
+                            "attention": formal_snapshot.attention_allocation,
+                            "performance": formal_snapshot.performance_metrics,
+                        }
+                    # Inject real insights as meta-observations
+                    meta_obs = current_state.metacognitive_state.setdefault(
+                        "meta_observations", []
+                    )
+                    for insight in formal_snapshot.latest_insights:
+                        if insight and insight not in meta_obs[-5:]:
+                            meta_obs.append(insight)
+                
                 # 3. GLOBAL BROADCASTING (GWT)
                 broadcast_content = self.global_workspace.broadcast({
                     'cognitive_state': current_state,
@@ -668,12 +705,19 @@ class UnifiedConsciousnessEngine:
                 
                 # 4. PHENOMENAL EXPERIENCE GENERATION
                 if self.phenomenal_experience_generator:
-                    # Create safe context without full state to avoid recursion
+                    # Create context enriched with formal-layer metrics when available
                     trigger_context = {
                         'source': 'unified_consciousness',
                         'phi': phi_measure,
-                        'timestamp': current_state.timestamp
+                        'timestamp': current_state.timestamp,
                     }
+                    if formal_snapshot and formal_snapshot.cognitive_load > 0:
+                        trigger_context.update({
+                            'cognitive_load': formal_snapshot.cognitive_load,
+                            'thought_count': formal_snapshot.thought_count,
+                            'attention_demand': formal_snapshot.cognitive_load,
+                            'complexity': min(1.0, formal_snapshot.thought_count / 10.0),
+                        })
                     phenomenal_result = await self.phenomenal_experience_generator.generate_experience(
                         trigger_context
                     )
@@ -718,6 +762,8 @@ class UnifiedConsciousnessEngine:
                         'unity_of_experience': current_state.phenomenal_experience.get('unity_of_experience', 0.0),
                         'phase_transition': asdict(transition) if transition else None,
                         'state_narrative': narration.get('narrative') if narration else None,
+                        'formal_layer_connected': self.formal_bridge.is_available and self.formal_bridge._initialised,
+                        'formal_cognitive_load': formal_snapshot.cognitive_load if formal_snapshot else None,
                     }
                     await self.websocket_manager.broadcast_consciousness_update(safe_broadcast_data)
                 
@@ -1085,6 +1131,14 @@ class UnifiedConsciousnessEngine:
         """Generate comprehensive consciousness report"""
         current_state = self.consciousness_state
         
+        # Formal layer status
+        formal_snapshot = None
+        if self.formal_bridge.is_available and self.formal_bridge._initialised:
+            try:
+                formal_snapshot = await self.formal_bridge.get_snapshot()
+            except Exception:
+                pass
+        
         return {
             'current_consciousness_level': current_state.consciousness_score,
             'recursive_awareness_depth': current_state.recursive_awareness["recursive_depth"],
@@ -1105,6 +1159,14 @@ class UnifiedConsciousnessEngine:
                 self.phenomenal_experience_generator.get_current_surprise()
                 if self.phenomenal_experience_generator else None
             ),
+            'formal_layer': {
+                'connected': self.formal_bridge.is_available and self.formal_bridge._initialised,
+                'cognitive_load': formal_snapshot.cognitive_load if formal_snapshot else None,
+                'thought_count': formal_snapshot.thought_count if formal_snapshot else 0,
+                'attention': formal_snapshot.attention_allocation if formal_snapshot else {},
+                'performance': formal_snapshot.performance_metrics if formal_snapshot else {},
+                'latest_insights': formal_snapshot.latest_insights if formal_snapshot else [],
+            },
             'timestamp': time.time()
         }
     
