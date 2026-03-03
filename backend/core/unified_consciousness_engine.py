@@ -26,6 +26,10 @@ from .phenomenal_experience import PhenomenalExperienceGenerator
 from .knowledge_graph_evolution import KnowledgeGraphEvolution, RelationshipType
 from .formal_layer_bridge import FormalLayerBridge
 
+# Symbol grounding — prediction-error tracking fed by the knowledge store shim
+from godelOS.symbol_grounding.prediction_error_tracker import PredictionErrorTracker
+from godelOS.symbol_grounding.knowledge_store_shim import KnowledgeStoreShim
+
 logger = logging.getLogger(__name__)
 
 class RecursiveDepth(Enum):
@@ -528,7 +532,8 @@ class UnifiedConsciousnessEngine:
         # Low cluster [0.0, 0.12), valley [0.12, 0.35), high cluster [0.35, 0.58)
         self._phase_thresholds = (0.12, 0.35)   # sub→critical, critical→super  (Phase 2 bimodal)
         self._min_transition_slope = 0.05        # hysteresis guard minimum |dScore/dt| (Phase 2 bimodal)
-        self._prediction_error_tracker = None    # optional PredictionErrorTracker
+        self._prediction_error_tracker = PredictionErrorTracker(window_size=100)
+        self._knowledge_store_shim = None  # set after KS + grounder are available
         self._state_change_narratives: List[Dict[str, Any]] = []
         # Minimum deltas to trigger a state-change narrative
         self._min_narrative_score_delta = 0.005
@@ -538,6 +543,15 @@ class UnifiedConsciousnessEngine:
         self.formal_bridge = FormalLayerBridge()
         
         logger.info("UnifiedConsciousnessEngine initialized")
+
+    # ── Knowledge-store shim wiring ───────────────────────────────────
+
+    def attach_knowledge_store_shim(self, shim: "KnowledgeStoreShim") -> None:
+        """Wire a ``KnowledgeStoreShim`` so its tracker feeds phase detection
+        and its stats are included in the WebSocket broadcast."""
+        self._knowledge_store_shim = shim
+        self._prediction_error_tracker = shim._tracker
+        logger.info("KnowledgeStoreShim attached — live prediction-error tracking active")
     
     async def initialize_components(self):
         """Initialize consciousness components that require async setup"""
@@ -770,6 +784,7 @@ class UnifiedConsciousnessEngine:
                         'state_narrative': narration.get('narrative') if narration else None,
                         'formal_layer_connected': self.formal_bridge.is_available and self.formal_bridge.is_initialized,
                         'formal_cognitive_load': formal_snapshot.cognitive_load if formal_snapshot else None,
+                        'grounding': self._knowledge_store_shim.measurement_stats if self._knowledge_store_shim else None,
                     }
                     await self.websocket_manager.broadcast_consciousness_update(safe_broadcast_data)
                 
