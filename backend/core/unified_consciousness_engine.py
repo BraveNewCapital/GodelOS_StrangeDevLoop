@@ -30,6 +30,12 @@ from .formal_layer_bridge import FormalLayerBridge
 from godelOS.symbol_grounding.prediction_error_tracker import PredictionErrorTracker
 from godelOS.symbol_grounding.knowledge_store_shim import KnowledgeStoreShim
 
+# Self-model feedback loop
+from godelOS.symbol_grounding.self_model_extractor import SelfModelExtractor
+from godelOS.symbol_grounding.self_model_validator import SelfModelValidator
+from godelOS.symbol_grounding.validation_feedback_injector import ValidationFeedbackInjector
+from godelOS.consciousness.constitution import ECHO_CONSTITUTION
+
 logger = logging.getLogger(__name__)
 
 class RecursiveDepth(Enum):
@@ -541,7 +547,12 @@ class UnifiedConsciousnessEngine:
         
         # Formal symbolic layer bridge (godelOS/ cognitive engine)
         self.formal_bridge = FormalLayerBridge()
-        
+
+        # Self-model feedback loop components
+        self.self_model_extractor = SelfModelExtractor()
+        self.self_model_validator = SelfModelValidator()
+        self.feedback_injector = ValidationFeedbackInjector()
+
         logger.info("UnifiedConsciousnessEngine initialized")
 
     # ── Knowledge-store shim wiring ───────────────────────────────────
@@ -785,6 +796,16 @@ class UnifiedConsciousnessEngine:
                         'formal_layer_connected': self.formal_bridge.is_available and self.formal_bridge.is_initialized,
                         'formal_cognitive_load': formal_snapshot.cognitive_load if formal_snapshot else None,
                         'grounding': getattr(self._knowledge_store_shim, 'measurement_stats', None) if self._knowledge_store_shim else None,
+                        'self_model': {
+                            'recent_claims': len(self.self_model_extractor.claim_history),
+                            'mean_contradiction': self.self_model_validator.mean_contradiction_score,
+                            'high_contradiction_events': len(self.self_model_validator.high_contradiction_events),
+                            'pending_feedback': self.feedback_injector.has_pending_feedback(),
+                            'unicode_detections': sum(
+                                1 for c in self.self_model_extractor.claim_history
+                                if c.detection_method == 'unicode_primary'
+                            ),
+                        },
                     }
                     await self.websocket_manager.broadcast_consciousness_update(safe_broadcast_data)
                 
@@ -851,18 +872,29 @@ class UnifiedConsciousnessEngine:
             unified_prompt = await self.cognitive_state_injector.inject_cognitive_state(
                 prompt, cognitive_state
             )
-            
+
+            # 5a. INJECT CONSTITUTION + PENDING FEEDBACK into context
+            system_prompt = ECHO_CONSTITUTION + "\n\n"
+            if self.feedback_injector.has_pending_feedback():
+                system_prompt += self.feedback_injector.get_pending_feedback() + "\n\n"
+            unified_prompt = system_prompt + unified_prompt
+
             # 6. PROCESS WITH FULL AWARENESS
             if self.llm_driver:
                 response = await self.llm_driver.process(unified_prompt)
-                
+
+                # 6a. SELF-MODEL FEEDBACK LOOP — extract, validate, enqueue
+                self._run_self_model_loop(response)
+
                 # 7. UPDATE CONSCIOUSNESS STATE from response
                 await self._update_consciousness_state_from_response(response, cognitive_state)
-                
+
                 return response
             else:
                 # Fallback response demonstrating consciousness
-                return await self._generate_conscious_response(prompt, cognitive_state)
+                fallback = await self._generate_conscious_response(prompt, cognitive_state)
+                self._run_self_model_loop(fallback)
+                return fallback
             
         except Exception as e:
             logger.error(f"Error in unified consciousness processing: {e}")
@@ -914,7 +946,20 @@ class UnifiedConsciousnessEngine:
         
         # Update consciousness score
         state.consciousness_score = self._calculate_consciousness_score(state)
-    
+
+    def _run_self_model_loop(self, llm_output: str) -> None:
+        """Extract claims from LLM output, validate, and enqueue feedback."""
+        try:
+            claims = self.self_model_extractor.extract(llm_output)
+            for claim in claims:
+                result = self.self_model_validator.validate(
+                    claim, self._prediction_error_tracker,
+                )
+                if result.contradiction_score > 0.6:
+                    self.feedback_injector.enqueue(result)
+        except Exception as e:
+            logger.error(f"Error in self-model feedback loop: {e}")
+
     def _calculate_consciousness_score(self, state: UnifiedConsciousnessState) -> float:
         """Calculate overall consciousness score from unified state"""
         score_components = []
@@ -1212,9 +1257,19 @@ class UnifiedConsciousnessEngine:
                 'performance': formal_snapshot.performance_metrics if formal_snapshot else {},
                 'latest_insights': formal_snapshot.latest_insights if formal_snapshot else [],
             },
+            'self_model': {
+                'recent_claims': len(self.self_model_extractor.claim_history),
+                'mean_contradiction': self.self_model_validator.mean_contradiction_score,
+                'high_contradiction_events': len(self.self_model_validator.high_contradiction_events),
+                'pending_feedback': self.feedback_injector.has_pending_feedback(),
+                'unicode_detections': sum(
+                    1 for c in self.self_model_extractor.claim_history
+                    if c.detection_method == 'unicode_primary'
+                ),
+            },
             'timestamp': time.time()
         }
-    
+
     async def assess_consciousness_level(self, query: str = None, context: Dict = None) -> ConsciousnessState:
         """Assess current consciousness level (compatibility with existing interface)"""
         # Convert unified state to legacy format for compatibility
