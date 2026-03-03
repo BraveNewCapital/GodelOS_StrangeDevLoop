@@ -128,11 +128,18 @@ def print_snapshot(elapsed: float, tracker: PredictionErrorTracker):
         print(f"  {sym} : {me:.4f}")
 
 
-def _find_peaks(counts):
-    """Return indices of local maxima (including edges)."""
+def _find_peaks(counts, min_fraction=0.05):
+    """Return indices of local maxima (including edges).
+
+    Peaks whose bucket count is below *min_fraction* of the total sample
+    count are discarded — this prevents tiny tail noise from being
+    reported as a separate peak.
+    """
     peaks = []
     if not counts:
         return peaks
+    total = sum(counts)
+    min_count = total * min_fraction
     n = len(counts)
     if n >= 2 and counts[0] > counts[1]:
         peaks.append(0)
@@ -141,12 +148,26 @@ def _find_peaks(counts):
             peaks.append(i)
     if n >= 2 and counts[-1] > counts[-2]:
         peaks.append(n - 1)
+    # Filter out insignificant peaks
+    peaks = [p for p in peaks if counts[p] >= min_count]
     return peaks
 
 
 def _peak_centers(peaks, edges):
     """Return the center values of peak buckets."""
     return [(edges[p] + edges[p + 1]) / 2.0 for p in peaks]
+
+
+def _dominant_pair(peaks, counts, edges):
+    """Return (low_center, high_center) of the two tallest peaks."""
+    if len(peaks) < 2:
+        return None
+    # Sort peaks by count (descending), pick top-2, then order by position
+    top2 = sorted(peaks, key=lambda p: counts[p], reverse=True)[:2]
+    top2.sort()  # low position first
+    lo = (edges[top2[0]] + edges[top2[0] + 1]) / 2.0
+    hi = (edges[top2[1]] + edges[top2[1] + 1]) / 2.0
+    return lo, hi
 
 
 def print_comparison(tracker: PredictionErrorTracker):
@@ -167,19 +188,20 @@ def print_comparison(tracker: PredictionErrorTracker):
 
     peaks = _find_peaks(counts)
     centers = _peak_centers(peaks, edges)
-    print(f"Live bimodal peaks:       {centers}")
+    print(f"Live detected peaks:      {[f'{c:.4f}' for c in centers]}")
 
     # Determine shape match
     if len(peaks) >= 2:
-        # Check valley depth
+        # Check valley depth between the outermost significant peaks
         valley = min(counts[peaks[0]:peaks[-1] + 1])
         peak_max = max(counts[p] for p in peaks)
         valley_ratio = valley / peak_max if peak_max else 1.0
 
         if valley_ratio < 0.5:
-            # True bimodal — check if peak positions are close
-            low_peak = min(centers)
-            high_peak = max(centers)
+            # True bimodal — compare the two dominant peaks against synthetic
+            pair = _dominant_pair(peaks, counts, edges)
+            low_peak, high_peak = pair
+            print(f"Live dominant peaks:       ~{low_peak:.4f} and ~{high_peak:.4f}")
             low_match = abs(low_peak - SYNTHETIC_PEAK_LOW) < 0.15
             high_match = abs(high_peak - SYNTHETIC_PEAK_HIGH) < 0.15
             if low_match and high_match:
