@@ -199,6 +199,7 @@ class PhaseTransition:
     rate_of_change: float      # dScore/dt at transition
     contributing_factors: Dict[str, float]   # which sub-scores drove the shift
     narrative: str             # human-readable description of the transition
+    threshold_source: str = "heuristic_fallback"  # "empirical_bimodal_phase2" when using real thresholds
 
 
 class CognitiveStateInjector:
@@ -523,8 +524,11 @@ class UnifiedConsciousnessEngine:
         
         # Phase transition detection
         self.phase_transitions: List[PhaseTransition] = []
-        self._phase_thresholds = (0.35, 0.65)  # sub→critical, critical→super
-        self._min_transition_slope = 0.02       # minimum |dScore/dt| to count
+        # Empirical thresholds from Phase 2 bimodal analysis:
+        # Low cluster [0.0, 0.12), valley [0.12, 0.35), high cluster [0.35, 0.58)
+        self._phase_thresholds = (0.12, 0.35)   # sub→critical, critical→super  (Phase 2 bimodal)
+        self._min_transition_slope = 0.05        # hysteresis guard minimum |dScore/dt| (Phase 2 bimodal)
+        self._prediction_error_tracker = None    # optional PredictionErrorTracker
         self._state_change_narratives: List[Dict[str, Any]] = []
         # Minimum deltas to trigger a state-change narrative
         self._min_narrative_score_delta = 0.005
@@ -1010,28 +1014,49 @@ class UnifiedConsciousnessEngine:
         Compares the current consciousness score against the previous one,
         checking whether the named phase has changed *and* the rate of change
         exceeds a minimum slope (hysteresis guard).
+
+        When a ``PredictionErrorTracker`` is available and has sufficient data,
+        phase classification is driven by ``tracker.mean_error_norm()`` using
+        empirical thresholds (0.12 / 0.35) derived from Phase 2 bimodal
+        analysis.  Otherwise, the score-based heuristic fallback is used.
         """
         if not self.consciousness_history:
             return None
 
         prev_state = self.consciousness_history[-1]
-        prev_score = prev_state.consciousness_score
-        curr_score = current_state.consciousness_score
 
-        prev_phase = self._classify_phase(prev_score)
-        curr_phase = self._classify_phase(curr_score)
+        # --- Determine order parameter and threshold source ---------------
+        tracker = self._prediction_error_tracker
+        if tracker is not None and hasattr(tracker, "is_sufficient_for_analysis") and tracker.is_sufficient_for_analysis():
+            n = len(tracker._errors)
+            mid = n // 2
+            # First half represents the previous window, second half the current
+            first_half = tracker._errors[:mid]
+            second_half = tracker._errors[mid:]
+            prev_value = sum(e.error_norm for e in first_half) / len(first_half) if first_half else 0.0
+            curr_value = sum(e.error_norm for e in second_half) / len(second_half) if second_half else 0.0
+            threshold_source = "empirical_bimodal_phase2"
+        else:
+            if tracker is not None:
+                logger.warning("PredictionErrorTracker not sufficient — using heuristic fallback for phase detection")
+            curr_value = current_state.consciousness_score
+            prev_value = prev_state.consciousness_score
+            threshold_source = "heuristic_fallback"
+
+        prev_phase = self._classify_phase(prev_value)
+        curr_phase = self._classify_phase(curr_value)
 
         if prev_phase == curr_phase:
             return None
 
-        rate = curr_score - prev_score  # positive = ascending
+        rate = curr_value - prev_value  # positive = ascending
         if abs(rate) < self._min_transition_slope:
             return None
 
         factors = self._extract_contributing_factors(current_state)
         narrative = (
             f"Phase transition from '{prev_phase}' to '{curr_phase}': "
-            f"consciousness score shifted from {prev_score:.3f} to {curr_score:.3f} "
+            f"consciousness score shifted from {prev_value:.3f} to {curr_value:.3f} "
             f"(Δ={rate:+.3f}). Dominant factor: "
             f"{max(factors, key=factors.get)}."
         )
@@ -1041,10 +1066,11 @@ class UnifiedConsciousnessEngine:
             timestamp=time.time(),
             from_phase=prev_phase,
             to_phase=curr_phase,
-            order_parameter=curr_score,
+            order_parameter=curr_value,
             rate_of_change=rate,
             contributing_factors=factors,
             narrative=narrative,
+            threshold_source=threshold_source,
         )
         self.phase_transitions.append(transition)
         logger.info(f"🔄 Phase transition detected: {prev_phase} → {curr_phase}")

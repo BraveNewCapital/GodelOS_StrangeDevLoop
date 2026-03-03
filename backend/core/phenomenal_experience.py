@@ -159,8 +159,9 @@ class PhenomenalExperienceGenerator:
     _PREDICTION_ALPHA = 0.3      # EMA smoothing factor for predictions
     _PREDICTION_WINDOW = 10      # lookback window for prediction EMA
 
-    def __init__(self, llm_driver=None):
+    def __init__(self, llm_driver=None, prediction_error_tracker=None):
         self.llm_driver = llm_driver
+        self._prediction_error_tracker = prediction_error_tracker
         
         # Experience state
         self.current_conscious_state: Optional[ConsciousState] = None
@@ -411,12 +412,33 @@ class PhenomenalExperienceGenerator:
         """
         Compute Pn — the phenomenal surprise metric.
 
-        Pn = sqrt( mean( (predicted_i - actual_i)^2 ) )   (RMSE, clamped to [0,1])
+        When a ``PredictionErrorTracker`` is present and sufficient, the
+        surprise_value is ``tracker.mean_error_norm()`` — a real measurement
+        from Phase 2 empirical data.  Otherwise, the fabricated EMA-based
+        RMSE fallback is used (with a logged warning).
 
         Returns ``None`` on the first experience (no prior prediction).
         """
+        # --- Grounded path: use tracker when available --------------------
+        tracker = self._prediction_error_tracker
+        if tracker is not None and hasattr(tracker, "is_sufficient_for_analysis") and tracker.is_sufficient_for_analysis():
+            actual = self._extract_features(experience)
+            surprise_value = tracker.mean_error_norm()
+            return PhenomenalSurprise(
+                id=str(uuid.uuid4()),
+                predicted_features=self._predicted_features or {},
+                actual_features=actual,
+                surprise_value=surprise_value,
+                feature_errors={k: 0.0 for k in self._FEATURE_KEYS},
+            )
+
+        # --- Fabricated fallback: EMA-based RMSE --------------------------
         if self._predicted_features is None:
             return None
+
+        logger.warning(
+            "PredictionErrorTracker not available — using fabricated qualia fallback"
+        )
 
         actual = self._extract_features(experience)
         feature_errors: Dict[str, float] = {}
@@ -446,6 +468,16 @@ class PhenomenalExperienceGenerator:
         if self.surprise_history:
             return self.surprise_history[-1].surprise_value
         return None
+
+    @property
+    def is_grounded(self) -> bool:
+        """True when surprise values are derived from real grounding data."""
+        tracker = self._prediction_error_tracker
+        return (
+            tracker is not None
+            and hasattr(tracker, "is_sufficient_for_analysis")
+            and tracker.is_sufficient_for_analysis()
+        )
 
     async def _generate_cognitive_experience(
         self, 
