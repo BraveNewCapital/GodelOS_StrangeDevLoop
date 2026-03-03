@@ -1218,5 +1218,4 @@ class ReflectionEngine(ReflectionEngineInterface):
                 return sum(similarity_scores) / len(similarity_scores)
 
         return 0.5  # Neutral default
-        
-        return insights
+

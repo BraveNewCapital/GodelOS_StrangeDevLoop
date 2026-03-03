@@ -35,6 +35,15 @@ ACTIVATIONS_PER_SYMBOL = 25
 LEARNING_PHASE = 15   # first N activations per symbol use consistent features
 TEST_PHASE = ACTIVATIONS_PER_SYMBOL - LEARNING_PHASE  # remaining activations
 
+# Prototype generation parameters
+BRIGHTNESS_STEP = 0.2       # brightness increment per symbol
+SHARPNESS_BASE = 0.1        # base sharpness for symbol 0
+SHARPNESS_STEP = 0.15       # sharpness increment per symbol
+LEARNING_JITTER = 0.02      # Gaussian σ during learning phase
+SLIGHT_JITTER = 0.08        # Gaussian σ for slight test variations
+NOVEL_DEVIATION_MIN = 0.3   # minimum shift for novel observations
+NOVEL_DEVIATION_MAX = 0.6   # maximum shift for novel observations
+
 random.seed(42)
 
 
@@ -61,7 +70,10 @@ def run_scenario():
 
     # Define prototypes for each symbol (what the grounder should learn)
     prototypes = {
-        f"sym_{i}": {"brightness": 0.2 * i, "sharpness": 0.1 + 0.15 * i}
+        f"sym_{i}": {
+            "brightness": BRIGHTNESS_STEP * i,
+            "sharpness": SHARPNESS_BASE + SHARPNESS_STEP * i,
+        }
         for i in range(NUM_SYMBOLS)
     }
 
@@ -80,7 +92,7 @@ def run_scenario():
 
             if act < LEARNING_PHASE:
                 # LEARNING PHASE: consistent features (small jitter)
-                obs = {k: _jitter(v, 0.02) for k, v in proto.items()}
+                obs = {k: _jitter(v, LEARNING_JITTER) for k, v in proto.items()}
             else:
                 # TEST PHASE: mix identical, slight, novel
                 roll = random.random()
@@ -89,10 +101,13 @@ def run_scenario():
                     obs = dict(proto)
                 elif roll < 0.66:
                     # slight variation
-                    obs = {k: _jitter(v, 0.08) for k, v in proto.items()}
+                    obs = {k: _jitter(v, SLIGHT_JITTER) for k, v in proto.items()}
                 else:
                     # novel (large deviation)
-                    obs = {k: v + random.uniform(0.3, 0.6) for k, v in proto.items()}
+                    obs = {
+                        k: v + random.uniform(NOVEL_DEVIATION_MIN, NOVEL_DEVIATION_MAX)
+                        for k, v in proto.items()
+                    }
 
             # Inject the prototype as a grounding link (simulate learning)
             sga.grounding_links[sym] = [
