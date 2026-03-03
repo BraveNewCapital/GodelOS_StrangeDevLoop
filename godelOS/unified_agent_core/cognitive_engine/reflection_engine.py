@@ -735,475 +735,7 @@ class ReflectionEngine(ReflectionEngineInterface):
         # Skip if no active thoughts or only one thought
         if not active_thought_ids or len(active_thought_ids) < 2:
             return insights
-        
-        async def _generate_knowledge_based_insights(self, thought: Thought, context: CognitiveContext,
-                                                  reflection_level: int = 1) -> List[str]:
-            """
-            Generate insights based on knowledge store information with varying depth based on reflection level.
-            
-            Args:
-                thought: The thought to generate insights for
-                context: The cognitive context
-                reflection_level: The level of reflection (1 for base, >1 for meta)
-                
-            Returns:
-                List of knowledge-based insights
-            """
-            if not self.knowledge_store:
-                return []
-            
-            insights = []
-            
-            try:
-                # Query knowledge store for relevant information with parameters based on reflection level
-                query = {
-                    "content": thought.content,
-                    "type": thought.type,
-                    "max_results": 3 * reflection_level,  # More results for deeper reflections
-                    "min_confidence": 0.7 - (0.1 * (reflection_level - 1))  # Lower threshold for deeper reflections
-                }
-                
-                # Add context information for more targeted queries
-                if context:
-                    query["context"] = {
-                        "cognitive_load": context.cognitive_load,
-                        "attention_focus": context.attention_focus,
-                        "active_thoughts": context.active_thoughts
-                    }
-                
-                # This is a simplified placeholder - in a real implementation,
-                # we would use the actual knowledge store API
-                knowledge_items = await self.knowledge_store.query_knowledge(query)
-                
-                # Generate insights based on knowledge items
-                if hasattr(knowledge_items, 'items') and knowledge_items.items:
-                    for item in knowledge_items.items:
-                        if hasattr(item, 'content') and item.content:
-                            # Extract content
-                            content_str = str(item.content)
-                            truncated_content = content_str[:100] + "..." if len(content_str) > 100 else content_str
-                            
-                            # Get type and confidence
-                            item_type = getattr(item, "type", "unknown")
-                            confidence = getattr(item, "confidence", 0.5)
-                            
-                            # Generate appropriate insight based on item type
-                            if item_type == "concept":
-                                insights.append(f"This thought relates to the concept: {truncated_content}")
-                            elif item_type == "fact":
-                                insights.append(f"This thought connects to the established fact: {truncated_content}")
-                            elif item_type == "rule":
-                                insights.append(f"This thought may follow the rule: {truncated_content}")
-                            elif item_type == "hypothesis":
-                                insights.append(f"This thought aligns with the hypothesis: {truncated_content}")
-                            else:
-                                insights.append(f"This thought connects to existing knowledge: {truncated_content}")
-                            
-                            # For deeper reflections, add confidence information
-                            if reflection_level > 1:
-                                insights[-1] += f" (confidence: {confidence:.2f})"
-                        
-                    # For deeper reflections, add meta-insights about knowledge connections
-                    if reflection_level > 1 and len(knowledge_items.items) > 0:
-                        insights.append(f"This thought connects to {len(knowledge_items.items)} items in the knowledge store, suggesting it builds on existing understanding.")
-                        
-                        if len(knowledge_items.items) > 3:
-                            insights.append("The multiple knowledge connections indicate this is a rich area for further exploration.")
-                    
-                    # For even deeper reflections, add epistemological insights
-                    if reflection_level > 2 and len(knowledge_items.items) > 0:
-                        insights.append("The pattern of knowledge connections reveals how new thoughts integrate with existing cognitive structures.")
-                        insights.append("The relationship between this thought and prior knowledge demonstrates the incremental nature of cognitive development.")
-                        
-                        # Add insights about knowledge confidence distribution
-                        confidence_values = [getattr(item, "confidence", 0.5) for item in knowledge_items.items]
-                        avg_confidence = sum(confidence_values) / len(confidence_values) if confidence_values else 0.5
-                        
-                        if avg_confidence > 0.8:
-                            insights.append("The high confidence in related knowledge suggests this thought builds on well-established foundations.")
-                        elif avg_confidence < 0.4:
-                            insights.append("The low confidence in related knowledge suggests this thought explores uncertain or speculative territory.")
-            except Exception as e:
-                logger.error(f"Error querying knowledge store: {e}")
-                insights.append("Error accessing knowledge store, relying on internal processing only.")
-            
-            return insights
-        
-        def _generate_reflection_content(self, thought: Thought, insights: List[str],
-                                        contradictions: List[Tuple[str, str]],
-                                        patterns: List[str],
-                                        reflection_level: int = 1) -> str:
-            """
-            Generate comprehensive reflection content with appropriate depth based on reflection level.
-            
-            Args:
-                thought: The thought being reflected on
-                insights: The generated insights
-                contradictions: The detected contradictions
-                patterns: The identified patterns
-                reflection_level: The level of reflection (1 for base, >1 for meta)
-                
-            Returns:
-                Formatted reflection content
-            """
-            # Create appropriate header based on reflection level
-            if reflection_level == 1:
-                content = [f"Reflection on: {thought.content}"]
-            elif reflection_level == 2:
-                content = [f"Meta-reflection on: {thought.content}"]
-            else:
-                content = [f"Level {reflection_level} meta-reflection on: {thought.content}"]
-            
-            # Add thought type and priority information
-            content.append(f"\nThought Type: {thought.type}")
-            content.append(f"Thought Priority: {thought.priority:.2f}")
-            
-            # Add pattern information with appropriate depth
-            if patterns:
-                content.append("\nIdentified patterns:")
-                for pattern in patterns:
-                    content.append(f"- {pattern}")
-                
-                # Add pattern analysis for deeper reflections
-                if reflection_level > 1 and len(patterns) > 1:
-                    content.append("\nPattern Analysis:")
-                    content.append(f"- This thought exhibits {len(patterns)} distinct patterns.")
-                    
-                    # Categorize patterns
-                    question_patterns = [p for p in patterns if "question" in p]
-                    hypothesis_patterns = [p for p in patterns if "hypothesis" in p]
-                    insight_patterns = [p for p in patterns if "insight" in p]
-                    problem_patterns = [p for p in patterns if "problem" in p]
-                    solution_patterns = [p for p in patterns if "solution" in p]
-                    
-                    if question_patterns:
-                        content.append(f"- Contains {len(question_patterns)} question patterns, indicating inquiry orientation.")
-                    if hypothesis_patterns:
-                        content.append(f"- Contains {len(hypothesis_patterns)} hypothesis patterns, indicating theoretical thinking.")
-                    if insight_patterns:
-                        content.append(f"- Contains {len(insight_patterns)} insight patterns, indicating synthetic thinking.")
-                    if problem_patterns:
-                        content.append(f"- Contains {len(problem_patterns)} problem patterns, indicating analytical thinking.")
-                    if solution_patterns:
-                        content.append(f"- Contains {len(solution_patterns)} solution patterns, indicating practical thinking.")
-            
-            # Add contradiction information with appropriate depth
-            if contradictions:
-                content.append("\nDetected contradictions:")
-                for contradicting_id, reason in contradictions:
-                    content.append(f"- {reason} (with thought {contradicting_id})")
-                
-                # Add contradiction analysis for deeper reflections
-                if reflection_level > 1:
-                    content.append("\nContradiction Analysis:")
-                    content.append(f"- Found {len(contradictions)} contradictions that require resolution.")
-                    content.append("- Contradictions represent opportunities for cognitive growth through dialectical thinking.")
-                    
-                    if reflection_level > 2:
-                        content.append("- The presence of contradictions indicates a complex thought space with competing perspectives.")
-                        content.append("- Resolving these contradictions may require higher-order integration or paradigm shifts.")
-            
-            # Add insights with appropriate depth
-            if insights:
-                if reflection_level == 1:
-                    content.append("\nInsights:")
-                elif reflection_level == 2:
-                    content.append("\nMeta-Insights:")
-                else:
-                    content.append(f"\nLevel {reflection_level} Insights:")
-                    
-                for insight in insights:
-                    content.append(f"- {insight}")
-            
-            # Add reflection summary for deeper reflections
-            if reflection_level > 1:
-                content.append("\nReflection Summary:")
-                if patterns and contradictions:
-                    content.append("- This thought contains both identifiable patterns and contradictions, suggesting a rich cognitive landscape.")
-                elif patterns:
-                    content.append("- This thought follows established patterns but lacks contradictions, suggesting coherent but potentially unchallenged thinking.")
-                elif contradictions:
-                    content.append("- This thought contains contradictions without clear patterns, suggesting potentially disorganized or innovative thinking.")
-                else:
-                    content.append("- This thought lacks both clear patterns and contradictions, suggesting either novel thinking or insufficient analysis.")
-            
-            return "\n".join(content)
-        
-        async def _perform_meta_reflection(self, reflection: Reflection,
-                                         previous_reflections: List[Reflection],
-                                         context: CognitiveContext) -> Reflection:
-            """
-            Perform meta-reflection on a reflection and its predecessors.
-            
-            Args:
-                reflection: The current reflection
-                previous_reflections: Previous reflections to consider
-                context: The cognitive context
-                
-            Returns:
-                A meta-reflection
-            """
-            logger.debug(f"Performing meta-reflection on reflection {reflection.id}")
-            
-            # Extract insights from all reflections
-            all_insights = []
-            for r in previous_reflections:
-                all_insights.extend(r.insights)
-            all_insights.extend(reflection.insights)
-            
-            # Find common themes
-            common_themes = self._identify_common_themes(all_insights)
-            
-            # Identify progression of thought
-            progression = self._identify_thought_progression(previous_reflections, reflection)
-            
-            # Generate meta-insights
-            meta_insights = []
-            
-            if common_themes:
-                meta_insights.append(f"Common themes across reflections: {', '.join(common_themes)}")
-            
-            if progression:
-                meta_insights.append(f"Thought progression: {progression}")
-            
-            # Check for circular thinking
-            if self._detect_circular_thinking(previous_reflections, reflection):
-                meta_insights.append("Detected circular thinking pattern, consider new approaches")
-            
-            # Check for convergence or divergence
-            convergence = self._assess_convergence(previous_reflections, reflection)
-            if convergence > 0.7:
-                meta_insights.append("Thinking is converging toward specific conclusions")
-            elif convergence < 0.3:
-                meta_insights.append("Thinking is diverging, exploring multiple directions")
-            
-            # Create meta-reflection content
-            meta_content = f"Meta-reflection on {len(previous_reflections) + 1} reflections"
-            if meta_insights:
-                meta_content += "\n\nMeta-insights:\n" + "\n".join(f"- {insight}" for insight in meta_insights)
-            
-            # Create meta-reflection
-            meta_reflection = Reflection(
-                thought_id=reflection.thought_id,
-                content=meta_content,
-                insights=meta_insights,
-                should_ideate=True,  # Meta-reflections often benefit from ideation
-                metadata={
-                    "reflection_ids": [r.id for r in previous_reflections] + [reflection.id],
-                    "reflection_level": max(r.metadata.get("reflection_level", 1) for r in previous_reflections) + 1,
-                    "is_meta_reflection": True
-                }
-            )
-            
-            # Store the meta-reflection
-            async with self.lock:
-                self.reflections[meta_reflection.id] = meta_reflection
-            
-            return meta_reflection
-        
-        def _identify_common_themes(self, insights: List[str]) -> List[str]:
-            """
-            Identify common themes across insights.
-            
-            Args:
-                insights: List of insights to analyze
-                
-            Returns:
-                List of common themes
-            """
-            # Simplified implementation - in a real system, this would use NLP
-            
-            # Extract key terms from insights
-            all_terms = []
-            for insight in insights:
-                # Split by spaces and punctuation
-                terms = re.findall(r'\b\w{4,}\b', insight.lower())
-                all_terms.extend(terms)
-            
-            # Count term frequencies
-            term_counts = {}
-            for term in all_terms:
-                term_counts[term] = term_counts.get(term, 0) + 1
-            
-            # Identify common terms (occurring more than once)
-            common_terms = [term for term, count in term_counts.items() if count > 1]
-            
-            # Group related terms (simplified)
-            themes = []
-            for term in common_terms:
-                # Check if term is already part of an existing theme
-                if not any(term in theme for theme in themes):
-                    # Find related terms
-                    related_terms = [t for t in common_terms if self._are_terms_related(term, t)]
-                    if related_terms:
-                        themes.append(", ".join(related_terms))
-            
-            return themes[:5]  # Limit to top 5 themes
-        
-        def _are_terms_related(self, term1: str, term2: str) -> bool:
-            """
-            Determine if two terms are related.
-            
-            Args:
-                term1: First term
-                term2: Second term
-                
-            Returns:
-                True if terms are related, False otherwise
-            """
-            # Simplified implementation - in a real system, this would use semantic similarity
-            
-            # Check for common prefix
-            if term1.startswith(term2[:4]) or term2.startswith(term1[:4]):
-                return True
-            
-            # Check for one term containing the other
-            if term1 in term2 or term2 in term1:
-                return True
-            
-            # Define some related term pairs (simplified)
-            related_pairs = [
-                ("problem", "solution"),
-                ("question", "answer"),
-                ("hypothesis", "evidence"),
-                ("concept", "idea"),
-                ("pattern", "structure")
-            ]
-            
-            # Check if terms are in a related pair
-            for pair in related_pairs:
-                if (term1 in pair and term2 in pair):
-                    return True
-            
-            return False
-        
-        def _identify_thought_progression(self, previous_reflections: List[Reflection],
-                                         current_reflection: Reflection) -> str:
-            """
-            Identify the progression of thought across reflections.
-            
-            Args:
-                previous_reflections: Previous reflections
-                current_reflection: Current reflection
-                
-            Returns:
-                Description of thought progression
-            """
-            # Simplified implementation
-            
-            # Check for progression from question to hypothesis
-            if any("why_question" in r.metadata.get("patterns", []) for r in previous_reflections) and \
-               any("if_then_hypothesis" in p for p in [current_reflection.metadata.get("patterns", [])]):
-                return "Progressed from questioning to hypothesis formation"
-            
-            # Check for progression from problem to solution
-            if any("problem_identification" in r.metadata.get("patterns", []) for r in previous_reflections) and \
-               any("solution_" in p for p in current_reflection.metadata.get("patterns", [])):
-                return "Progressed from problem identification to solution proposal"
-            
-            # Check for increasing complexity
-            if len(previous_reflections) > 1:
-                insight_counts = [len(r.insights) for r in previous_reflections]
-                current_count = len(current_reflection.insights)
-                
-                if current_count > max(insight_counts):
-                    return "Increasing complexity and insight generation"
-                elif current_count < min(insight_counts):
-                    return "Converging toward simplification"
-            
-            # Default
-            return "Ongoing exploration of the thought space"
-        
-        def _detect_circular_thinking(self, previous_reflections: List[Reflection],
-                                     current_reflection: Reflection) -> bool:
-            """
-            Detect circular thinking patterns.
-            
-            Args:
-                previous_reflections: Previous reflections
-                current_reflection: Current reflection
-                
-            Returns:
-                True if circular thinking is detected, False otherwise
-            """
-            # Simplified implementation
-            
-            # Extract key terms from current reflection
-            current_content = current_reflection.content.lower()
-            current_terms = set(re.findall(r'\b\w{5,}\b', current_content))
-            
-            if not current_terms:
-                return False
-            
-            # Check for term overlap with early reflections
-            if len(previous_reflections) >= 3:
-                early_reflections = previous_reflections[:len(previous_reflections)//2]
-                
-                for early_reflection in early_reflections:
-                    early_content = early_reflection.content.lower()
-                    early_terms = set(re.findall(r'\b\w{5,}\b', early_content))
-                    
-                    # Calculate overlap
-                    if early_terms:
-                        overlap = len(current_terms.intersection(early_terms)) / len(current_terms.union(early_terms))
-                        
-                        # If significant overlap with early reflection, may indicate circular thinking
-                        if overlap > 0.7:
-                            return True
-            
-            return False
-        
-        def _assess_convergence(self, previous_reflections: List[Reflection],
-                               current_reflection: Reflection) -> float:
-            """
-            Assess convergence or divergence in thinking.
-            
-            Args:
-                previous_reflections: Previous reflections
-                current_reflection: Current reflection
-                
-            Returns:
-                Convergence score (0.0 to 1.0, higher means more convergent)
-            """
-            # Simplified implementation
-            
-            if not previous_reflections:
-                return 0.5  # Neutral
-            
-            # Compare insights between reflections
-            if len(previous_reflections) >= 2:
-                # Get insights from last few reflections
-                recent_reflections = previous_reflections[-min(3, len(previous_reflections)):]
-                all_insights = []
-                
-                for r in recent_reflections:
-                    all_insights.extend(r.insights)
-                
-                current_insights = current_reflection.insights
-                
-                # Calculate similarity between current and previous insights
-                similarity_scores = []
-                
-                for prev_insight in all_insights:
-                    prev_terms = set(re.findall(r'\b\w{4,}\b', prev_insight.lower()))
-                    
-                    for curr_insight in current_insights:
-                        curr_terms = set(re.findall(r'\b\w{4,}\b', curr_insight.lower()))
-                        
-                        if prev_terms and curr_terms:
-                            # Jaccard similarity
-                            intersection = len(prev_terms.intersection(curr_terms))
-                            union = len(prev_terms.union(curr_terms))
-                            
-                            if union > 0:
-                                similarity_scores.append(intersection / union)
-                
-                if similarity_scores:
-                    # High average similarity indicates convergence
-                    return sum(similarity_scores) / len(similarity_scores)
-            
-            return 0.5  # Neutral default
-        
+
         # Count how many active thoughts are related to this one
         related_count = sum(1 for id in active_thought_ids if id != thought.id)
         
@@ -1217,5 +749,474 @@ class ReflectionEngine(ReflectionEngineInterface):
         # Check if this is a novel direction
         if not thought.metadata.get("builds_on", None) and thought.type not in ["question", "hypothesis"]:
             insights.append("Represents a novel direction, consider exploring connections to existing thoughts")
+        return insights
+
+    async def _generate_knowledge_based_insights(self, thought: Thought, context: CognitiveContext,
+                                              reflection_level: int = 1) -> List[str]:
+        """
+        Generate insights based on knowledge store information with varying depth based on reflection level.
+
+        Args:
+            thought: The thought to generate insights for
+            context: The cognitive context
+            reflection_level: The level of reflection (1 for base, >1 for meta)
+
+        Returns:
+            List of knowledge-based insights
+        """
+        if not self.knowledge_store:
+            return []
+
+        insights = []
+
+        try:
+            # Query knowledge store for relevant information with parameters based on reflection level
+            query = {
+                "content": thought.content,
+                "type": thought.type,
+                "max_results": 3 * reflection_level,  # More results for deeper reflections
+                "min_confidence": 0.7 - (0.1 * (reflection_level - 1))  # Lower threshold for deeper reflections
+            }
+
+            # Add context information for more targeted queries
+            if context:
+                query["context"] = {
+                    "cognitive_load": context.cognitive_load,
+                    "attention_focus": context.attention_focus,
+                    "active_thoughts": context.active_thoughts
+                }
+
+            # This is a simplified placeholder - in a real implementation,
+            # we would use the actual knowledge store API
+            knowledge_items = await self.knowledge_store.query_knowledge(query)
+
+            # Generate insights based on knowledge items
+            if hasattr(knowledge_items, 'items') and knowledge_items.items:
+                for item in knowledge_items.items:
+                    if hasattr(item, 'content') and item.content:
+                        # Extract content
+                        content_str = str(item.content)
+                        truncated_content = content_str[:100] + "..." if len(content_str) > 100 else content_str
+
+                        # Get type and confidence
+                        item_type = getattr(item, "type", "unknown")
+                        confidence = getattr(item, "confidence", 0.5)
+
+                        # Generate appropriate insight based on item type
+                        if item_type == "concept":
+                            insights.append(f"This thought relates to the concept: {truncated_content}")
+                        elif item_type == "fact":
+                            insights.append(f"This thought connects to the established fact: {truncated_content}")
+                        elif item_type == "rule":
+                            insights.append(f"This thought may follow the rule: {truncated_content}")
+                        elif item_type == "hypothesis":
+                            insights.append(f"This thought aligns with the hypothesis: {truncated_content}")
+                        else:
+                            insights.append(f"This thought connects to existing knowledge: {truncated_content}")
+
+                        # For deeper reflections, add confidence information
+                        if reflection_level > 1:
+                            insights[-1] += f" (confidence: {confidence:.2f})"
+
+                # For deeper reflections, add meta-insights about knowledge connections
+                if reflection_level > 1 and len(knowledge_items.items) > 0:
+                    insights.append(f"This thought connects to {len(knowledge_items.items)} items in the knowledge store, suggesting it builds on existing understanding.")
+
+                    if len(knowledge_items.items) > 3:
+                        insights.append("The multiple knowledge connections indicate this is a rich area for further exploration.")
+
+                # For even deeper reflections, add epistemological insights
+                if reflection_level > 2 and len(knowledge_items.items) > 0:
+                    insights.append("The pattern of knowledge connections reveals how new thoughts integrate with existing cognitive structures.")
+                    insights.append("The relationship between this thought and prior knowledge demonstrates the incremental nature of cognitive development.")
+
+                    # Add insights about knowledge confidence distribution
+                    confidence_values = [getattr(item, "confidence", 0.5) for item in knowledge_items.items]
+                    avg_confidence = sum(confidence_values) / len(confidence_values) if confidence_values else 0.5
+
+                    if avg_confidence > 0.8:
+                        insights.append("The high confidence in related knowledge suggests this thought builds on well-established foundations.")
+                    elif avg_confidence < 0.4:
+                        insights.append("The low confidence in related knowledge suggests this thought explores uncertain or speculative territory.")
+        except Exception as e:
+            logger.error(f"Error querying knowledge store: {e}")
+            insights.append("Error accessing knowledge store, relying on internal processing only.")
+
+        return insights
+
+    def _generate_reflection_content(self, thought: Thought, insights: List[str],
+                                    contradictions: List[Tuple[str, str]],
+                                    patterns: List[str],
+                                    reflection_level: int = 1) -> str:
+        """
+        Generate comprehensive reflection content with appropriate depth based on reflection level.
+
+        Args:
+            thought: The thought being reflected on
+            insights: The generated insights
+            contradictions: The detected contradictions
+            patterns: The identified patterns
+            reflection_level: The level of reflection (1 for base, >1 for meta)
+
+        Returns:
+            Formatted reflection content
+        """
+        # Create appropriate header based on reflection level
+        if reflection_level == 1:
+            content = [f"Reflection on: {thought.content}"]
+        elif reflection_level == 2:
+            content = [f"Meta-reflection on: {thought.content}"]
+        else:
+            content = [f"Level {reflection_level} meta-reflection on: {thought.content}"]
+
+        # Add thought type and priority information
+        content.append(f"\nThought Type: {thought.type}")
+        content.append(f"Thought Priority: {thought.priority:.2f}")
+
+        # Add pattern information with appropriate depth
+        if patterns:
+            content.append("\nIdentified patterns:")
+            for pattern in patterns:
+                content.append(f"- {pattern}")
+
+            # Add pattern analysis for deeper reflections
+            if reflection_level > 1 and len(patterns) > 1:
+                content.append("\nPattern Analysis:")
+                content.append(f"- This thought exhibits {len(patterns)} distinct patterns.")
+
+                # Categorize patterns
+                question_patterns = [p for p in patterns if "question" in p]
+                hypothesis_patterns = [p for p in patterns if "hypothesis" in p]
+                insight_patterns = [p for p in patterns if "insight" in p]
+                problem_patterns = [p for p in patterns if "problem" in p]
+                solution_patterns = [p for p in patterns if "solution" in p]
+
+                if question_patterns:
+                    content.append(f"- Contains {len(question_patterns)} question patterns, indicating inquiry orientation.")
+                if hypothesis_patterns:
+                    content.append(f"- Contains {len(hypothesis_patterns)} hypothesis patterns, indicating theoretical thinking.")
+                if insight_patterns:
+                    content.append(f"- Contains {len(insight_patterns)} insight patterns, indicating synthetic thinking.")
+                if problem_patterns:
+                    content.append(f"- Contains {len(problem_patterns)} problem patterns, indicating analytical thinking.")
+                if solution_patterns:
+                    content.append(f"- Contains {len(solution_patterns)} solution patterns, indicating practical thinking.")
+
+        # Add contradiction information with appropriate depth
+        if contradictions:
+            content.append("\nDetected contradictions:")
+            for contradicting_id, reason in contradictions:
+                content.append(f"- {reason} (with thought {contradicting_id})")
+
+            # Add contradiction analysis for deeper reflections
+            if reflection_level > 1:
+                content.append("\nContradiction Analysis:")
+                content.append(f"- Found {len(contradictions)} contradictions that require resolution.")
+                content.append("- Contradictions represent opportunities for cognitive growth through dialectical thinking.")
+
+                if reflection_level > 2:
+                    content.append("- The presence of contradictions indicates a complex thought space with competing perspectives.")
+                    content.append("- Resolving these contradictions may require higher-order integration or paradigm shifts.")
+
+        # Add insights with appropriate depth
+        if insights:
+            if reflection_level == 1:
+                content.append("\nInsights:")
+            elif reflection_level == 2:
+                content.append("\nMeta-Insights:")
+            else:
+                content.append(f"\nLevel {reflection_level} Insights:")
+
+            for insight in insights:
+                content.append(f"- {insight}")
+
+        # Add reflection summary for deeper reflections
+        if reflection_level > 1:
+            content.append("\nReflection Summary:")
+            if patterns and contradictions:
+                content.append("- This thought contains both identifiable patterns and contradictions, suggesting a rich cognitive landscape.")
+            elif patterns:
+                content.append("- This thought follows established patterns but lacks contradictions, suggesting coherent but potentially unchallenged thinking.")
+            elif contradictions:
+                content.append("- This thought contains contradictions without clear patterns, suggesting potentially disorganized or innovative thinking.")
+            else:
+                content.append("- This thought lacks both clear patterns and contradictions, suggesting either novel thinking or insufficient analysis.")
+
+        return "\n".join(content)
+
+    async def _perform_meta_reflection(self, reflection: Reflection,
+                                     previous_reflections: List[Reflection],
+                                     context: CognitiveContext) -> Reflection:
+        """
+        Perform meta-reflection on a reflection and its predecessors.
+
+        Args:
+            reflection: The current reflection
+            previous_reflections: Previous reflections to consider
+            context: The cognitive context
+
+        Returns:
+            A meta-reflection
+        """
+        logger.debug(f"Performing meta-reflection on reflection {reflection.id}")
+
+        # Extract insights from all reflections
+        all_insights = []
+        for r in previous_reflections:
+            all_insights.extend(r.insights)
+        all_insights.extend(reflection.insights)
+
+        # Find common themes
+        common_themes = self._identify_common_themes(all_insights)
+
+        # Identify progression of thought
+        progression = self._identify_thought_progression(previous_reflections, reflection)
+
+        # Generate meta-insights
+        meta_insights = []
+
+        if common_themes:
+            meta_insights.append(f"Common themes across reflections: {', '.join(common_themes)}")
+
+        if progression:
+            meta_insights.append(f"Thought progression: {progression}")
+
+        # Check for circular thinking
+        if self._detect_circular_thinking(previous_reflections, reflection):
+            meta_insights.append("Detected circular thinking pattern, consider new approaches")
+
+        # Check for convergence or divergence
+        convergence = self._assess_convergence(previous_reflections, reflection)
+        if convergence > 0.7:
+            meta_insights.append("Thinking is converging toward specific conclusions")
+        elif convergence < 0.3:
+            meta_insights.append("Thinking is diverging, exploring multiple directions")
+
+        # Create meta-reflection content
+        meta_content = f"Meta-reflection on {len(previous_reflections) + 1} reflections"
+        if meta_insights:
+            meta_content += "\n\nMeta-insights:\n" + "\n".join(f"- {insight}" for insight in meta_insights)
+
+        # Create meta-reflection
+        meta_reflection = Reflection(
+            thought_id=reflection.thought_id,
+            content=meta_content,
+            insights=meta_insights,
+            should_ideate=True,  # Meta-reflections often benefit from ideation
+            metadata={
+                "reflection_ids": [r.id for r in previous_reflections] + [reflection.id],
+                "reflection_level": max(r.metadata.get("reflection_level", 1) for r in previous_reflections) + 1,
+                "is_meta_reflection": True
+            }
+        )
+
+        # Store the meta-reflection
+        async with self.lock:
+            self.reflections[meta_reflection.id] = meta_reflection
+
+        return meta_reflection
+
+    def _identify_common_themes(self, insights: List[str]) -> List[str]:
+        """
+        Identify common themes across insights.
+
+        Args:
+            insights: List of insights to analyze
+
+        Returns:
+            List of common themes
+        """
+        # Simplified implementation - in a real system, this would use NLP
+
+        # Extract key terms from insights
+        all_terms = []
+        for insight in insights:
+            # Split by spaces and punctuation
+            terms = re.findall(r'\b\w{4,}\b', insight.lower())
+            all_terms.extend(terms)
+
+        # Count term frequencies
+        term_counts = {}
+        for term in all_terms:
+            term_counts[term] = term_counts.get(term, 0) + 1
+
+        # Identify common terms (occurring more than once)
+        common_terms = [term for term, count in term_counts.items() if count > 1]
+
+        # Group related terms (simplified)
+        themes = []
+        for term in common_terms:
+            # Check if term is already part of an existing theme
+            if not any(term in theme for theme in themes):
+                # Find related terms
+                related_terms = [t for t in common_terms if self._are_terms_related(term, t)]
+                if related_terms:
+                    themes.append(", ".join(related_terms))
+
+        return themes[:5]  # Limit to top 5 themes
+
+    def _are_terms_related(self, term1: str, term2: str) -> bool:
+        """
+        Determine if two terms are related.
+
+        Args:
+            term1: First term
+            term2: Second term
+
+        Returns:
+            True if terms are related, False otherwise
+        """
+        # Simplified implementation - in a real system, this would use semantic similarity
+
+        # Check for common prefix
+        if term1.startswith(term2[:4]) or term2.startswith(term1[:4]):
+            return True
+
+        # Check for one term containing the other
+        if term1 in term2 or term2 in term1:
+            return True
+
+        # Define some related term pairs (simplified)
+        related_pairs = [
+            ("problem", "solution"),
+            ("question", "answer"),
+            ("hypothesis", "evidence"),
+            ("concept", "idea"),
+            ("pattern", "structure")
+        ]
+
+        # Check if terms are in a related pair
+        for pair in related_pairs:
+            if (term1 in pair and term2 in pair):
+                return True
+
+        return False
+
+    def _identify_thought_progression(self, previous_reflections: List[Reflection],
+                                     current_reflection: Reflection) -> str:
+        """
+        Identify the progression of thought across reflections.
+
+        Args:
+            previous_reflections: Previous reflections
+            current_reflection: Current reflection
+
+        Returns:
+            Description of thought progression
+        """
+        # Simplified implementation
+
+        # Check for progression from question to hypothesis
+        if any("why_question" in r.metadata.get("patterns", []) for r in previous_reflections) and \
+           any("if_then_hypothesis" in p for p in [current_reflection.metadata.get("patterns", [])]):
+            return "Progressed from questioning to hypothesis formation"
+
+        # Check for progression from problem to solution
+        if any("problem_identification" in r.metadata.get("patterns", []) for r in previous_reflections) and \
+           any("solution_" in p for p in current_reflection.metadata.get("patterns", [])):
+            return "Progressed from problem identification to solution proposal"
+
+        # Check for increasing complexity
+        if len(previous_reflections) > 1:
+            insight_counts = [len(r.insights) for r in previous_reflections]
+            current_count = len(current_reflection.insights)
+
+            if current_count > max(insight_counts):
+                return "Increasing complexity and insight generation"
+            elif current_count < min(insight_counts):
+                return "Converging toward simplification"
+
+        # Default
+        return "Ongoing exploration of the thought space"
+
+    def _detect_circular_thinking(self, previous_reflections: List[Reflection],
+                                 current_reflection: Reflection) -> bool:
+        """
+        Detect circular thinking patterns.
+
+        Args:
+            previous_reflections: Previous reflections
+            current_reflection: Current reflection
+
+        Returns:
+            True if circular thinking is detected, False otherwise
+        """
+        # Simplified implementation
+
+        # Extract key terms from current reflection
+        current_content = current_reflection.content.lower()
+        current_terms = set(re.findall(r'\b\w{5,}\b', current_content))
+
+        if not current_terms:
+            return False
+
+        # Check for term overlap with early reflections
+        if len(previous_reflections) >= 3:
+            early_reflections = previous_reflections[:len(previous_reflections)//2]
+
+            for early_reflection in early_reflections:
+                early_content = early_reflection.content.lower()
+                early_terms = set(re.findall(r'\b\w{5,}\b', early_content))
+
+                # Calculate overlap
+                if early_terms:
+                    overlap = len(current_terms.intersection(early_terms)) / len(current_terms.union(early_terms))
+
+                    # If significant overlap with early reflection, may indicate circular thinking
+                    if overlap > 0.7:
+                        return True
+
+        return False
+
+    def _assess_convergence(self, previous_reflections: List[Reflection],
+                           current_reflection: Reflection) -> float:
+        """
+        Assess convergence or divergence in thinking.
+
+        Args:
+            previous_reflections: Previous reflections
+            current_reflection: Current reflection
+
+        Returns:
+            Convergence score (0.0 to 1.0, higher means more convergent)
+        """
+        # Simplified implementation
+
+        if not previous_reflections:
+            return 0.5  # Neutral
+
+        # Compare insights between reflections
+        if len(previous_reflections) >= 2:
+            # Get insights from last few reflections
+            recent_reflections = previous_reflections[-min(3, len(previous_reflections)):]
+            all_insights = []
+
+            for r in recent_reflections:
+                all_insights.extend(r.insights)
+
+            current_insights = current_reflection.insights
+
+            # Calculate similarity between current and previous insights
+            similarity_scores = []
+
+            for prev_insight in all_insights:
+                prev_terms = set(re.findall(r'\b\w{4,}\b', prev_insight.lower()))
+
+                for curr_insight in current_insights:
+                    curr_terms = set(re.findall(r'\b\w{4,}\b', curr_insight.lower()))
+
+                    if prev_terms and curr_terms:
+                        # Jaccard similarity
+                        intersection = len(prev_terms.intersection(curr_terms))
+                        union = len(prev_terms.union(curr_terms))
+
+                        if union > 0:
+                            similarity_scores.append(intersection / union)
+
+            if similarity_scores:
+                # High average similarity indicates convergence
+                return sum(similarity_scores) / len(similarity_scores)
+
+        return 0.5  # Neutral default
         
         return insights
