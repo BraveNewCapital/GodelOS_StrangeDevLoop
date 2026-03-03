@@ -45,7 +45,7 @@ class TestFormalLayerBridge:
             pytest.skip("godelOS formal layer not installed")
         ok = await bridge.initialize()
         assert ok is True
-        assert bridge._initialised is True
+        assert bridge.is_initialized is True
 
     @pytest.mark.asyncio
     async def test_double_initialize_is_idempotent(self, bridge):
@@ -132,7 +132,7 @@ class TestEngineWithFormalBridge:
         """initialize_components should call formal_bridge.initialize()."""
         await engine.initialize_components()
         if engine.formal_bridge.is_available:
-            assert engine.formal_bridge._initialised is True
+            assert engine.formal_bridge.is_initialized is True
 
     @pytest.mark.asyncio
     async def test_consciousness_report_includes_formal_layer(self, engine):

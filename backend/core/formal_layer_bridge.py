@@ -21,6 +21,9 @@ from typing import Dict, List, Optional, Any
 
 logger = logging.getLogger(__name__)
 
+_MAX_INSIGHTS_PER_REFLECTION = 3  # cap insights harvested per reflection
+_SNAPSHOT_THOUGHT_LIMIT = 50       # cap thought retrieval for counting
+
 # ---------- lazy import flag ---------------------------------------------------
 _FORMAL_AVAILABLE = True
 try:
@@ -82,7 +85,10 @@ class FormalLayerBridge:
         self._initialised = False
         self._lock = asyncio.Lock()
 
-    # ── lifecycle ──────────────────────────────────────────────────────
+    @property
+    def is_initialized(self) -> bool:
+        """Whether the formal layer components have been successfully created."""
+        return self._initialised
 
     async def initialize(self) -> bool:
         """Create the formal-layer components. Safe to call repeatedly."""
@@ -189,14 +195,16 @@ class FormalLayerBridge:
                     t.id
                 )
                 for r in reflections[-1:]:
-                    latest_insights.extend(r.insights[:3])
+                    latest_insights.extend(r.insights[:_MAX_INSIGHTS_PER_REFLECTION])
 
             return FormalSnapshot(
                 cognitive_load=load,
                 attention_allocation=attention,
                 performance_metrics=summary.get("performance_metrics", {}),
                 thought_count=len(
-                    await self._thought_stream.get_priority_thoughts(max_thoughts=999)
+                    await self._thought_stream.get_priority_thoughts(
+                        max_thoughts=_SNAPSHOT_THOUGHT_LIMIT
+                    )
                 ),
                 reflection_count=summary.get("reflections_created", 0),
                 latest_insights=latest_insights[-5:],

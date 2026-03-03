@@ -688,13 +688,15 @@ class UnifiedConsciousnessEngine:
                             "attention": formal_snapshot.attention_allocation,
                             "performance": formal_snapshot.performance_metrics,
                         }
-                    # Inject real insights as meta-observations
+                    # Inject real insights as meta-observations (deduplicated)
                     meta_obs = current_state.metacognitive_state.setdefault(
                         "meta_observations", []
                     )
+                    existing = set(meta_obs)
                     for insight in formal_snapshot.latest_insights:
-                        if insight and insight not in meta_obs[-5:]:
+                        if insight and insight not in existing:
                             meta_obs.append(insight)
+                            existing.add(insight)
                 
                 # 3. GLOBAL BROADCASTING (GWT)
                 broadcast_content = self.global_workspace.broadcast({
@@ -762,7 +764,7 @@ class UnifiedConsciousnessEngine:
                         'unity_of_experience': current_state.phenomenal_experience.get('unity_of_experience', 0.0),
                         'phase_transition': asdict(transition) if transition else None,
                         'state_narrative': narration.get('narrative') if narration else None,
-                        'formal_layer_connected': self.formal_bridge.is_available and self.formal_bridge._initialised,
+                        'formal_layer_connected': self.formal_bridge.is_available and self.formal_bridge.is_initialized,
                         'formal_cognitive_load': formal_snapshot.cognitive_load if formal_snapshot else None,
                     }
                     await self.websocket_manager.broadcast_consciousness_update(safe_broadcast_data)
@@ -1133,7 +1135,7 @@ class UnifiedConsciousnessEngine:
         
         # Formal layer status
         formal_snapshot = None
-        if self.formal_bridge.is_available and self.formal_bridge._initialised:
+        if self.formal_bridge.is_available and self.formal_bridge.is_initialized:
             try:
                 formal_snapshot = await self.formal_bridge.get_snapshot()
             except Exception:
@@ -1160,7 +1162,7 @@ class UnifiedConsciousnessEngine:
                 if self.phenomenal_experience_generator else None
             ),
             'formal_layer': {
-                'connected': self.formal_bridge.is_available and self.formal_bridge._initialised,
+                'connected': self.formal_bridge.is_available and self.formal_bridge.is_initialized,
                 'cognitive_load': formal_snapshot.cognitive_load if formal_snapshot else None,
                 'thought_count': formal_snapshot.thought_count if formal_snapshot else 0,
                 'attention': formal_snapshot.attention_allocation if formal_snapshot else {},
