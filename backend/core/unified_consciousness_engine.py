@@ -28,7 +28,7 @@ from .formal_layer_bridge import FormalLayerBridge
 
 # Belief revision AST helpers
 from godelOS.core_kr.ast.nodes import ConstantNode, ConnectiveNode
-from godelOS.core_kr.type_system.types import Type
+from godelOS.core_kr.type_system.types import AtomicType
 
 # Symbol grounding — prediction-error tracking fed by the knowledge store shim
 from godelOS.symbol_grounding.prediction_error_tracker import PredictionErrorTracker
@@ -1017,7 +1017,7 @@ class UnifiedConsciousnessEngine:
                         logger.debug(f"RL reward wire skipped: {exc}")
                 if hasattr(self, '_belief_revision') and self._belief_revision is not None:
                     try:
-                        prop_type = Type("Proposition", 0)
+                        prop_type = AtomicType("Proposition")
                         claim_ast = ConstantNode(
                             f"self_model_{claim.claim_type}_{claim.polarity}",
                             prop_type,
