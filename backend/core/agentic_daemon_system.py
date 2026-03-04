@@ -27,6 +27,7 @@ class DaemonType(Enum):
     PATTERN_RECOGNIZER = "pattern_recognizer"
     CONTINUOUS_LEARNER = "continuous_learner"
     METACOGNITIVE_MONITOR = "metacognitive_monitor"
+    GROUNDING_COHERENCE = "grounding_coherence"
 
 
 class ProcessStatus(Enum):
@@ -521,10 +522,14 @@ class SystemOptimizerDaemon(AgenticDaemon):
 class AgenticDaemonSystem:
     """Manages the collection of agentic daemons."""
     
-    def __init__(self, cognitive_manager=None, knowledge_pipeline=None, websocket_manager=None):
+    def __init__(self, cognitive_manager=None, knowledge_pipeline=None, websocket_manager=None,
+                 consciousness_engine=None):
+        from backend.core.grounding_coherence_daemon import GroundingCoherenceDaemon
+
         self.cognitive_manager = cognitive_manager
         self.knowledge_pipeline = knowledge_pipeline
         self.websocket_manager = websocket_manager
+        self.consciousness_engine = consciousness_engine
         
         # Initialize daemons
         self.daemons: Dict[str, AgenticDaemon] = {
@@ -536,6 +541,10 @@ class AgenticDaemonSystem:
             ),
             "system_optimizer": SystemOptimizerDaemon(
                 cognitive_manager, knowledge_pipeline, websocket_manager
+            ),
+            "grounding_coherence": GroundingCoherenceDaemon(
+                cognitive_manager, knowledge_pipeline, websocket_manager,
+                consciousness_engine=consciousness_engine
             )
         }
         
@@ -639,7 +648,8 @@ class AgenticDaemonSystem:
 agentic_daemon_system: Optional[AgenticDaemonSystem] = None
 
 
-async def get_agentic_daemon_system(cognitive_manager=None, knowledge_pipeline=None, websocket_manager=None) -> AgenticDaemonSystem:
+async def get_agentic_daemon_system(cognitive_manager=None, knowledge_pipeline=None, websocket_manager=None,
+                                    consciousness_engine=None) -> AgenticDaemonSystem:
     """Get or create the global agentic daemon system."""
     global agentic_daemon_system
     
@@ -647,7 +657,8 @@ async def get_agentic_daemon_system(cognitive_manager=None, knowledge_pipeline=N
         agentic_daemon_system = AgenticDaemonSystem(
             cognitive_manager=cognitive_manager,
             knowledge_pipeline=knowledge_pipeline,
-            websocket_manager=websocket_manager
+            websocket_manager=websocket_manager,
+            consciousness_engine=consciousness_engine
         )
     
     return agentic_daemon_system
