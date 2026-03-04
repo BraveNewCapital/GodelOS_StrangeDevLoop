@@ -999,6 +999,18 @@ class UnifiedConsciousnessEngine:
                 )
                 if result.contradiction_score > 0.6:
                     self.feedback_injector.enqueue(result)
+                if hasattr(self, '_meta_control_rl') and self._meta_control_rl is not None:
+                    try:
+                        state_features = self._meta_control_rl.get_state_features()
+                        self._meta_control_rl.learn_from_transition(
+                            state_features=state_features,
+                            action_taken=getattr(self, '_last_meta_action', None),
+                            reward=-result.contradiction_score,
+                            next_state_features=state_features,
+                            episode_done=False,
+                        )
+                    except Exception as exc:
+                        logger.debug(f"RL reward wire skipped: {exc}")
         except Exception as e:
             logger.error(f"Error in self-model feedback loop: {e}")
 
