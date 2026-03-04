@@ -2242,6 +2242,23 @@ async def llm_chat_message(request: ChatMessage):
                 # Use the correct method name
                 response = await tool_based_llm.process_query(request.message)
                 
+                # Run self-model feedback loop directly on the LLM output.
+                # _run_self_model_loop extracts claims, validates, and enqueues
+                # feedback — no second LLM call needed.
+                if unified_consciousness_engine:
+                    try:
+                        unified_consciousness_engine._run_self_model_loop(
+                            response.get("response", "")
+                        )
+                        logger.info("Self-model loop completed for chat message", extra={
+                            "operation": "llm_chat_consciousness",
+                        })
+                    except Exception as exc:
+                        logger.warning(f"Self-model loop failed for chat message: {exc}", extra={
+                            "operation": "llm_chat_consciousness",
+                            "error_type": type(exc).__name__,
+                        })
+
                 logger.info("LLM chat completed successfully", extra={
                     "operation": "llm_chat",
                     "response_length": len(response.get("response", "")),
