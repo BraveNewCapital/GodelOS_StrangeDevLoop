@@ -13,7 +13,7 @@ Thresholds (from Phase 2 bimodal analysis):
 
 import time
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import List
 
 from godelOS.symbol_grounding.self_model_extractor import SelfModelClaim
 from godelOS.symbol_grounding.prediction_error_tracker import PredictionErrorTracker
@@ -38,6 +38,8 @@ class ValidationResult:
 
 _LOW_THRESHOLD = 0.12   # sub-critical boundary (Phase 2 bimodal)
 _HIGH_THRESHOLD = 0.35  # super-critical boundary (Phase 2 bimodal)
+# Guaranteed > 0 by construction; used as denominator in contradiction scores.
+_THRESHOLD_RANGE = _HIGH_THRESHOLD - _LOW_THRESHOLD  # 0.23
 
 # Contradiction score → recommendation
 _CONSISTENT_CEIL = 0.3
@@ -45,7 +47,6 @@ _FLAG_CEIL = 0.6
 
 # Claim types that expect low error (stable/grounded system)
 _STABLE_CLAIM_TYPES = {"identity", "confidence"}
-_STABLE_POLARITIES = {"positive"}  # only positive confidence claims expect stability
 
 # Claim types that expect high error (novelty/uncertainty)
 _NOVEL_CLAIM_TYPES = {"state", "awareness"}
@@ -137,12 +138,12 @@ class SelfModelValidator:
         if expects_low:
             expected = (0.0, _LOW_THRESHOLD)
             # Higher error → larger contradiction
-            contradiction = min(1.0, max(0.0, (actual_norm - _LOW_THRESHOLD) / (_HIGH_THRESHOLD - _LOW_THRESHOLD)))
+            contradiction = min(1.0, max(0.0, (actual_norm - _LOW_THRESHOLD) / _THRESHOLD_RANGE))
             ctype = "state_mismatch" if contradiction > 0 else "none"
         elif expects_high:
             expected = (_HIGH_THRESHOLD, 1.0)
             # Lower error → larger contradiction
-            contradiction = min(1.0, max(0.0, (_HIGH_THRESHOLD - actual_norm) / (_HIGH_THRESHOLD - _LOW_THRESHOLD)))
+            contradiction = min(1.0, max(0.0, (_HIGH_THRESHOLD - actual_norm) / _THRESHOLD_RANGE))
             ctype = "state_mismatch" if contradiction > 0 else "none"
         else:
             # Neutral / ambiguous — no strong expectation
@@ -226,16 +227,16 @@ class SelfModelValidator:
                 ctype = "identity_conflict"
             else:
                 # Same polarity — check if grounding supports it
-                if claim.polarity == "positive" and actual_norm > _HIGH_THRESHOLD:
-                    contradiction = min(1.0, (actual_norm - _HIGH_THRESHOLD) / (1.0 - _HIGH_THRESHOLD))
+                if claim.polarity == "positive" and actual_norm > _LOW_THRESHOLD:
+                    contradiction = min(1.0, max(0.0, (actual_norm - _LOW_THRESHOLD) / _THRESHOLD_RANGE))
                     ctype = "state_mismatch"
                 elif claim.polarity == "negative" and actual_norm < _LOW_THRESHOLD:
                     contradiction = min(1.0, (_LOW_THRESHOLD - actual_norm) / _LOW_THRESHOLD + 0.3)
                     ctype = "state_mismatch"
         else:
             # First identity claim — compare to grounding directly
-            if claim.polarity == "positive" and actual_norm > _HIGH_THRESHOLD:
-                contradiction = min(1.0, (actual_norm - _HIGH_THRESHOLD) / (1.0 - _HIGH_THRESHOLD))
+            if claim.polarity == "positive" and actual_norm > _LOW_THRESHOLD:
+                contradiction = min(1.0, max(0.0, (actual_norm - _LOW_THRESHOLD) / _THRESHOLD_RANGE))
                 ctype = "state_mismatch"
 
         result = ValidationResult(

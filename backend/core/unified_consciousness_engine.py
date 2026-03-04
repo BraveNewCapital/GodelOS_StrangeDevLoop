@@ -874,14 +874,39 @@ class UnifiedConsciousnessEngine:
             )
 
             # 5a. INJECT CONSTITUTION + PENDING FEEDBACK into context
+            # Use request-scoped feedback first, then fall back to shared injector
+            # to avoid cross-request leakage in concurrent/multi-user scenarios.
             system_prompt = ECHO_CONSTITUTION + "\n\n"
-            if self.feedback_injector.has_pending_feedback():
-                system_prompt += self.feedback_injector.get_pending_feedback() + "\n\n"
+            pending_feedback_text: str = ""
+            if isinstance(context, dict):
+                # pop() intentionally consumes the feedback so it is injected
+                # exactly once; callers that need the value preserved should
+                # pass a copy of their context dict.
+                pending_feedback = context.pop("pending_validation_feedback", None)
+                if pending_feedback:
+                    if isinstance(pending_feedback, (list, tuple)):
+                        pending_feedback_text = "\n".join(
+                            str(item) for item in pending_feedback if item
+                        )
+                    else:
+                        pending_feedback_text = str(pending_feedback)
+            if not pending_feedback_text and self.feedback_injector.has_pending_feedback():
+                pending_feedback_text = self.feedback_injector.get_pending_feedback()
+            if pending_feedback_text:
+                system_prompt += pending_feedback_text + "\n\n"
             unified_prompt = system_prompt + unified_prompt
 
             # 6. PROCESS WITH FULL AWARENESS
             if self.llm_driver:
-                response = await self.llm_driver.process(unified_prompt)
+                # Use whichever method the driver exposes
+                if hasattr(self.llm_driver, "process"):
+                    response = await self.llm_driver.process(unified_prompt)
+                elif hasattr(self.llm_driver, "process_autonomous_reasoning"):
+                    response = await self.llm_driver.process_autonomous_reasoning(unified_prompt)
+                elif hasattr(self.llm_driver, "complete"):
+                    response = await self.llm_driver.complete(unified_prompt)
+                else:
+                    response = await self._generate_conscious_response(prompt, cognitive_state)
 
                 # 6a. SELF-MODEL FEEDBACK LOOP — extract, validate, enqueue
                 self._run_self_model_loop(response)

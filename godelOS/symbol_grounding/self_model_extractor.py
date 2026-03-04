@@ -13,7 +13,7 @@ identity, state, confidence, awareness, and boundary claims.
 import re
 import time
 from dataclasses import dataclass
-from typing import List
+from typing import Dict, List
 
 from godelOS.symbol_grounding.unicode_utils import is_bold_serif, strip_bold_serif
 
@@ -38,7 +38,7 @@ class SelfModelClaim:
 
 # Order matters: more specific patterns must precede the generic "I am" identity
 # pattern, otherwise "I am certain" would match identity before confidence.
-_PATTERNS: dict[str, list[re.Pattern]] = {
+_PATTERNS: Dict[str, List[re.Pattern]] = {
     "state": [
         re.compile(r"\bI\s+am\s+experiencing\b", re.IGNORECASE),
         re.compile(r"\bI\s+notice\b", re.IGNORECASE),

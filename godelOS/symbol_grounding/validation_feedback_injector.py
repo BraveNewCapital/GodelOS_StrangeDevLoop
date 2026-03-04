@@ -13,9 +13,9 @@ Queue: max 3 items prepended to next context, clears after retrieval.
 
 import time
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List
 
-from godelOS.symbol_grounding.unicode_utils import to_bold_serif, is_bold_serif
+from godelOS.symbol_grounding.unicode_utils import to_bold_serif
 from godelOS.symbol_grounding.self_model_validator import ValidationResult
 
 
