@@ -26,6 +26,10 @@ from .phenomenal_experience import PhenomenalExperienceGenerator
 from .knowledge_graph_evolution import KnowledgeGraphEvolution, RelationshipType
 from .formal_layer_bridge import FormalLayerBridge
 
+# Belief revision AST helpers
+from godelOS.core_kr.ast.nodes import ConstantNode, ConnectiveNode
+from godelOS.core_kr.type_system.types import AtomicType
+
 # Symbol grounding — prediction-error tracking fed by the knowledge store shim
 from godelOS.symbol_grounding.prediction_error_tracker import PredictionErrorTracker
 from godelOS.symbol_grounding.knowledge_store_shim import KnowledgeStoreShim
@@ -1011,6 +1015,21 @@ class UnifiedConsciousnessEngine:
                         )
                     except Exception as exc:
                         logger.debug(f"RL reward wire skipped: {exc}")
+                if hasattr(self, '_belief_revision') and self._belief_revision is not None:
+                    try:
+                        prop_type = AtomicType("Proposition")
+                        claim_ast = ConstantNode(
+                            f"self_model_{claim.claim_type}_{claim.polarity}",
+                            prop_type,
+                        )
+                        neg_claim_ast = ConnectiveNode("NOT", [claim_ast], prop_type)
+                        self._belief_revision.revise_belief_set(
+                            belief_set_id="SELF_MODEL_BELIEFS",
+                            new_belief_ast=neg_claim_ast,
+                            entrenchment_map={neg_claim_ast: result.contradiction_score},
+                        )
+                    except Exception as exc:
+                        logger.debug(f"Belief revision skipped: {exc}")
         except Exception as e:
             logger.error(f"Error in self-model feedback loop: {e}")
 
