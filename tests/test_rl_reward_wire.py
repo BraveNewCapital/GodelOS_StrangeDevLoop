@@ -71,11 +71,11 @@ def test_self_model_loop_rl_module_called():
     engine._run_self_model_loop("I am certain about this answer.")
 
     # The extractor should find at least one claim, triggering RL
-    assert mock_rl.learn_from_transition.called
-    call_kwargs = mock_rl.learn_from_transition.call_args
+    mock_rl.learn_from_transition.assert_called()
+    call_kwargs = mock_rl.learn_from_transition.call_args.kwargs
     # reward is -contradiction_score (negative value)
-    assert call_kwargs[1]["reward"] <= 0
-    assert call_kwargs[1]["episode_done"] is False
+    assert call_kwargs["reward"] <= 0
+    assert call_kwargs["episode_done"] is False
 
 
 # ── 3. RL module raises → exception swallowed ───────────────────────
