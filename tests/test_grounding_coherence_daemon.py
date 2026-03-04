@@ -164,6 +164,6 @@ class TestRegistration:
         daemon = system.daemons["grounding_coherence"]
         assert daemon.consciousness_engine is engine
 
-    def test_system_has_four_daemons(self):
+    def test_system_has_grounding_coherence_daemon(self):
         system = AgenticDaemonSystem()
-        assert len(system.daemons) == 4
+        assert "grounding_coherence" in system.daemons

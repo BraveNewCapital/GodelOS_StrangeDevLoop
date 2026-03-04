@@ -524,6 +524,8 @@ class AgenticDaemonSystem:
     
     def __init__(self, cognitive_manager=None, knowledge_pipeline=None, websocket_manager=None,
                  consciousness_engine=None):
+        # Deferred import to avoid circular dependency (grounding_coherence_daemon
+        # imports AgenticDaemon/DaemonTask/DaemonType from this module).
         from backend.core.grounding_coherence_daemon import GroundingCoherenceDaemon
 
         self.cognitive_manager = cognitive_manager
