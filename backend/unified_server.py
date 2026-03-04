@@ -606,7 +606,7 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Failed to connect consciousness engine to endpoints: {e}")
     
-    # Eagerly initialise the agentic daemon system so the singleton is created
+    # Eagerly initialize the agentic daemon system so the singleton is created
     # with all available dependencies (especially consciousness_engine).
     try:
         from backend.core.agentic_daemon_system import get_agentic_daemon_system
