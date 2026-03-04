@@ -606,6 +606,20 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Failed to connect consciousness engine to endpoints: {e}")
     
+    # Eagerly initialise the agentic daemon system so the singleton is created
+    # with all available dependencies (especially consciousness_engine).
+    try:
+        from backend.core.agentic_daemon_system import get_agentic_daemon_system
+        await get_agentic_daemon_system(
+            cognitive_manager=cognitive_manager,
+            knowledge_pipeline=knowledge_pipeline_service if KNOWLEDGE_SERVICES_AVAILABLE else None,
+            websocket_manager=websocket_manager,
+            consciousness_engine=unified_consciousness_engine,
+        )
+        logger.info("✅ Agentic daemon system initialized with consciousness engine")
+    except Exception as e:
+        logger.error(f"Failed to initialize agentic daemon system: {e}")
+    
     # REMOVED: Synthetic cognitive streaming - replaced with real event-driven updates
     # cognitive_streaming_task = asyncio.create_task(continuous_cognitive_streaming())
     logger.info("✅ Synthetic cognitive streaming disabled - using event-driven updates only")
