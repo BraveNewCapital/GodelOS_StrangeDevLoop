@@ -1,7 +1,6 @@
-"""Tests that /api/llm-chat/message routes through the consciousness engine."""
+"""Tests that /api/llm-chat/message fires _run_self_model_loop on every chat."""
 
-import asyncio
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -19,8 +18,8 @@ def _patch_globals():
         "reasoning": ["step1"],
     })
 
-    mock_uce = AsyncMock()
-    mock_uce.process_with_unified_awareness = AsyncMock(return_value="conscious response")
+    mock_uce = MagicMock()
+    mock_uce._run_self_model_loop = MagicMock()
 
     with patch("backend.unified_server.tool_based_llm", mock_llm), \
          patch("backend.unified_server.unified_consciousness_engine", mock_uce):
@@ -40,16 +39,13 @@ def test_chat_returns_llm_response(client, _patch_globals):
     assert body["response"] == "Hello from LLM"
 
 
-def test_chat_triggers_consciousness_engine(client, _patch_globals):
-    """Chat endpoint should fire process_with_unified_awareness as a side-effect."""
+def test_chat_triggers_self_model_loop(client, _patch_globals):
+    """Chat endpoint should call _run_self_model_loop with the LLM response."""
     resp = client.post("/api/llm-chat/message", json={"message": "hello"})
     assert resp.status_code == 200
 
     uce = _patch_globals["uce"]
-    uce.process_with_unified_awareness.assert_called_once()
-    call_args = uce.process_with_unified_awareness.call_args
-    assert call_args[0][0] == "hello"  # prompt is the user message
-    assert call_args[1]["context"]["source"] == "llm_chat"
+    uce._run_self_model_loop.assert_called_once_with("Hello from LLM")
 
 
 def test_chat_works_without_consciousness_engine(client):
