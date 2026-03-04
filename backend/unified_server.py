@@ -2244,7 +2244,7 @@ async def llm_chat_message(request: ChatMessage):
                 
                 # Route through consciousness engine so _run_self_model_loop fires
                 if unified_consciousness_engine:
-                    async def _consciousness_side_effect():
+                    async def _run_consciousness_processing():
                         try:
                             await unified_consciousness_engine.process_with_unified_awareness(
                                 request.message,
@@ -2258,7 +2258,7 @@ async def llm_chat_message(request: ChatMessage):
                                 "operation": "llm_chat_consciousness",
                                 "error_type": type(exc).__name__,
                             })
-                    asyncio.create_task(_consciousness_side_effect())
+                    asyncio.create_task(_run_consciousness_processing())
 
                 logger.info("LLM chat completed successfully", extra={
                     "operation": "llm_chat",

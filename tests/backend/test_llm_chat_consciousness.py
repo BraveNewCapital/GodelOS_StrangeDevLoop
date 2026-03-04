@@ -45,10 +45,6 @@ def test_chat_triggers_consciousness_engine(client, _patch_globals):
     resp = client.post("/api/llm-chat/message", json={"message": "hello"})
     assert resp.status_code == 200
 
-    # Give the background task time to execute
-    import time
-    time.sleep(0.5)
-
     uce = _patch_globals["uce"]
     uce.process_with_unified_awareness.assert_called_once()
     call_args = uce.process_with_unified_awareness.call_args
