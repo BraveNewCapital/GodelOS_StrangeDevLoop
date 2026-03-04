@@ -298,12 +298,22 @@ class InformationIntegrationTheory:
         self.phi_history = []
         self.integration_threshold = 5.0
     
-    def calculate_phi(self, consciousness_state: UnifiedConsciousnessState) -> float:
+    def calculate_phi(self, consciousness_state: UnifiedConsciousnessState,
+                      mean_contradiction: float = 0.0,
+                      contradiction_penalty_weight: float = 0.5) -> float:
         """
         Calculate φ (phi) - the measure of integrated information
         
         This is a simplified implementation of IIT's core concept:
-        consciousness corresponds to integrated information
+        consciousness corresponds to integrated information.
+
+        Args:
+            consciousness_state: Current unified consciousness state.
+            mean_contradiction: Mean contradiction score in [0, 1] from the
+                self-model validator.  Higher values penalise phi.
+            contradiction_penalty_weight: Scaling factor for the penalty
+                (default 0.5).  The effective multiplier is clamped so that
+                phi never goes negative.
         """
         # Get information from different cognitive subsystems
         subsystems = [
@@ -335,7 +345,8 @@ class InformationIntegrationTheory:
         num_connections = len(subsystems) * (len(subsystems) - 1) / 2
         avg_integration = integration_strength / num_connections if num_connections > 0 else 0
         
-        phi = total_information * avg_integration
+        penalty = max(0.0, 1.0 - mean_contradiction * contradiction_penalty_weight)
+        phi = total_information * avg_integration * penalty
         
         # Update state
         consciousness_state.information_integration["phi"] = phi
@@ -693,7 +704,10 @@ class UnifiedConsciousnessEngine:
                     current_state.recursive_awareness["strange_loop_stability"] = 0.5
 
                 # 2. INFORMATION INTEGRATION (IIT)
-                phi_measure = self.information_integration_theory.calculate_phi(current_state)
+                phi_measure = self.information_integration_theory.calculate_phi(
+                    current_state,
+                    mean_contradiction=self.self_model_validator.mean_contradiction_score,
+                )
                 
                 # 2a. FORMAL LAYER — submit observation & collect real metrics
                 formal_snapshot = None
@@ -835,7 +849,10 @@ class UnifiedConsciousnessEngine:
             cognitive_state = self.consciousness_state
             
             # 2. APPLY INFORMATION INTEGRATION
-            phi_measure = self.information_integration_theory.calculate_phi(cognitive_state)
+            phi_measure = self.information_integration_theory.calculate_phi(
+                cognitive_state,
+                mean_contradiction=self.self_model_validator.mean_contradiction_score,
+            )
             
             # 3. GLOBAL WORKSPACE BROADCASTING
             broadcast_content = self.global_workspace.broadcast({
