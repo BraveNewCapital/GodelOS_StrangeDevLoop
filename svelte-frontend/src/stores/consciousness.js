@@ -4,6 +4,15 @@
 import { writable, derived } from 'svelte/store';
 import { WS_BASE_URL } from '../config.js';
 
+// Self-model metrics store – updated from 'self_model' key in consciousness_update broadcasts
+export const selfModelStore = writable({
+    recent_claims: 0,
+    mean_contradiction: 0.0,
+    high_contradiction_events: 0,
+    pending_feedback: false,
+    unicode_detections: 0,
+});
+
 // Core consciousness state store
 export const consciousnessStore = writable({
     // Connection status
@@ -497,6 +506,16 @@ export class ConsciousnessWebSocketClient {
                     consciousnessActions.recordBootstrapProgress(data.data);
                 } else {
                     consciousnessActions.updateConsciousnessState(data.data);
+                    // Extract and update self-model metrics if present
+                    if (data.data && data.data.self_model) {
+                        selfModelStore.set({
+                            recent_claims: data.data.self_model.recent_claims ?? 0,
+                            mean_contradiction: data.data.self_model.mean_contradiction ?? 0.0,
+                            high_contradiction_events: data.data.self_model.high_contradiction_events ?? 0,
+                            pending_feedback: data.data.self_model.pending_feedback ?? false,
+                            unicode_detections: data.data.self_model.unicode_detections ?? 0,
+                        });
+                    }
                 }
                 break;
             }
