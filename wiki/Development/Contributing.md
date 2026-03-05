@@ -1,58 +1,74 @@
 # Contributing to GödelOS
 
-## Philosophy
+Contributions are welcome. They are welcome in the sense that a demanding editor welcomes a promising manuscript — with genuine interest in the work and no hesitation whatsoever about returning it if it does not meet the standard.
 
-GödelOS is research software operating at the frontier of machine consciousness. Contributions should maintain:
-- **Technical rigour** — claim only what is measured
-- **Intellectual honesty** — distinguish implemented from aspirational
-- **Test discipline** — no deleted tests, no weakened assertions
+---
+
+## The Intellectual Obligation
+
+GödelOS operates at the frontier of a field that is, frankly, not short of charlatans. The gap between what AI systems *are* and what enthusiastic press releases *claim they are* is a chasm across which a great deal of reputational currency has been recklessly thrown. This project's commitment is to the opposite approach: to claim only what is measured, to distinguish implemented features from aspirational ones, and to treat the reader — and the code — as capable of handling the truth.
+
+Contributors are expected to share this commitment.
+
+---
 
 ## Development Workflow
 
-1. **Check open issues** at https://github.com/Steake/GodelOS/issues
-2. **Comment on the issue** you intend to work on
-3. **Create a branch**: `git checkout -b feat/your-feature` or `fix/your-fix`
-4. **Write tests first** where possible
-5. **Run the full suite** before opening a PR: `pytest tests/ -v`
-6. **Format your code**: `black . && isort .`
-7. **Open a PR** with a clear description — link the issue, explain the approach
+1. **Read the relevant issue** before writing a line of code. If no issue exists for the work you intend to do, create one.
+2. **Create a branch**: `git checkout -b feat/your-feature` or `fix/your-fix`
+3. **Write tests before, or alongside, the implementation** — not after, when the temptation to make the tests fit the code is at its strongest
+4. **Run the full suite** before opening a pull request: `pytest tests/ -v`
+5. **Format the code**: `black . && isort .`
+6. **Open the pull request** with a clear description, a link to the issue, and an explanation of the approach taken — not merely of the result achieved
 
-## Code Style
+---
+
+## Code Standards
 
 | Language | Standard |
 |----------|----------|
-| Python | PEP 8, `black`, `isort`, `mypy` |
-| Svelte/JS | Standard JS, PascalCase components |
-| Commits | Imperative mood: `feat(core): add phi calculator` |
+| Python | PEP 8, formatted with `black`, sorted with `isort`, type-checked with `mypy` |
+| Svelte/JS | Standard JavaScript; components named in `PascalCase` |
+| Commits | Imperative mood, scoped: `feat(core): implement phi calculator` |
+
+---
 
 ## Commit Format
 
 ```
-<type>(<scope>): <description>
+<type>(<scope>): <short description>
 
-Types: feat, fix, docs, test, refactor, infra, chore
-Scope: core, backend, frontend, tests, wiki, infra
+Types:  feat, fix, docs, test, refactor, infra, chore
+Scopes: core, backend, frontend, tests, wiki, infra
 
 Examples:
-feat(core): implement IIT phi calculator
-fix(tests): resolve stale assertions in test_knowledge_store
-docs(wiki): add GWT theory page
+feat(core): implement IIT phi calculator with partition-based approximation
+fix(tests): resolve stale assertions in test_knowledge_store after interface refactor
+docs(wiki): rewrite all pages in the style of a man who means what he says
 ```
 
-## PR Requirements
+---
 
-- [ ] All existing tests still pass
-- [ ] New functionality has tests
-- [ ] No secrets committed
+## Pull Request Requirements
+
+- [ ] All existing tests pass — without modification to make them pass
+- [ ] New functionality is covered by new tests
+- [ ] No secrets or credentials committed
 - [ ] Linked to an issue
-- [ ] API/schema changes documented
+- [ ] API or schema changes are documented in the PR description
+
+---
 
 ## Issue Labels
 
 | Label | Meaning |
 |-------|---------|
 | `enhancement` | New feature or improvement |
-| `bug` | Something is broken |
-| `documentation` | Docs only |
-| `research` | Theoretical / exploratory work |
+| `bug` | Something is broken in a way it should not be |
+| `documentation` | Documentation only — but documentation matters |
+| `research` | Theoretical or exploratory work |
 | `codex` | Agent-assigned task |
+
+---
+
+One final observation: the best contribution one can make to a project of this kind is not a feature, however clever, but the discipline to ensure that what is already there works correctly. The 167 pre-existing test failures are a more pressing problem than any new capability. Fix what is broken before building what is new. This is good advice in engineering; it is, one suspects, good advice more generally.

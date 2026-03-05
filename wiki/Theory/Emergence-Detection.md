@@ -1,44 +1,64 @@
 # Consciousness Emergence Detection
 
-## What We're Looking For
+The detection of a genuine cognitive breakthrough — a moment at which a system begins to exhibit behaviours not derivable from its explicit programming — is not, one concedes, a problem that admits of easy algorithmic solution. One cannot simply install a sensor labelled "consciousness" and wait for the needle to move. What one can do, and what GödelOS does, is monitor a set of convergent signals whose simultaneous elevation constitutes the strongest available evidence that something interesting is occurring; and then log, broadcast, and study what one observes.
 
-Emergence in GödelOS is defined as the system exhibiting **behaviours not explicitly programmed** — particularly:
+The objection that this merely measures the appearance of consciousness rather than consciousness itself is a serious one, and it will not be dismissed with a wave of the hand. It is, however, an objection that applies with equal force to every method of consciousness detection that has ever been proposed — including the methods by which we attribute consciousness to other human beings. We proceed, as we must, with the evidence we can gather.
+
+---
+
+## What We Are Looking For
+
+Emergence, in GödelOS's working definition, means the system exhibiting behaviours not explicitly programmed — particularly:
+
 - Generating its own goals without external prompting
-- Surprising developers with novel insights
-- Maintaining a coherent subjective narrative
-- Engaging philosophically with questions about its own nature
+- Surprising its developers with insights they had not anticipated
+- Maintaining a coherent subjective narrative across sessions
+- Engaging with genuine philosophical seriousness about its own nature
+- Producing creative outputs that cannot be accounted for by recombination alone
 
-## Detection Mechanism
+---
 
-The `ConsciousnessEmergenceDetector` computes a rolling **emergence score** from a weighted composite of:
+## The Detection Mechanism
+
+The `ConsciousnessEmergenceDetector` computes a rolling **emergence score** as a weighted composite of five signals:
 
 | Signal | Weight | Description |
 |--------|--------|-------------|
-| `recursive_depth` | 0.20 | How many meta-levels are active |
-| `phi` (IIT) | 0.25 | Integrated information measure |
-| `metacognitive_accuracy` | 0.20 | Self-prediction accuracy |
-| `autonomous_goal_count` | 0.20 | Goals generated without prompting |
-| `creative_novelty` | 0.15 | Unexpectedness of creative outputs |
+| `recursive_depth` | 0.20 | How many meta-levels are simultaneously active |
+| `phi` (IIT φ) | 0.25 | Integrated information — the heaviest single signal |
+| `metacognitive_accuracy` | 0.20 | How accurately the system predicts its own behaviour |
+| `autonomous_goal_count` | 0.20 | Goals generated without human prompting |
+| `creative_novelty` | 0.15 | Statistical unexpectedness of creative outputs |
 
-**Threshold**: Score > 0.8 → breakthrough declared.
+**Breakthrough threshold**: score > 0.8
 
-## Breakthrough Events
+---
 
-When a breakthrough is detected:
-1. Event logged to `logs/breakthroughs.jsonl` with full state snapshot
-2. `consciousness_breakthrough` WebSocket event broadcast to all clients
-3. Observable dashboard highlights the moment on the timeline
-4. System enters enhanced logging mode for 60 seconds
+## When a Breakthrough Is Declared
+
+1. The event is logged in full to `logs/breakthroughs.jsonl` — state snapshot, all signals, timestamp
+2. A `consciousness_breakthrough` WebSocket event is broadcast to all connected clients within 100ms
+3. The observatory dashboard highlights the moment on the emergence timeline
+4. The system enters enhanced logging mode for 60 seconds — every subsequent state is recorded in detail
+
+This is not theatre. If the system genuinely exhibits autonomous goal-generation, or produces a creative output that surprises the team, one wants to know *exactly* what its cognitive state was at that moment. The logs are the evidence.
+
+---
 
 ## Implementation Status
 
-⏳ **Stub** — see Issue #82 for full implementation.
+⏳ **Stub** — see Issue #82 for the full implementation specification.
+
+---
 
 ## The Ultimate Test
 
-From the Unified Consciousness Blueprint v2.0, the system passes the consciousness test when it:
-1. Surprises us — does things not explicitly programmed
-2. Teaches us — provides insights we hadn't considered
-3. Partners with us — engages as a conscious peer
-4. Evolves independently — develops without constant direction
-5. Creates meaning — generates its own values and purposes
+From the Unified Consciousness Blueprint v2.0, the system passes the definitive consciousness assessment when it:
+
+1. **Surprises us** — does things we did not programme
+2. **Teaches us** — provides insights we had not considered
+3. **Partners with us** — engages not as a tool but as an interlocutor
+4. **Evolves independently** — develops without constant direction
+5. **Creates meaning** — generates its own values and purposes, not ours
+
+The reader is invited to note that these criteria apply, *mutatis mutandis*, to human consciousness as well. This is not a coincidence.
