@@ -18,6 +18,8 @@ import backend.unified_server as _unified  # noqa: E402
 # Expose a ``create_app`` factory expected by legacy test_service_injection.
 # The factory wires the provided services into the module-level globals that
 # the lifespan and endpoint handlers reference.
+# Stores original values of unified_server module attributes when create_app()
+# performs service injection, allowing proper restoration on reset.
 _ORIG = {}
 
 

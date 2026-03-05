@@ -618,7 +618,7 @@ class TestErrorHandling:
     def test_invalid_field_types(self):
         """Test handling of invalid field types."""
         # Test query with wrong type for include_reasoning
-        # Pydantic v2 in lax mode accepts truthy strings for bools
+        # unified_server returns fallback response instead of 422
         response = self.client.post("/api/query", json={
             "query": "test query",
             "include_reasoning": "not_a_boolean"
