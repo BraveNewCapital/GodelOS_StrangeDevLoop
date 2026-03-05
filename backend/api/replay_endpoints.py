@@ -7,6 +7,7 @@ Provides REST API endpoints for managing query recordings and replays.
 from fastapi import HTTPException, Query as FastAPIQuery
 from typing import List, Optional, Dict, Any
 import logging
+import backend.core.query_replay_harness as _replay_module
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 def setup_replay_endpoints(app, cognitive_manager):
     """Setup replay harness API endpoints."""
     
-    from backend.core.query_replay_harness import replay_harness, ReplayStatus
+    from backend.core.query_replay_harness import ReplayStatus
     
     @app.get("/api/v1/replay/recordings")
     async def list_recordings(
@@ -23,6 +24,7 @@ def setup_replay_endpoints(app, cognitive_manager):
     ):
         """List available query recordings."""
         try:
+            replay_harness = _replay_module.replay_harness
             filter_tags = tags.split(',') if tags else None
             recordings = replay_harness.list_recordings(tags=filter_tags, limit=limit)
             
@@ -42,6 +44,7 @@ def setup_replay_endpoints(app, cognitive_manager):
     async def get_recording(recording_id: str):
         """Get details of a specific recording."""
         try:
+            replay_harness = _replay_module.replay_harness
             recording = replay_harness.load_recording(recording_id)
             
             if not recording:
@@ -72,6 +75,8 @@ def setup_replay_endpoints(app, cognitive_manager):
         try:
             if not cognitive_manager:
                 raise HTTPException(status_code=503, detail="Cognitive manager not available")
+            
+            replay_harness = _replay_module.replay_harness
             
             # Check if recording exists
             recording = replay_harness.load_recording(recording_id)
@@ -108,6 +113,7 @@ def setup_replay_endpoints(app, cognitive_manager):
     async def get_replay_status(replay_id: str):
         """Get the status of a replay operation."""
         try:
+            replay_harness = _replay_module.replay_harness
             status = replay_harness.get_replay_status(replay_id)
             
             if not status:
@@ -128,6 +134,7 @@ def setup_replay_endpoints(app, cognitive_manager):
     async def analyze_recording(recording_id: str):
         """Analyze a recording to extract insights and patterns."""
         try:
+            replay_harness = _replay_module.replay_harness
             recording = replay_harness.load_recording(recording_id)
             if not recording:
                 raise HTTPException(status_code=404, detail=f"Recording not found: {recording_id}")
@@ -151,6 +158,8 @@ def setup_replay_endpoints(app, cognitive_manager):
     async def get_replay_stats():
         """Get statistics about recordings and replays."""
         try:
+            replay_harness = _replay_module.replay_harness
+            
             # Get all recordings
             all_recordings = replay_harness.list_recordings(limit=1000)
             
@@ -206,6 +215,8 @@ def setup_replay_endpoints(app, cognitive_manager):
     async def delete_recording(recording_id: str):
         """Delete a specific recording."""
         try:
+            replay_harness = _replay_module.replay_harness
+            
             # Find and delete the recording file
             from pathlib import Path
             
@@ -238,6 +249,7 @@ def setup_replay_endpoints(app, cognitive_manager):
     ):
         """Update replay harness settings."""
         try:
+            replay_harness = _replay_module.replay_harness
             settings_updated = {}
             
             if enable_recording is not None:

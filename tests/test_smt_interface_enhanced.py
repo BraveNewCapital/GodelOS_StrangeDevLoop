@@ -274,11 +274,13 @@ class TestSMTInterfaceEnhanced(unittest.TestCase):
         and_op = ConnectiveNode("AND", [x_gt_zero, x_lt_zero], self.boolean_type)
         
         # Mock the subprocess call to simulate an unsat result with unsat core
+        mock_file = MagicMock()
+        mock_file.name = "temp_file.smt2"
+        mock_file.__enter__ = MagicMock(return_value=mock_file)
+        mock_file.__exit__ = MagicMock(return_value=False)
         with patch('subprocess.Popen') as mock_popen, \
-             patch('tempfile.NamedTemporaryFile', mock_open()) as mock_temp:
-            
-            # Set up the mock temporary file
-            mock_temp.name = "temp_file.smt2"
+             patch('tempfile.NamedTemporaryFile', return_value=mock_file), \
+             patch('os.unlink'):
             
             # Set up the mock process
             mock_process = MagicMock()
@@ -321,11 +323,13 @@ class TestSMTInterfaceEnhanced(unittest.TestCase):
         sum_gt_zero = ApplicationNode(gt_op, [x_plus_y, zero_const], self.boolean_type)
         
         # Mock the subprocess call to simulate a sat result with model
+        mock_file = MagicMock()
+        mock_file.name = "temp_file.smt2"
+        mock_file.__enter__ = MagicMock(return_value=mock_file)
+        mock_file.__exit__ = MagicMock(return_value=False)
         with patch('subprocess.Popen') as mock_popen, \
-             patch('tempfile.NamedTemporaryFile', mock_open()) as mock_temp:
-            
-            # Set up the mock temporary file
-            mock_temp.name = "temp_file.smt2"
+             patch('tempfile.NamedTemporaryFile', return_value=mock_file), \
+             patch('os.unlink'):
             
             # Set up the mock process
             mock_process = MagicMock()

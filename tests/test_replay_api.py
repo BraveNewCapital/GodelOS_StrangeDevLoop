@@ -371,9 +371,9 @@ class TestReplayAPIIntegration:
         from backend.api.replay_endpoints import setup_replay_endpoints
         
         mock_app = type('MockApp', (), {
-            'get': lambda *args, **kwargs: None,
-            'post': lambda *args, **kwargs: None,
-            'delete': lambda *args, **kwargs: None
+            'get': lambda *args, **kwargs: (lambda f: f),
+            'post': lambda *args, **kwargs: (lambda f: f),
+            'delete': lambda *args, **kwargs: (lambda f: f)
         })()
         
         mock_cognitive_manager = AsyncMock()
