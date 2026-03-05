@@ -41,6 +41,9 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
+# Shared version constant (keep in sync with unified_server.py ``app`` version)
+API_VERSION = "2.0.0"
+
 # ---------------------------------------------------------------------------
 # Authentication
 # ---------------------------------------------------------------------------
@@ -246,7 +249,7 @@ async def system_status(
     return {
         "system": "GodelOS",
         "status": "operational",
-        "version": "2.0.0",
+        "version": API_VERSION,
         "uptime_seconds": round(uptime, 2),
         "components": {
             "cognitive_engine": "active" if _godelos_integration is not None else "inactive",
