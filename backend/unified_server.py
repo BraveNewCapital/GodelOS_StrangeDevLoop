@@ -2339,7 +2339,7 @@ async def system_status():
             "timestamp": datetime.now().isoformat()
         }
         # Include cognitive subsystem status when available
-        if godelos_integration and hasattr(godelos_integration, 'cognitive_pipeline') and godelos_integration.cognitive_pipeline:
+        if godelos_integration and godelos_integration.cognitive_pipeline:
             subsystem_status = godelos_integration.cognitive_pipeline.get_subsystem_status()
             active = sum(1 for s in subsystem_status.values() if s["status"] == "active")
             result["cognitive_subsystems"] = {

@@ -135,10 +135,9 @@ class TestKnowledgeStore:
         ks = pipeline.get_instance("knowledge_store")
         assert ks is not None
         # The KnowledgeStoreInterface creates TRUTHS, BELIEFS, HYPOTHETICAL
-        contexts = ks.get_all_contexts() if hasattr(ks, "get_all_contexts") else None
-        if contexts is not None:
-            context_ids = [c if isinstance(c, str) else getattr(c, "id", str(c)) for c in contexts]
-            assert "TRUTHS" in context_ids, "Missing default TRUTHS context"
+        assert hasattr(ks, "list_contexts"), "KnowledgeStore missing list_contexts"
+        context_ids = ks.list_contexts()
+        assert "TRUTHS" in context_ids, "Missing default TRUTHS context"
 
 
 # ---------------------------------------------------------------------------

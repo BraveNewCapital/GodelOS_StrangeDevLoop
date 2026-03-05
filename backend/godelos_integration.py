@@ -514,7 +514,7 @@ class GödelOSIntegration:
     async def get_health_status(self) -> Dict[str, Any]:
         """Get detailed health status."""
         is_healthy = self.initialized and self.error_count < 10
-        result: Dict[str, Any] = {
+        result = {
             "healthy": is_healthy,
             "status": "healthy" if is_healthy else "unhealthy",
             "timestamp": time.time(),

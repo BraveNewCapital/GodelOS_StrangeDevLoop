@@ -250,7 +250,8 @@ class CognitivePipeline:
 
         self.context_engine = self._register(
             "context_engine",
-            lambda: ContextEngine(self.knowledge_store),
+            lambda: ContextEngine(self.knowledge_store)
+            if self.knowledge_store else None,
         )
 
         self.common_sense_manager = self._register(
