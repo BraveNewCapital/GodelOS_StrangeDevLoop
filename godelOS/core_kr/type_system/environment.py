@@ -25,6 +25,7 @@ class TypeEnvironment:
         """
         self._bindings: Dict[int, Type] = {}  # Maps var_id to Type
         self._parent = parent
+        self._symbol_bindings: Dict[str, Type] = {}
     
     def get_type(self, var_node: VariableNode) -> Optional[Type]:
         """
@@ -54,6 +55,19 @@ class TypeEnvironment:
         """
         self._bindings[var_node.var_id] = type_obj
     
+    # Symbol-based API used in enhanced tests
+    def add_binding(self, symbol: str, type_obj: Type) -> None:
+        """Add or override a binding for a symbol name."""
+        self._symbol_bindings[symbol] = type_obj
+    
+    def lookup(self, symbol: str) -> Type:
+        """Lookup a symbol name, searching parent environments if necessary."""
+        if symbol in self._symbol_bindings:
+            return self._symbol_bindings[symbol]
+        if self._parent:
+            return self._parent.lookup(symbol)
+        raise KeyError(symbol)
+    
     def extend(self) -> 'TypeEnvironment':
         """
         Create a new environment that extends this one.
@@ -71,6 +85,7 @@ class TypeEnvironment:
             other: The environment to merge
         """
         self._bindings.update(other._bindings)
+        self._symbol_bindings.update(other._symbol_bindings)
     
     def copy(self) -> 'TypeEnvironment':
         """
@@ -81,10 +96,14 @@ class TypeEnvironment:
         """
         env = TypeEnvironment(self._parent)
         env._bindings = self._bindings.copy()
+        env._symbol_bindings = self._symbol_bindings.copy()
         return env
     
     def __str__(self) -> str:
         bindings_str = ", ".join(f"{var_id}: {type_obj}" for var_id, type_obj in self._bindings.items())
+        symbol_str = ", ".join(f"{name}: {type_obj}" for name, type_obj in self._symbol_bindings.items())
+        if symbol_str:
+            bindings_str = ", ".join(filter(None, [bindings_str, symbol_str]))
         parent_str = f" -> {self._parent}" if self._parent else ""
         return f"{{{bindings_str}}}{parent_str}"
     

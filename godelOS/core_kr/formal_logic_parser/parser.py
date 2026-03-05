@@ -8,6 +8,7 @@ Abstract Syntax Tree (AST) structures.
 
 from typing import Dict, List, Optional, Tuple, Union
 import re
+import inspect
 
 from godelOS.core_kr.ast.nodes import (
     AST_Node, ConstantNode, VariableNode, ApplicationNode,
@@ -71,7 +72,8 @@ class Lexer:
         ('BELIEVES', r'believes|B'),
         ('POSSIBLE', r'possible|◇'),
         ('NECESSARY', r'necessary|□'),
-        ('PROBABILITY', r'prob|P(?![a-zA-Z])'),
+        # Probability modality: restrict to explicit probability syntax (prob or P[...])
+        ('PROBABILITY', r'prob\\b|P\\['),
         ('DEFEASIBLE', r'defeasibly|def'),
         ('TRUE', r'True|true|⊤'),
         ('FALSE', r'False|false|⊥'),
@@ -101,17 +103,30 @@ class Lexer:
         tokens = []
         position = 0
         
-        for match in self.token_regex.finditer(text):
+        while position < len(text):
+            match = self.token_regex.match(text, position)
+            if not match:
+                raise ValueError(f"Unknown token '{text[position]}' at position {position}")
             token_type = match.lastgroup
             token_value = match.group()
             
             if token_type == 'WHITESPACE':
-                # Skip whitespace
                 position = match.end()
                 continue
             
             if token_type == 'UNKNOWN':
-                # Unknown token, raise an error
+                # Treat common symbolic operators as identifiers so they can be registered
+                if token_value in {">", "<", ">=", "<=", "=="}:
+                    tokens.append(Token('CONSTANT', token_value, position))
+                    position = match.end()
+                    continue
+                # Recover variable tokens that the regex failed to group (e.g., stray '?')
+                if token_value == '?' and (match.end() < len(text)) and text[match.end()].isalpha():
+                    var_match = re.match(r'\?[a-zA-Z][a-zA-Z0-9_]*', text[position:])
+                    if var_match:
+                        tokens.append(Token('VARIABLE', var_match.group(), position))
+                        position = position + len(var_match.group())
+                        continue
                 raise ValueError(f"Unknown token '{token_value}' at position {position}")
             
             tokens.append(Token(token_type, token_value, position))
@@ -159,6 +174,7 @@ class FormalLogicParser:
         self.current_token_index = 0
         self.errors: List[Error] = []
         self.var_counter = 0
+        self.quantifier_depth = 0
         
         # Get common types from the type system
         self.entity_type = self.type_system.get_type("Entity")
@@ -171,6 +187,7 @@ class FormalLogicParser:
         # Registered predicates and functions for type-aware parsing
         self._registered_predicates: Dict[str, 'Type'] = {}
         self._registered_functions: Dict[str, 'Type'] = {}
+        self._registered_constants: Dict[str, Tuple['Type', Optional[object]]] = {}
     
     def register_predicate(self, name: str, type_ref: 'Type') -> None:
         """
@@ -181,6 +198,8 @@ class FormalLogicParser:
             type_ref: The type of the predicate
         """
         self._registered_predicates[name] = type_ref
+        # Keep the type system signatures in sync for downstream lookups
+        self.type_system._signatures[name] = type_ref
     
     def register_function(self, name: str, type_ref: 'Type') -> None:
         """
@@ -191,6 +210,7 @@ class FormalLogicParser:
             type_ref: The type of the function
         """
         self._registered_functions[name] = type_ref
+        self.type_system._signatures[name] = type_ref
     
     def register_constant(self, name: str, type_ref: 'Type', value=None) -> None:
         """
@@ -202,6 +222,8 @@ class FormalLogicParser:
             value: Optional value for the constant
         """
         self._registered_functions[name] = type_ref
+        self._registered_constants[name] = (type_ref, value)
+        self.type_system._signatures[name] = type_ref
     
     def register_custom_syntax_handler(self, handler_or_keyword, handler=None) -> None:
         """
@@ -219,7 +241,24 @@ class FormalLogicParser:
         else:
             self._custom_syntax_handlers[handler_or_keyword] = handler
     
-    def parse(self, expression_string: str) -> Tuple[Optional[AST_Node], List[Error]]:
+    def get_symbol(self, name: str) -> ConstantNode:
+        """
+        Retrieve a registered symbol as a ConstantNode for use in AST construction.
+        """
+        if name in self._registered_functions:
+            symbol_type = self._registered_functions[name]
+            const_value = self._registered_constants.get(name, (None, None))[1]
+        elif name in self._registered_predicates:
+            symbol_type = self._registered_predicates[name]
+            const_value = None
+        elif name in self.type_system._signatures:
+            symbol_type = self.type_system._signatures[name]
+            const_value = None
+        else:
+            raise ValueError(f"Undefined symbol '{name}'")
+        return ConstantNode(name, symbol_type, const_value)
+    
+    def parse(self, expression_string: str, raise_exceptions: bool = True) -> Tuple[Optional[AST_Node], List[Error]]:
         """
         Parse a logical expression.
         
@@ -234,13 +273,22 @@ class FormalLogicParser:
         self.current_token_index = 0
         self.errors = []
         self.var_counter = 0
+        self.quantifier_depth = 0
         
         if not self.tokens:
             self.errors.append(Error("Empty expression", 0))
             return None, self.errors
         
         try:
-            ast = self.parse_expression()
+            parse_fn = self.parse_expression
+            sig = inspect.signature(parse_fn)
+            if len(sig.parameters) > 1:
+                handler_tokens = [t.value for t in self.tokens]
+                ast = parse_fn(handler_tokens)
+                # Assume custom handlers fully consume the provided token list
+                self.current_token_index = len(self.tokens)
+            else:
+                ast = parse_fn()
             
             # Check if we've consumed all tokens
             if self.current_token_index < len(self.tokens):
@@ -248,12 +296,35 @@ class FormalLogicParser:
                     f"Unexpected token '{self.tokens[self.current_token_index].value}'",
                     self.tokens[self.current_token_index].position
                 ))
+            
+            # Perform a final type inference step if available
+            if ast is not None:
+                inferred = self.infer_type(ast)
+                if inferred is not None:
+                    try:
+                        ast.type = inferred
+                    except Exception:
+                        pass
+            
+            if self.errors:
+                if raise_exceptions:
+                    # Raise the first error for easier debugging while preserving the list
+                    raise ValueError(str(self.errors[0]))
                 return None, self.errors
             
             return ast, self.errors
         except Exception as e:
             self.errors.append(Error(str(e), self.tokens[self.current_token_index].position if self.current_token_index < len(self.tokens) else 0))
+            if raise_exceptions:
+                raise
             return None, self.errors
+
+    def infer_type(self, node: AST_Node) -> Optional['Type']:
+        """
+        Infer the type of a parsed AST node. By default this simply returns the
+        node's existing type attribute, but can be overridden or patched in tests.
+        """
+        return getattr(node, "type", None)
     
     def current_token(self) -> Optional[Token]:
         """
@@ -292,10 +363,10 @@ class FormalLogicParser:
         """
         token = self.current_token()
         if not token:
-            raise ValueError(f"Expected {expected_type}, got end of input")
+            raise ValueError(f"Syntax error: expected {expected_type}, got end of input")
         
         if token.type != expected_type:
-            raise ValueError(f"Expected {expected_type}, got {token.type}({token.value})")
+            raise ValueError(f"Syntax error: expected {expected_type}, got {token.type}({token.value})")
         
         self.consume_token()
         return token
@@ -321,16 +392,23 @@ class FormalLogicParser:
         # Parse the left-hand side
         expr = self.parse_unary_expression()
         
-        # Parse binary connectives if present
-        while self.current_token() and self.current_token().type in ('AND', 'OR', 'IMPLIES', 'EQUIV'):
-            connective_type = self.current_token().type
-            self.consume_token()
-            
-            # Parse the right-hand side
-            right = self.parse_unary_expression()
-            
-            # Create a connective node
-            expr = ConnectiveNode(connective_type, [expr, right], self.proposition_type)
+        while self.current_token():
+            token = self.current_token()
+            # Logical connectives
+            if token.type in ('AND', 'OR', 'IMPLIES', 'EQUIV'):
+                connective_type = token.type
+                self.consume_token()
+                right = self.parse_unary_expression()
+                expr = ConnectiveNode(connective_type, [expr, right], self.proposition_type)
+                continue
+            # Infix registered function/predicate (e.g., >, <)
+            if token.type == 'CONSTANT' and token.value in self._registered_functions:
+                operator_node = ConstantNode(token.value, self._registered_functions[token.value])
+                self.consume_token()
+                right = self.parse_unary_expression()
+                expr = ApplicationNode(operator_node, [expr, right], operator_node.type.return_type if isinstance(operator_node.type, FunctionType) else self.boolean_type)
+                continue
+            break
         
         return expr
     
@@ -360,10 +438,24 @@ class FormalLogicParser:
             
             # Parse the agent or world (optional)
             agent_or_world = None
+            # Support bracket style: K[a] φ
             if self.current_token() and self.current_token().type == 'LBRACKET':
                 self.consume_token()
                 agent_or_world = self.parse_expression()
                 self.expect_token('RBRACKET')
+                proposition = self.parse_unary_expression()
+                return ModalOpNode(modal_op, proposition, self.proposition_type, agent_or_world)
+            # Support parentheses style: knows(a, φ)
+            if self.current_token() and self.current_token().type == 'LPAREN':
+                self.consume_token()
+                # Optional agent/world before comma
+                if self.current_token() and self.current_token().type != 'COMMA':
+                    agent_or_world = self.parse_expression()
+                if self.current_token() and self.current_token().type == 'COMMA':
+                    self.consume_token()
+                proposition = self.parse_expression()
+                self.expect_token('RPAREN')
+                return ModalOpNode(modal_op, proposition, self.proposition_type, agent_or_world)
             
             # Parse the proposition
             proposition = self.parse_unary_expression()
@@ -456,6 +548,7 @@ class FormalLogicParser:
             
             # Add bound variables to environment for scope
             self.variable_types.update(var_types)
+            self.quantifier_depth += 1
             
             # Parse the scope
             self.expect_token('DOT')
@@ -463,6 +556,7 @@ class FormalLogicParser:
             
             # Restore variable environment
             self.variable_types = old_var_types
+            self.quantifier_depth -= 1
             
             return QuantifierNode(quantifier_type, bound_vars, scope, self.proposition_type)
         
@@ -573,9 +667,24 @@ class FormalLogicParser:
             # Infer the return type based on the operator and arguments
             return_type = self.boolean_type  # Default for predicates
             
-            # If the operator is a function type, use its return type
-            if hasattr(expr, 'type') and isinstance(expr.type, FunctionType):
-                return_type = expr.type.return_type
+            # Validate operator registration and arity
+            expected_type: Optional[FunctionType] = None
+            operator_name = getattr(expr, "name", None)
+            if operator_name:
+                if operator_name in self._registered_functions:
+                    expected_type = self._registered_functions[operator_name]
+                elif operator_name in self._registered_predicates:
+                    expected_type = self._registered_predicates[operator_name]
+                elif operator_name in self.type_system._signatures:
+                    expected_type = self.type_system._signatures[operator_name]
+                else:
+                    raise ValueError(f"Undefined symbol '{operator_name}'")
+            
+            if expected_type and isinstance(expected_type, FunctionType):
+                expected_arity = len(expected_type.arg_types)
+                if expected_arity != len(arguments):
+                    raise ValueError(f"Type error: expected {expected_arity} arguments for '{operator_name}', got {len(arguments)}")
+                return_type = expected_type.return_type
             
             return ApplicationNode(expr, arguments, return_type)
         
@@ -621,6 +730,10 @@ class FormalLogicParser:
                 else:
                     raise ValueError("Expected type name after colon")
             
+            if self.quantifier_depth > 0 and var_name not in self.variable_types:
+                # Within a quantified scope, unbound variables are errors
+                raise ValueError(f"Unbound variable '{var_name}'")
+            
             var_id = self.var_counter
             self.var_counter += 1
             return VariableNode(var_name, var_id, var_type)
@@ -646,10 +759,20 @@ class FormalLogicParser:
                     raise ValueError("Expected type name after colon")
             
             # Check if this is a known function/predicate
-            if const_name in self.type_system._signatures:
+            const_value = None
+            if const_name in self._registered_constants:
+                const_type, const_value = self._registered_constants[const_name]
+            elif const_name in self._registered_functions:
+                const_type = self._registered_functions[const_name]
+            elif const_name in self._registered_predicates:
+                const_type = self._registered_predicates[const_name]
+            elif const_name in self.type_system._signatures:
                 const_type = self.type_system._signatures[const_name]
+            else:
+                # Unknown symbol will be validated during application parsing
+                const_type = const_type
             
-            return ConstantNode(const_name, const_type)
+            return ConstantNode(const_name, const_type, const_value)
         
         if token.type == 'NUMBER':
             # Numeric literal

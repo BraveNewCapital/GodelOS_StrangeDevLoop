@@ -11,7 +11,7 @@ import networkx as nx
 from godelOS.core_kr.ast.nodes import AST_Node
 from godelOS.core_kr.type_system.types import (
     Type, AtomicType, FunctionType, TypeVariable,
-    ParametricTypeConstructor, InstantiatedParametricType
+    ParametricType, ParametricTypeConstructor, InstantiatedParametricType
 )
 from godelOS.core_kr.type_system.environment import TypeEnvironment
 from godelOS.core_kr.type_system.visitor import (
@@ -52,6 +52,8 @@ class TypeSystemManager:
         boolean_type = self.define_atomic_type("Boolean")
         integer_type = self.define_atomic_type("Integer")
         string_type = self.define_atomic_type("String")
+        real_type = self.define_atomic_type("Real")
+        float_type = self.define_atomic_type("Float", ["Real"])
         
         # Register "Bool" as an alias for "Boolean"
         self._types["Bool"] = boolean_type
@@ -175,6 +177,55 @@ class TypeSystemManager:
         
         # For other type combinations, delegate to the is_subtype_of method
         return subtype.is_subtype_of(supertype, self)
+    
+    def is_compatible(self, type1: Type, type2: Type) -> bool:
+        """
+        Determine if two types are compatible (subtype in either direction or unifiable).
+        """
+        if type1 == type2:
+            return True
+        if self.is_subtype(type1, type2) or self.is_subtype(type2, type1):
+            return True
+        return self.unify_types(type1, type2) is not None
+    
+    def check_type(self, function_type: FunctionType, arg_types: List[Type]) -> bool:
+        """
+        Check whether a function type can be applied to the provided argument types.
+        """
+        if not isinstance(function_type, FunctionType):
+            return False
+        if len(function_type.arg_types) != len(arg_types):
+            return False
+        for expected, provided in zip(function_type.arg_types, arg_types):
+            if not self.is_compatible(provided, expected):
+                return False
+        return True
+
+    def infer_type(self, function_type: FunctionType, arg_types: List[Type]) -> Optional[Type]:
+        """
+        Infer the result type of applying a function type to the given argument types.
+        """
+        if not isinstance(function_type, FunctionType):
+            return None
+        if len(function_type.arg_types) != len(arg_types):
+            return None
+        substitution: Dict[TypeVariable, Type] = {}
+        for expected, provided in zip(function_type.arg_types, arg_types):
+            if isinstance(expected, TypeVariable):
+                substitution[expected] = provided
+            elif isinstance(provided, TypeVariable):
+                substitution[provided] = expected
+            elif not self.is_compatible(provided, expected):
+                return None
+        result_type = function_type.return_type
+        if hasattr(result_type, "substitute_type_vars"):
+            try:
+                result_type = result_type.substitute_type_vars(substitution)  # type: ignore
+            except Exception:
+                pass
+        if isinstance(result_type, TypeVariable) and result_type in substitution:
+            return substitution[result_type]
+        return result_type
     
     def check_expression_type(self, ast_node: AST_Node, expected_type: Type,
                               environment: TypeEnvironment) -> List[Error]:
@@ -302,6 +353,10 @@ class TypeSystemManager:
         
         # If we get here, unification failed
         return None
+
+    # Backwards-compatible alias
+    def unify(self, type1: Type, type2: Type) -> Optional[Dict[TypeVariable, Type]]:
+        return self.unify_types(type1, type2)
         
     def _occurs_check(self, var: TypeVariable, type_obj: Type) -> bool:
         """
