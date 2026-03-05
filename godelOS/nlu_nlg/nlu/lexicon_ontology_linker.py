@@ -501,20 +501,18 @@ class LexiconOntologyLinker:
         """
         # Get the lexical entry for the token
         entry = self.lexicon.get_entry(token.lemma, token.pos)
-        if not entry:
-            return None
-        
-        # If there's only one sense, use it
-        if len(entry.senses) == 1:
-            sense = entry.senses[0]
-        else:
-            # Otherwise, disambiguate the sense
-            sense = self.disambiguate_sense(token, entry, context_tokens)
-        
-        # Check if the sense maps to an ontology concept
-        if sense in entry.ontology_mappings:
-            concept_id = entry.ontology_mappings[sense]
-            return self.ontology.get_concept(concept_id)
+        if entry:
+            # If there's only one sense, use it
+            if len(entry.senses) == 1:
+                sense = entry.senses[0]
+            else:
+                # Otherwise, disambiguate the sense
+                sense = self.disambiguate_sense(token, entry, context_tokens)
+            
+            # Check if the sense maps to an ontology concept
+            if sense in entry.ontology_mappings:
+                concept_id = entry.ontology_mappings[sense]
+                return self.ontology.get_concept(concept_id)
         
         # Try to find a concept with a matching name or lexical mapping
         for concept in self.ontology.get_all_concepts():

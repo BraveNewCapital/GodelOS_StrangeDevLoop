@@ -169,6 +169,7 @@ class ContentPlanner:
             return MessageType.DEFINITION
         
         # Check if there's a modal operator node for belief or knowledge
+        # Check top-level nodes first
         for node in ast_nodes:
             if isinstance(node, ModalOpNode):
                 if node.modal_operator == "BELIEVES":
@@ -188,16 +189,26 @@ class ContentPlanner:
             if isinstance(node, ConnectiveNode) and node.connective_type == "IMPLIES":
                 return MessageType.CONDITIONAL
         
+        # Recursively check child nodes of connectives for modal operators
+        for node in ast_nodes:
+            if isinstance(node, ConnectiveNode) and node.operands:
+                child_type = self._determine_message_type(node.operands)
+                if child_type != MessageType.STATEMENT:
+                    return child_type
+        
         # Default to statement
         return MessageType.STATEMENT
     
-    def _process_node(self, node: AST_Node, message_spec: MessageSpecification) -> None:
+    def _process_node(self, node: AST_Node, message_spec: MessageSpecification) -> str:
         """
         Process an AST node to extract content elements.
         
         Args:
             node: The AST node to process
             message_spec: The message specification to update
+            
+        Returns:
+            The ID of the created content element
         """
         # Generate a unique ID for this content element
         element_id = f"element_{len(message_spec.main_content) + len(message_spec.supporting_content)}"
@@ -234,9 +245,8 @@ class ContentPlanner:
             
             # Process the arguments
             for i, arg in enumerate(node.arguments):
-                arg_element_id = f"{element_id}_arg_{i}"
-                self._process_node(arg, message_spec)
-                message_spec.add_discourse_relation("argument", element_id, arg_element_id)
+                child_id = self._process_node(arg, message_spec)
+                message_spec.add_discourse_relation("argument", element_id, child_id)
         
         elif isinstance(node, QuantifierNode):
             # Create a content element for the quantifier
@@ -261,9 +271,8 @@ class ContentPlanner:
                 message_spec.add_discourse_relation("binding", element_id, var_element_id)
             
             # Process the scope
-            scope_element_id = f"{element_id}_scope"
-            self._process_node(node.scope, message_spec)
-            message_spec.add_discourse_relation("scope", element_id, scope_element_id)
+            child_id = self._process_node(node.scope, message_spec)
+            message_spec.add_discourse_relation("scope", element_id, child_id)
         
         elif isinstance(node, ConnectiveNode):
             # Create a content element for the connective
@@ -277,9 +286,8 @@ class ContentPlanner:
             
             # Process the operands
             for i, op in enumerate(node.operands):
-                op_element_id = f"{element_id}_op_{i}"
-                self._process_node(op, message_spec)
-                message_spec.add_discourse_relation("operand", element_id, op_element_id)
+                child_id = self._process_node(op, message_spec)
+                message_spec.add_discourse_relation("operand", element_id, child_id)
         
         elif isinstance(node, ModalOpNode):
             # Create a content element for the modal operator
@@ -292,15 +300,54 @@ class ContentPlanner:
             message_spec.add_main_content(element)
             
             # Process the proposition
-            prop_element_id = f"{element_id}_prop"
-            self._process_node(node.proposition, message_spec)
-            message_spec.add_discourse_relation("proposition", element_id, prop_element_id)
+            child_id = self._process_node(node.proposition, message_spec)
+            message_spec.add_discourse_relation("proposition", element_id, child_id)
             
             # Process the agent or world if present
             if node.agent_or_world:
-                agent_element_id = f"{element_id}_agent"
-                self._process_node(node.agent_or_world, message_spec)
-                message_spec.add_discourse_relation("agent", element_id, agent_element_id)
+                agent_id = self._process_node(node.agent_or_world, message_spec)
+                message_spec.add_discourse_relation("agent", element_id, agent_id)
+        
+        elif isinstance(node, LambdaNode):
+            # Create a content element for the lambda abstraction
+            element = ContentElement(
+                id=element_id,
+                content_type="lambda_abstraction",
+                source_node=node,
+                properties={"bound_variable_count": len(node.bound_variables)}
+            )
+            message_spec.add_main_content(element)
+            
+            # Process bound variables
+            for var in node.bound_variables:
+                var_id = self._process_node(var, message_spec)
+                message_spec.add_discourse_relation("binding", element_id, var_id)
+            
+            # Process lambda body
+            body_id = self._process_node(node.body, message_spec)
+            message_spec.add_discourse_relation("body", element_id, body_id)
+        
+        elif isinstance(node, DefinitionNode):
+            # Create a content element for the definition
+            element = ContentElement(
+                id=element_id,
+                content_type="definition",
+                source_node=node,
+                properties={"defined_symbol_name": node.defined_symbol_name}
+            )
+            message_spec.add_main_content(element)
+            
+            # Process definition body
+            body_id = self._process_node(node.definition_body_ast, message_spec)
+            message_spec.add_discourse_relation("definition_body", element_id, body_id)
+        
+        else:
+            raise ValueError(
+                f"Unsupported AST node type '{type(node).__name__}' while processing "
+                f"content element '{element_id}'"
+            )
+        
+        return element_id
     
     def _get_operator_name(self, operator: AST_Node) -> str:
         """
