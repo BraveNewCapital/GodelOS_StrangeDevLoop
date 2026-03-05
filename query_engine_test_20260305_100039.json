@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-03-05T10:00:36.328209",
+  "status": "BROKEN",
+  "tests": {
+    "frontend_accessible": false,
+    "backend_accessible": false,
+    "query_api_works": false,
+    "websocket_accessible": false,
+    "frontend_backend_proxy": false
+  }
+}
