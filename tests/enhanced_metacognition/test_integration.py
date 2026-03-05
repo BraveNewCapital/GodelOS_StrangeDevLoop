@@ -33,7 +33,7 @@ KnowledgeGapType = cm.KnowledgeGapType
 CognitiveEventType = cm.CognitiveEventType
 AcquisitionStrategy = cm.AcquisitionStrategy
 
-from backend.websocket_manager import WebSocketManager
+# DEPRECATED: from backend.websocket_manager import WebSocketManager
 
 
 class TestConfigurationManager:
@@ -305,7 +305,7 @@ class TestIntegrationScenarios:
     @pytest.mark.asyncio
     async def test_websocket_streaming_integration(self):
         """Test that WebSocket streaming integrates with cognitive events."""
-        mock_websocket_manager = WebSocketManager()
+        mock_websocket_manager = # DEPRECATED: WebSocketManager()
         
         # Test that we can create and manage connections
         assert mock_websocket_manager.has_connections() is False
@@ -333,11 +333,11 @@ class TestIntegrationScenarios:
         """Test that enhanced features don't break existing functionality."""
         # Import existing modules to ensure they still work
         try:
-            from backend.websocket_manager import WebSocketManager
+            # DEPRECATED: from backend.websocket_manager import WebSocketManager
             from backend.models import QueryRequest, QueryResponse
             
             # Test that we can create instances
-            ws_manager = WebSocketManager()
+            ws_manager = # DEPRECATED: WebSocketManager()
             assert ws_manager is not None
             
             query = QueryRequest(text="test query")
