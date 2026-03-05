@@ -10,25 +10,6 @@ from godelOS.nlu_nlg.nlu.lexical_analyzer_parser import (
 import pytest
 import importlib
 
-def _spacy_model_available(model="en_core_web_sm"):
-    """Check if a spaCy model is installed."""
-    try:
-        import spacy
-        spacy.load(model)
-        return True
-    except Exception:
-        return False
-
-pytestmark = pytest.mark.skipif(
-    not _spacy_model_available(),
-    reason="spaCy model 'en_core_web_sm' not installed in this environment"
-)
-
-
-    LexicalAnalyzerParser, Token, Entity, Span, Sentence, SyntacticParseOutput
-)
-
-
 class TestLexicalAnalyzerParser(unittest.TestCase):
     """Test cases for the LexicalAnalyzerParser class."""
     
