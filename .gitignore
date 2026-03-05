@@ -261,6 +261,7 @@ run_individual_tests.py
 # Generated reports and documentation (unless specifically needed)
 *_report.json
 *_report.md
+!.github/ISSUE_TEMPLATE/bug_report.md
 *_REPORT.md
 *_TEST_REPORT.md
 *_VALIDATION_REPORT.md
