@@ -391,6 +391,13 @@ class InMemoryKnowledgeStore(KnowledgeStoreBackend):
         with self._lock:
             return list(self._contexts.keys())
     
+    def get_all_statements_in_context(self, context_id: str) -> Set[AST_Node]:
+        """Return every statement stored in *context_id* without pattern matching."""
+        with self._lock:
+            if context_id not in self._contexts:
+                raise ValueError(f"Context {context_id} does not exist")
+            return set(self._statements.get(context_id, set()))
+    
     def _index_statement(self, statement: AST_Node, context_id: str) -> None:
         """
         Index a statement for faster queries.
@@ -608,6 +615,11 @@ class KnowledgeStoreInterface:
     knowledge management.
     """
     
+    # Class-level declarations so MagicMock(spec=...) sees them
+    type_system: TypeSystemManager = None  # type: ignore[assignment]
+    cache_manager: Optional[CachingMemoizationLayer] = None
+    unification_engine: "UnificationEngine" = None  # type: ignore[assignment]
+    
     def __init__(self, type_system: TypeSystemManager, 
                  cache_manager: Optional[CachingMemoizationLayer] = None):
         """
@@ -793,3 +805,7 @@ class KnowledgeStoreInterface:
             self.cache_manager.put(cache_key, result)
         
         return result
+    
+    def get_all_statements_in_context(self, context_id: str) -> Set[AST_Node]:
+        """Return every statement stored in *context_id* without pattern matching."""
+        return self._backend.get_all_statements_in_context(context_id)

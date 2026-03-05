@@ -52,6 +52,13 @@ class TypeSystemManager:
         boolean_type = self.define_atomic_type("Boolean")
         integer_type = self.define_atomic_type("Integer")
         string_type = self.define_atomic_type("String")
+        
+        # Register "Bool" as an alias for "Boolean"
+        self._types["Bool"] = boolean_type
+    
+    def register_base_types(self) -> None:
+        """Register base types (no-op, types are initialized in __init__)."""
+        pass
     
     def define_atomic_type(self, type_name: str, supertypes: Optional[List[str]] = None) -> AtomicType:
         """
