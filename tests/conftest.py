@@ -84,6 +84,9 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "requires_frontend: mark test as requiring running frontend"
     )
+    config.addinivalue_line(
+        "markers", "standalone: in-process tests that do not require external services"
+    )
 
 
 # Global fixtures for test environment
@@ -136,7 +139,9 @@ def test_config():
 def pytest_runtest_setup(item):
     """Set up individual test runs with conditional skipping."""
     # Skip backend tests if backend is not available
-    if "requires_backend" in [mark.name for mark in item.iter_markers()]:
+    # Tests marked ``standalone`` run in-process and never contact a server.
+    marker_names = [mark.name for mark in item.iter_markers()]
+    if "requires_backend" in marker_names and "standalone" not in marker_names:
         try:
             import requests
             response = requests.get("http://localhost:8000/health", timeout=2)
