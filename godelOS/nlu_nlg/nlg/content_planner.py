@@ -342,7 +342,10 @@ class ContentPlanner:
             message_spec.add_discourse_relation("definition_body", element_id, body_id)
         
         else:
-            raise ValueError(f"Unsupported AST node type: {type(node).__name__}")
+            raise ValueError(
+                f"Unsupported AST node type '{type(node).__name__}' while processing "
+                f"content element '{element_id}'"
+            )
         
         return element_id
     

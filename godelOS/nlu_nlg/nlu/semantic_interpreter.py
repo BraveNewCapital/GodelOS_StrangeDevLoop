@@ -18,18 +18,9 @@ from enum import Enum, auto
 from collections import defaultdict
 
 from godelOS.nlu_nlg.nlu.lexical_analyzer_parser import (
-    Token, Entity, Span, Sentence, SyntacticParseOutput
+    Token, Entity, Span, Sentence, SyntacticParseOutput,
+    VERB_DEP_LABELS, NOUN_DEP_LABELS, PREP_OBJECT_DEP_LABELS,
 )
-
-VERB_DEP_LABELS = {
-    "nsubj", "nsubjpass", "dobj", "iobj", "prep", "advmod", "punct",
-    "cc", "conj", "aux", "auxpass", "neg", "ccomp", "xcomp", "advcl",
-    "attr", "agent", "oprd", "acomp", "prt", "mark", "expl",
-    "npadvmod", "intj", "csubj", "csubjpass", "dative",
-}
-NOUN_DEP_LABELS = {"det", "amod", "compound", "nummod", "poss", "nmod",
-                   "appos", "acl", "relcl", "case"}
-PREP_OBJECT_DEP_LABELS = {"pobj"}
 
 
 class SemanticRole(Enum):
