@@ -1,6 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { cognitiveState, attentionFocus, processingLoad, activeAgents, systemHealthScore, alerts } from '../../stores/cognitive.js';
+  import { selfModelStore } from '../../stores/consciousness.js';
   import { fade, fly } from 'svelte/transition';
   
   // Component props
@@ -155,6 +156,12 @@
     if (intensity >= 0.8) return '#10b981';
     if (intensity >= 0.6) return '#f59e0b';
     if (intensity >= 0.4) return '#fbbf24';
+    return '#ef4444';
+  }
+
+  function getContradictionColor(score) {
+    if (score < 0.3) return '#10b981';
+    if (score <= 0.6) return '#f59e0b';
     return '#ef4444';
   }
   
@@ -506,6 +513,42 @@
         {/each}
       </div>
     </section>
+
+    <!-- Self-Model Metrics -->
+    <section class="self-model-section">
+      <h4 class="section-title">
+        <span class="section-icon">🪞</span>
+        Self-Model Metrics
+      </h4>
+      <div class="self-model-row">
+        <div class="self-model-metric">
+          <span class="sm-label">Contradiction</span>
+          <span class="sm-value" style="color: {getContradictionColor(safeNumber($selfModelStore.mean_contradiction, 0))}">
+            {safeNumber($selfModelStore.mean_contradiction, 0).toFixed(3)}
+          </span>
+        </div>
+        <div class="self-model-metric">
+          <span class="sm-label">Claims</span>
+          <span class="sm-value">{$selfModelStore.recent_claims}</span>
+        </div>
+        <div class="self-model-metric">
+          <span class="sm-label">Unicode</span>
+          <span class="sm-value">{$selfModelStore.unicode_detections}</span>
+        </div>
+        <div class="self-model-metric">
+          <span class="sm-label">High Contradiction</span>
+          <span class="sm-value" style="color: {$selfModelStore.high_contradiction_events > 0 ? '#ef4444' : '#10b981'}">
+            {$selfModelStore.high_contradiction_events}
+          </span>
+        </div>
+        <div class="self-model-metric">
+          <span class="sm-label">Feedback</span>
+          <span class="sm-value" style="color: {$selfModelStore.pending_feedback ? '#f59e0b' : '#10b981'}">
+            {$selfModelStore.pending_feedback ? 'Pending' : 'Clear'}
+          </span>
+        </div>
+      </div>
+    </section>
     </div>
   {/if}
 </div>
@@ -675,7 +718,8 @@
   .consciousness-section,
   .history-section,
   .agents-section,
-  .health-section {
+  .health-section,
+  .self-model-section {
     padding: 1rem; /* Reduced from 1.5rem */
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   }
@@ -683,7 +727,8 @@
   .consciousness-section:last-child,
   .history-section:last-child,
   .agents-section:last-child,
-  .health-section:last-child {
+  .health-section:last-child,
+  .self-model-section:last-child {
     border-bottom: none;
   }
 
@@ -1473,5 +1518,39 @@
       text-align: left;
       min-width: auto;
     }
+  }
+
+  /* Self-Model Metrics Row */
+  .self-model-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .self-model-metric {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 0.5rem 0.875rem;
+    min-width: 80px;
+    flex: 1;
+  }
+
+  .sm-label {
+    font-size: 0.7rem;
+    color: rgba(255, 255, 255, 0.5);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.25rem;
+    white-space: nowrap;
+  }
+
+  .sm-value {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: white;
   }
 </style>
