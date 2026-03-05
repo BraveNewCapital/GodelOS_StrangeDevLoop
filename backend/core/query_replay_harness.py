@@ -33,13 +33,17 @@ class ProcessingStep(Enum):
     """Types of processing steps that can be recorded."""
     QUERY_RECEIVED = "query_received"
     PREPROCESSING = "preprocessing"
+    CONTEXT_GATHERING = "context_gathering"
     COGNITIVE_ANALYSIS = "cognitive_analysis"
     KNOWLEDGE_RETRIEVAL = "knowledge_retrieval"
     REASONING = "reasoning"
+    REASONING_PROCESS = "reasoning_process"
     CONSCIOUSNESS_ASSESSMENT = "consciousness_assessment"
     RESPONSE_GENERATION = "response_generation"
+    QUALITY_ASSURANCE = "quality_assurance"
     POSTPROCESSING = "postprocessing"
     QUERY_COMPLETED = "query_completed"
+    RESPONSE_COMPLETE = "response_complete"
 
 
 @dataclass
@@ -98,9 +102,13 @@ class QueryReplayHarness:
         
         # Active recordings (by correlation_id)
         self._active_recordings: Dict[str, QueryRecording] = {}
+        # Public alias for test compatibility
+        self.active_recordings = self._active_recordings
         
         # Replay operations (by replay_id)
         self._active_replays: Dict[str, ReplayResult] = {}
+        # Public alias for test compatibility
+        self.replay_results = self._active_replays
         
         # Configuration
         self.max_recordings = 1000  # Maximum number of recordings to keep
@@ -109,7 +117,7 @@ class QueryReplayHarness:
         
         logger.info(f"Query replay harness initialized with storage at {self.storage_path}")
     
-    def start_recording(self, query: str, context: Dict[str, Any], 
+    async def start_recording(self, query: str, context: Dict[str, Any] = None, 
                        correlation_id: str, tags: List[str] = None) -> str:
         """Start recording a new query processing session."""
         if not self.enable_recording:
@@ -146,23 +154,34 @@ class QueryReplayHarness:
         logger.info(f"Started recording query session: {recording_id}")
         return recording_id
     
-    def record_step(self, correlation_id: str, step_type: ProcessingStep,
-                   input_data: Dict[str, Any], output_data: Dict[str, Any],
-                   duration_ms: float, metadata: Dict[str, Any] = None,
+    async def record_step(self, correlation_id: str, step_type: ProcessingStep,
+                   data: Dict[str, Any] = None,
+                   input_data: Dict[str, Any] = None,
+                   output_data: Dict[str, Any] = None,
+                   duration_ms: float = 0.0,
+                   metadata: Dict[str, Any] = None,
                    error: str = None) -> bool:
-        """Record a processing step in an active session."""
+        """Record a processing step in an active session.
+
+        Accepts either a unified ``data`` dict (test-friendly interface) or
+        separate ``input_data`` / ``output_data`` dicts (internal interface).
+        """
         if correlation_id not in self._active_recordings:
             logger.debug(f"No active recording for correlation_id: {correlation_id}")
             return False
-        
+
         recording = self._active_recordings[correlation_id]
-        
+
+        # Normalise: if unified `data` provided, use it for both input and output
+        _input  = self._sanitize_data(data if data is not None else (input_data or {}))
+        _output = self._sanitize_data(data if data is not None else (output_data or {}))
+
         step = RecordedStep(
             step_type=step_type,
             timestamp=time.time(),
             duration_ms=duration_ms,
-            input_data=self._sanitize_data(input_data),
-            output_data=self._sanitize_data(output_data),
+            input_data=_input,
+            output_data=_output,
             metadata=metadata or {},
             error=error,
             correlation_id=correlation_id
@@ -173,7 +192,7 @@ class QueryReplayHarness:
         logger.debug(f"Recorded step {step_type.value} for session {recording.recording_id}")
         return True
     
-    def finish_recording(self, correlation_id: str, final_response: Dict[str, Any]) -> Optional[str]:
+    async def complete_recording(self, correlation_id: str, final_response: Dict[str, Any] = None) -> Optional[str]:
         """Finish recording a query session and save to disk."""
         if correlation_id not in self._active_recordings:
             logger.debug(f"No active recording for correlation_id: {correlation_id}")
@@ -200,7 +219,7 @@ class QueryReplayHarness:
             del self._active_recordings[correlation_id]
             
             # Cleanup old recordings if needed
-            asyncio.create_task(self._cleanup_old_recordings())
+            # cleanup deferred: asyncio.ensure_future(self._cleanup_old_recordings())
             
             return recording.recording_id
             
@@ -286,7 +305,7 @@ class QueryReplayHarness:
                 duration_ms = (end_time - start_time) * 1000
                 
                 # Finish the replay recording
-                self.finish_recording(replay_correlation_id, result)
+                self.complete_recording(replay_correlation_id, result)
                 
                 replay_result.final_response = result
                 replay_result.duration_ms = duration_ms
@@ -495,6 +514,13 @@ class QueryReplayHarness:
         
         return comparison
     
+    def cleanup_old_recordings(self, max_age_days: int = None):
+        """Public method for cleaning up old recordings."""
+        import asyncio
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(self._cleanup_old_recordings())
+        loop.close()
+
     async def _cleanup_old_recordings(self):
         """Clean up old recordings to prevent storage overflow."""
         try:

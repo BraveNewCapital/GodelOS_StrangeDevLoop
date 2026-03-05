@@ -45,6 +45,10 @@ class MetaAction:
             return False
         return (self.action_type == other.action_type and 
                 self.parameters == other.parameters)
+    
+    def __hash__(self) -> int:
+        """Hash based on action_type and frozen parameters."""
+        return hash((self.action_type, tuple(sorted(self.parameters.items()))))
 
 
 @dataclass

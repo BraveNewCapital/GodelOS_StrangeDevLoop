@@ -331,8 +331,8 @@ class TestInternalStateMonitor(unittest.TestCase):
         args = mock_assert_state_facts.call_args[0]
         state_facts = args[0]
         
-        # Should have 4 facts: 2 system metrics + 2 module states
-        self.assertEqual(len(state_facts), 4)
+        # Should have 5 facts: 2 system metrics + 2 module states + 1 cognitive operation count
+        self.assertEqual(len(state_facts), 5)
     
     @patch('psutil.cpu_percent')
     @patch('psutil.virtual_memory')

@@ -6,9 +6,9 @@ import unittest
 from unittest.mock import patch, MagicMock
 
 from godelOS.nlu_nlg.nlu.lexical_analyzer_parser import (
-    LexicalAnalyzerParser, Token, Entity, Span, Sentence, SyntacticParseOutput
-)
 
+import pytest
+import importlib
 
 class TestLexicalAnalyzerParser(unittest.TestCase):
     """Test cases for the LexicalAnalyzerParser class."""

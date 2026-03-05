@@ -655,16 +655,16 @@ class FiniteDomainSolver(ConstraintSolver):
             # Update domains based on the constraint
             changed = False
             
-            # Update left domain's max
-            if right_domain.domain_min is not None:
-                if left_domain.domain_max is None or left_domain.domain_max >= right_domain.domain_min:
-                    new_max = right_domain.domain_min - 1
+            # Update left domain's max: X < Y ⇒ max(X) ≤ max(Y) - 1
+            if right_domain.domain_max is not None:
+                new_max = right_domain.domain_max - 1
+                if left_domain.domain_max is None or new_max < left_domain.domain_max:
                     if left_domain.domain_min is not None and new_max < left_domain.domain_min:
                         return False  # Unsatisfiable
                     
                     new_domain = ConstraintVariable(left, "FD", left_domain.domain_min, new_max)
                     if left_domain.domain_values is not None:
-                        new_values = {v for v in left_domain.domain_values if v < right_domain.domain_min}
+                        new_values = {v for v in left_domain.domain_values if v <= new_max}
                         if not new_values:
                             return False  # Unsatisfiable
                         new_domain.set_domain_values(new_values)
@@ -672,16 +672,16 @@ class FiniteDomainSolver(ConstraintSolver):
                     domain_store.set_domain(left, new_domain)
                     changed = True
             
-            # Update right domain's min
-            if left_domain.domain_max is not None:
-                if right_domain.domain_min is None or right_domain.domain_min <= left_domain.domain_max:
-                    new_min = left_domain.domain_max + 1
+            # Update right domain's min: X < Y ⇒ min(Y) ≥ min(X) + 1
+            if left_domain.domain_min is not None:
+                new_min = left_domain.domain_min + 1
+                if right_domain.domain_min is None or new_min > right_domain.domain_min:
                     if right_domain.domain_max is not None and new_min > right_domain.domain_max:
                         return False  # Unsatisfiable
                     
                     new_domain = ConstraintVariable(right, "FD", new_min, right_domain.domain_max)
                     if right_domain.domain_values is not None:
-                        new_values = {v for v in right_domain.domain_values if v > left_domain.domain_max}
+                        new_values = {v for v in right_domain.domain_values if v >= new_min}
                         if not new_values:
                             return False  # Unsatisfiable
                         new_domain.set_domain_values(new_values)
@@ -1354,6 +1354,9 @@ class CLPModule(BaseProver):
         """
         # Wake up all constraints initially
         constraint_store.wake_up_all()
+        # Clear any pre-existing domain change markers so the first pass
+        # only reacts to changes actually caused by propagation.
+        domain_store.clear_changed_variables()
         
         # Process constraints until no more changes or a constraint is unsatisfiable
         while True:

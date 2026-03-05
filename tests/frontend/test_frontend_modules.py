@@ -21,7 +21,7 @@ class TestFrontendModuleStructure:
     
     def setup_method(self):
         """Set up test environment."""
-        self.frontend_path = Path(__file__).parent.parent.parent / "godelos-frontend" / "src" / "scripts"
+        self.frontend_path = Path(__file__).parent.parent.parent / "svelte-frontend" / "src" / "scripts"
         
     def test_core_modules_exist(self):
         """Test that all core frontend modules exist."""
@@ -105,7 +105,7 @@ class TestJavaScriptSyntax:
     
     def setup_method(self):
         """Set up test environment."""
-        self.frontend_path = Path(__file__).parent.parent.parent / "godelos-frontend" / "src" / "scripts"
+        self.frontend_path = Path(__file__).parent.parent.parent / "svelte-frontend" / "src" / "scripts"
     
     def test_javascript_files_syntax(self):
         """Test that JavaScript files have valid basic syntax."""
@@ -183,7 +183,7 @@ class TestFrontendIntegration:
     
     def setup_method(self):
         """Set up test environment."""
-        self.frontend_root = Path(__file__).parent.parent.parent / "godelos-frontend"
+        self.frontend_root = Path(__file__).parent.parent.parent / "svelte-frontend"
         self.scripts_path = self.frontend_root / "src" / "scripts"
     
     def test_main_html_exists(self):
@@ -251,7 +251,7 @@ class TestKnowledgeGraphVisualization:
     
     def setup_method(self):
         """Set up test environment."""
-        self.scripts_path = Path(__file__).parent.parent.parent / "godelos-frontend" / "src" / "scripts"
+        self.scripts_path = Path(__file__).parent.parent.parent / "svelte-frontend" / "src" / "scripts"
     
     def test_knowledge_graph_modules(self):
         """Test knowledge graph related modules."""
@@ -300,7 +300,7 @@ class TestProgressiveComplexity:
     
     def setup_method(self):
         """Set up test environment."""
-        self.scripts_path = Path(__file__).parent.parent.parent / "godelos-frontend" / "src" / "scripts"
+        self.scripts_path = Path(__file__).parent.parent.parent / "svelte-frontend" / "src" / "scripts"
     
     def test_progressive_disclosure_module(self):
         """Test progressive disclosure functionality."""
@@ -369,7 +369,7 @@ class TestUIComponents:
     
     def setup_method(self):
         """Set up test environment."""
-        self.scripts_path = Path(__file__).parent.parent.parent / "godelos-frontend" / "src" / "scripts"
+        self.scripts_path = Path(__file__).parent.parent.parent / "svelte-frontend" / "src" / "scripts"
     
     def test_notification_system(self):
         """Test notification system."""
@@ -457,7 +457,7 @@ class TestPerformanceMonitoring:
     
     def setup_method(self):
         """Set up test environment."""
-        self.scripts_path = Path(__file__).parent.parent.parent / "godelos-frontend" / "src" / "scripts"
+        self.scripts_path = Path(__file__).parent.parent.parent / "svelte-frontend" / "src" / "scripts"
     
     def test_performance_module(self):
         """Test performance monitoring module."""

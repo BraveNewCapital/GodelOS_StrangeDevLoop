@@ -65,7 +65,8 @@ class TestExplanationBasedLearner(unittest.TestCase):
         for arg in args:
             if isinstance(arg, str) and arg.startswith("?"):
                 # It's a variable
-                var_id = int(arg[2:])  # Extract ID from "?V1", "?V2", etc.
+                digits = ''.join(c for c in arg if c.isdigit())
+                var_id = int(digits) if digits else ord(arg[-1])
                 var_type = self._mock_get_type("Person")
                 arg_nodes.append(VariableNode(arg, var_id, var_type))
             elif isinstance(arg, VariableNode):
@@ -470,28 +471,29 @@ class TestExplanationBasedLearner(unittest.TestCase):
         constant_to_variable_map = {"Socrates": variable}
         
         # Mock the knowledge store query to return a definition
-        definition_query = MagicMock(spec=VariableNode)
-        self.kr_system_interface.query_statements_match_pattern.return_value = [
-            {definition_query: ConnectiveNode(
-                connective_type="IMPLIES",
-                operands=[
-                    self._create_ast_node("livesIn", ["?x", "Greece"]),
-                    self._create_ast_node("isGreek", ["?x"])
-                ],
-                type_ref=self._mock_get_type("Boolean")
-            )}
-        ]
+        definition = ConnectiveNode(
+            connective_type="IMPLIES",
+            operands=[
+                self._create_ast_node("livesIn", ["?x", "Greece"]),
+                self._create_ast_node("isGreek", ["?x"])
+            ],
+            type_ref=self._mock_get_type("Boolean")
+        )
+        mock_binding = MagicMock()
+        mock_binding.get.return_value = definition
+        self.kr_system_interface.query_statements_match_pattern.return_value = [mock_binding]
         
         # Mock the unification engine to return successful unification
-        var_x = VariableNode("?x", 2, var_type)
+        # var_id for "?x" is ord('x')=120 since it has no digits
+        var_x_id = ord('x')
+        var_x = VariableNode("?x", var_x_id, var_type)
         self.kr_system_interface.unification_engine.unify.return_value = (
-            {2: variable},  # Bindings
+            {var_x_id: variable},  # Bindings
             []  # No errors
         )
         
         # Call _unfold_premise
-        with patch('godelOS.learning_system.explanation_based_learner.VariableNode', return_value=definition_query):
-            result = self.ebl._unfold_premise(premise, constant_to_variable_map)
+        result = self.ebl._unfold_premise(premise, constant_to_variable_map)
         
         # Verify the result
         self.assertIsNotNone(result)

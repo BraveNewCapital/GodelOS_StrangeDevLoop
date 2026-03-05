@@ -135,9 +135,9 @@ class FunctionType(Type):
         self._return_type = return_type
     
     @property
-    def arg_types(self) -> tuple:
+    def arg_types(self) -> List[Type]:
         """Get the argument types."""
-        return self._arg_types
+        return list(self._arg_types)
     
     @property
     def return_type(self) -> Type:
@@ -284,42 +284,39 @@ class ParametricType(Type):
     ParametricTypeConstructor and InstantiatedParametricType.
     """
     
-    @abstractmethod
+    def __init__(self, name: str, type_params: List['TypeVariable']):
+        self._name = name
+        self._type_params = tuple(type_params)
+    
+    @property
+    def name(self) -> str:
+        return self._name
+    
+    @property
+    def type_params(self) -> List['TypeVariable']:
+        return list(self._type_params)
+    
     def get_type_params(self) -> List['TypeVariable']:
-        """
-        Get the type parameters of this parametric type.
-        
-        Returns:
-            A list of type variables representing the type parameters
-        """
-        pass
+        return list(self._type_params)
     
     def is_subtype_of(self, other_type: 'Type', type_system: 'TypeSystemManager') -> bool:
-        """
-        Check if this parametric type is a subtype of another type.
-        
-        Args:
-            other_type: The type to check against
-            type_system: The type system manager to use for the check
-            
-        Returns:
-            True if this type is a subtype of other_type, False otherwise
-        """
-        # This is a base implementation that should be overridden by subclasses
         return self == other_type
     
     def substitute_type_vars(self, bindings: Dict['TypeVariable', 'Type']) -> 'Type':
-        """
-        Substitute type variables in this type according to the given bindings.
-        
-        Args:
-            bindings: A mapping from type variables to types
-            
-        Returns:
-            A new type with the substitutions applied
-        """
-        # This is a base implementation that should be overridden by subclasses
         return self
+    
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, ParametricType) and self._name == other._name and self._type_params == other._type_params
+    
+    def __hash__(self) -> int:
+        return hash(("ParametricType", self._name, self._type_params))
+    
+    def __str__(self) -> str:
+        params_str = ", ".join(str(param) for param in self._type_params)
+        return f"{self._name}[{params_str}]"
+    
+    def __repr__(self) -> str:
+        return f"ParametricType({self._name}, {self._type_params})"
 
 
 class ParametricTypeConstructor(ParametricType):
@@ -346,10 +343,9 @@ class ParametricTypeConstructor(ParametricType):
         return self._name
     
     @property
-    def type_params(self) -> tuple:
+    def type_params(self) -> List['TypeVariable']:
         """Get the type parameters."""
-        """Get the type parameters."""
-        return self._type_params
+        return list(self._type_params)
     
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, ParametricTypeConstructor):
@@ -404,9 +400,9 @@ class InstantiatedParametricType(ParametricType):
         return self._constructor
     
     @property
-    def actual_type_args(self) -> tuple:
+    def actual_type_args(self) -> List[Type]:
         """Get the actual type arguments."""
-        return self._actual_type_args
+        return list(self._actual_type_args)
     
     def is_subtype_of(self, other_type: 'Type', type_system: 'TypeSystemManager') -> bool:
         """

@@ -26,9 +26,9 @@ from godelOS.nlu_nlg.nlu.lexicon_ontology_linker import (
     LexiconOntologyLinker, Lexicon, Ontology
 )
 from godelOS.nlu_nlg.nlu.pipeline import (
-    NLUPipeline, NLUResult, create_nlu_pipeline
-)
 
+import pytest
+import importlib
 
 class TestNLUPipeline(unittest.TestCase):
     """Test cases for the NLUPipeline class."""
