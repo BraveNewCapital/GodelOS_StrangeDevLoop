@@ -308,6 +308,42 @@ class ContentPlanner:
                 agent_id = self._process_node(node.agent_or_world, message_spec)
                 message_spec.add_discourse_relation("agent", element_id, agent_id)
         
+        elif isinstance(node, LambdaNode):
+            # Create a content element for the lambda abstraction
+            element = ContentElement(
+                id=element_id,
+                content_type="lambda_abstraction",
+                source_node=node,
+                properties={"bound_variable_count": len(node.bound_variables)}
+            )
+            message_spec.add_main_content(element)
+            
+            # Process bound variables
+            for var in node.bound_variables:
+                var_id = self._process_node(var, message_spec)
+                message_spec.add_discourse_relation("binding", element_id, var_id)
+            
+            # Process lambda body
+            body_id = self._process_node(node.body, message_spec)
+            message_spec.add_discourse_relation("body", element_id, body_id)
+        
+        elif isinstance(node, DefinitionNode):
+            # Create a content element for the definition
+            element = ContentElement(
+                id=element_id,
+                content_type="definition",
+                source_node=node,
+                properties={"defined_symbol_name": node.defined_symbol_name}
+            )
+            message_spec.add_main_content(element)
+            
+            # Process definition body
+            body_id = self._process_node(node.definition_body_ast, message_spec)
+            message_spec.add_discourse_relation("definition_body", element_id, body_id)
+        
+        else:
+            raise ValueError(f"Unsupported AST node type: {type(node).__name__}")
+        
         return element_id
     
     def _get_operator_name(self, operator: AST_Node) -> str:

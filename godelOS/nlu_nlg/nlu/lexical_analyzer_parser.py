@@ -17,6 +17,17 @@ from dataclasses import dataclass, field
 import spacy
 from spacy.tokens import Doc, Token as SpacyToken
 
+# Dependency-label heuristic groups for head inference fallback.
+VERB_DEP_LABELS = {
+    "nsubj", "nsubjpass", "dobj", "iobj", "prep", "advmod", "punct",
+    "cc", "conj", "aux", "auxpass", "neg", "ccomp", "xcomp", "advcl",
+    "attr", "agent", "oprd", "acomp", "prt", "mark", "expl",
+    "npadvmod", "intj", "csubj", "csubjpass", "dative",
+}
+NOUN_DEP_LABELS = {"det", "amod", "compound", "nummod", "poss", "nmod",
+                   "appos", "acl", "relcl", "case"}
+PREP_OBJECT_DEP_LABELS = {"pobj"}
+
 
 @dataclass
 class Token:
@@ -333,24 +344,11 @@ class LexicalAnalyzerParser:
         if token.dep == "ROOT":
             return False
         
-        # Deps that attach to a verb (typically the ROOT)
-        verb_deps = {
-            "nsubj", "nsubjpass", "dobj", "iobj", "prep", "advmod", "punct",
-            "cc", "conj", "aux", "auxpass", "neg", "ccomp", "xcomp", "advcl",
-            "attr", "agent", "oprd", "acomp", "prt", "mark", "expl",
-            "npadvmod", "intj", "csubj", "csubjpass", "dative",
-        }
-        
-        # Deps that attach to a noun
-        noun_deps = {"det", "amod", "compound", "nummod", "poss", "nmod",
-                     "appos", "acl", "relcl", "case"}
-        
-        # Deps that attach to a preposition
-        prep_obj_deps = {"pobj"}
-        
         # Find the head using heuristic
         inferred_head_i = self._infer_head(token, all_tokens,
-                                           verb_deps, noun_deps, prep_obj_deps)
+                                           VERB_DEP_LABELS,
+                                           NOUN_DEP_LABELS,
+                                           PREP_OBJECT_DEP_LABELS)
         if inferred_head_i is not None:
             if inferred_head_i == head_token.i:
                 return True
@@ -365,7 +363,7 @@ class LexicalAnalyzerParser:
                     verb_deps: set, noun_deps: set, prep_obj_deps: set) -> Optional[int]:
         """Infer the head token index from dependency label heuristics."""
         if token.dep in verb_deps:
-            # Look for the ROOT token or nearest verb
+            # Look for the ROOT token
             for t in all_tokens:
                 if t.dep == "ROOT":
                     return t.i
