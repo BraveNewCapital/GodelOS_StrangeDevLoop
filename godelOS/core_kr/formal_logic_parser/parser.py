@@ -167,6 +167,57 @@ class FormalLogicParser:
         
         # Initialize variable environment for type checking during parsing
         self.variable_types: Dict[str, 'Type'] = {}
+        
+        # Registered predicates and functions for type-aware parsing
+        self._registered_predicates: Dict[str, 'Type'] = {}
+        self._registered_functions: Dict[str, 'Type'] = {}
+    
+    def register_predicate(self, name: str, type_ref: 'Type') -> None:
+        """
+        Register a predicate name with its type for type-aware parsing.
+        
+        Args:
+            name: The predicate name
+            type_ref: The type of the predicate
+        """
+        self._registered_predicates[name] = type_ref
+    
+    def register_function(self, name: str, type_ref: 'Type') -> None:
+        """
+        Register a function name with its type for type-aware parsing.
+        
+        Args:
+            name: The function name
+            type_ref: The type of the function
+        """
+        self._registered_functions[name] = type_ref
+    
+    def register_constant(self, name: str, type_ref: 'Type', value=None) -> None:
+        """
+        Register a constant name with its type for type-aware parsing.
+        
+        Args:
+            name: The constant name
+            type_ref: The type of the constant
+            value: Optional value for the constant
+        """
+        self._registered_functions[name] = type_ref
+    
+    def register_custom_syntax_handler(self, handler_or_keyword, handler=None) -> None:
+        """
+        Register a custom syntax handler.
+        
+        Args:
+            handler_or_keyword: Either a handler function (1-arg form) or keyword (2-arg form)
+            handler: A callable handler (only used in 2-arg form)
+        """
+        if not hasattr(self, '_custom_syntax_handlers'):
+            self._custom_syntax_handlers = {}
+        if handler is None:
+            # Single-arg form: handler_or_keyword is the handler
+            self._custom_syntax_handlers[getattr(handler_or_keyword, '__name__', str(id(handler_or_keyword)))] = handler_or_keyword
+        else:
+            self._custom_syntax_handlers[handler_or_keyword] = handler
     
     def parse(self, expression_string: str) -> Tuple[Optional[AST_Node], List[Error]]:
         """
