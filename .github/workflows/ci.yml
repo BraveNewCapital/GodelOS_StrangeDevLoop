@@ -38,12 +38,12 @@ jobs:
             --cov-report=term-missing \
             --cov-report=xml:coverage.xml \
             --junitxml=test-results.xml \
-            --no-cov-on-fail || true
+            --no-cov-on-fail
 
       - name: Generate coverage report
         if: always()
         run: |
-          python -m coverage report --format=markdown > coverage-summary.md 2>/dev/null || echo "No coverage data" > coverage-summary.md
+          python -m coverage report --format=markdown > coverage-summary.md || echo "Coverage report unavailable — tests may not have produced coverage data." > coverage-summary.md
 
       - name: Add coverage to job summary
         if: always()
