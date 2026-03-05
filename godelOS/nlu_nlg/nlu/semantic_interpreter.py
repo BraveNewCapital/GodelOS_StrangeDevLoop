@@ -520,7 +520,7 @@ class SemanticInterpreter:
         prep_obj_deps = {"pobj"}
         
         # Find the head using heuristic
-        inferred_head_i = self._infer_head(token, head_token, all_tokens,
+        inferred_head_i = self._infer_head(token, all_tokens,
                                            verb_deps, noun_deps, prep_obj_deps)
         if inferred_head_i is not None:
             if inferred_head_i == head_token.i:
@@ -532,7 +532,7 @@ class SemanticInterpreter:
         return False
     
     @staticmethod
-    def _infer_head(token: Token, head_token: Token, all_tokens: List[Token],
+    def _infer_head(token: Token, all_tokens: List[Token],
                     verb_deps: set, noun_deps: set, prep_obj_deps: set) -> Optional[int]:
         """Infer the head token index from dependency label heuristics."""
         if token.dep in verb_deps:
