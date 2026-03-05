@@ -31,6 +31,16 @@ from godelOS.inference_engine.proof_object import ProofObject
 from godelOS.test_runner.test_categorizer import TestCategorizer
 from godelOS.test_runner.timing_tracker import TimingTracker
 
+import shutil
+import pytest
+
+pytestmark = pytest.mark.skipif(
+    shutil.which("z3") is None,
+    reason="Z3 SMT solver not installed in this environment"
+)
+
+
+
 
 class TestSMTInterfaceEnhanced(unittest.TestCase):
     """Enhanced test cases for the SMT Interface with complex scenarios and edge cases."""
