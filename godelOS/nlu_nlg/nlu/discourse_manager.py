@@ -513,9 +513,6 @@ class DiscourseStateManager:
         # This is a simplified implementation of dialogue state tracking
         # For a more sophisticated approach, we would use a more complex model
         
-        # Update the turn count
-        self.context.dialogue_state.turn_count += 1
-        
         # Try to determine the topic of the utterance
         topic = self._determine_topic(parse_output, isr)
         if topic:
@@ -544,7 +541,7 @@ class DiscourseStateManager:
         # For simplicity, just use the most frequent noun as the topic
         noun_counts = defaultdict(int)
         for token in parse_output.tokens:
-            if token.pos == "NOUN":
+            if token.pos in ("NOUN", "PROPN"):
                 noun_counts[token.lemma] += 1
         
         if not noun_counts:

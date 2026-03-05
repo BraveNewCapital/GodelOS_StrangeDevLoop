@@ -484,31 +484,91 @@ class SemanticInterpreter:
         if token.i == head_token.i:
             return True
         
-        # Find the token's head
-        head_idx = None
-        for t in all_tokens:
-            if t.i == token.i:
-                # Find the head of this token
-                for h in all_tokens:
-                    if h.i == t.i - int(t.dep.split('_')[0]) if '_' in t.dep else 0:
-                        head_idx = h.i
-                        break
-                break
-        
-        # If the token's head is the head_token, return True
-        if head_idx is not None and head_idx == head_token.i:
-            return True
-        
-        # If the token's head is None, return False
-        if head_idx is None:
+        # Use head_i if available
+        if token.head_i is not None:
+            if token.head_i == token.i:
+                # ROOT or self-referencing token
+                return False
+            if token.head_i == head_token.i:
+                return True
+            # Recursively check if the token's head is dependent on head_token
+            for t in all_tokens:
+                if t.i == token.head_i:
+                    return self._is_dependent_on(t, head_token, all_tokens)
             return False
         
-        # Recursively check if the token's head is dependent on the head_token
-        for t in all_tokens:
-            if t.i == head_idx:
-                return self._is_dependent_on(t, head_token, all_tokens)
+        # Fallback heuristic when head_i is not available:
+        # Use dependency labels to infer the tree structure.
+        
+        # ROOT tokens only depend on themselves (already handled above)
+        if token.dep == "ROOT":
+            return False
+        
+        # Deps that attach to a verb (typically the ROOT)
+        verb_deps = {
+            "nsubj", "nsubjpass", "dobj", "iobj", "prep", "advmod", "punct",
+            "cc", "conj", "aux", "auxpass", "neg", "ccomp", "xcomp", "advcl",
+            "attr", "agent", "oprd", "acomp", "prt", "mark", "expl",
+            "npadvmod", "intj", "csubj", "csubjpass", "dative",
+        }
+        
+        # Deps that attach to a noun
+        noun_deps = {"det", "amod", "compound", "nummod", "poss", "nmod",
+                     "appos", "acl", "relcl", "case"}
+        
+        # Deps that attach to a preposition
+        prep_obj_deps = {"pobj"}
+        
+        # Find the head using heuristic
+        inferred_head_i = self._infer_head(token, head_token, all_tokens,
+                                           verb_deps, noun_deps, prep_obj_deps)
+        if inferred_head_i is not None:
+            if inferred_head_i == head_token.i:
+                return True
+            for t in all_tokens:
+                if t.i == inferred_head_i:
+                    return self._is_dependent_on(t, head_token, all_tokens)
         
         return False
+    
+    @staticmethod
+    def _infer_head(token: Token, head_token: Token, all_tokens: List[Token],
+                    verb_deps: set, noun_deps: set, prep_obj_deps: set) -> Optional[int]:
+        """Infer the head token index from dependency label heuristics."""
+        if token.dep in verb_deps:
+            # Look for the ROOT token or nearest verb
+            for t in all_tokens:
+                if t.dep == "ROOT":
+                    return t.i
+        elif token.dep in noun_deps:
+            # Look for the nearest noun/propn to the right
+            best = None
+            for t in all_tokens:
+                if (t.i > token.i and t.pos in ("NOUN", "PROPN")
+                        and t.dep not in noun_deps):
+                    if best is None or t.i < best:
+                        best = t.i
+            if best is not None:
+                return best
+            # Fallback: look for the ROOT
+            for t in all_tokens:
+                if t.dep == "ROOT":
+                    return t.i
+        elif token.dep in prep_obj_deps:
+            # Look for the nearest preposition (ADP) to the left
+            best = None
+            for t in all_tokens:
+                if t.i < token.i and t.pos == "ADP":
+                    if best is None or t.i > best:
+                        best = t.i
+            if best is not None:
+                return best
+        
+        # Default: assume dependent on ROOT
+        for t in all_tokens:
+            if t.dep == "ROOT":
+                return t.i
+        return None
     
     def _determine_prep_role(self, preposition: str) -> SemanticRole:
         """

@@ -96,7 +96,7 @@ class NLGPipeline:
         try:
             # Step 1: Content Planning
             cp_start = time.time()
-            context = {"discourse_context": self.discourse_manager.context}
+            context = {"discourse_context": getattr(self.discourse_manager, 'context', None)}
             message_spec = self.content_planner.plan_content(ast_nodes, context)
             cp_end = time.time()
             result.component_times["content_planning"] = cp_end - cp_start
@@ -117,7 +117,7 @@ class NLGPipeline:
             result.output_text = output_text
             
             # Record the discourse context
-            result.discourse_context = self.discourse_manager.context
+            result.discourse_context = getattr(self.discourse_manager, 'context', None)
             
             # Record the success
             result.success = True
