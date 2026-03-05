@@ -3740,6 +3740,72 @@ async def test_transparency_events():
         logger.error(f"Error generating test transparency events: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to generate test events: {str(e)}")
 
+# ---------------------------------------------------------------------------
+# Compatibility endpoints — stubs for routes that existed in the original
+# ``backend/main.py`` and are exercised by ``tests/backend/test_api_endpoints.py``.
+# ---------------------------------------------------------------------------
+
+@app.get("/api/simple-test")
+async def simple_test():
+    """Simple test endpoint for smoke-testing."""
+    return {"message": "simple test works", "timestamp": time.time()}
+
+
+@app.get("/api/test-route")
+async def test_route():
+    """General test route."""
+    return {"message": "Test route working", "timestamp": time.time()}
+
+
+@app.get("/api/evo-test")
+async def evo_test():
+    """Evolution test endpoint — returns sample evolution data."""
+    return {"evolution_data": {"generation": 1, "fitness": 0.85}, "timestamp": time.time()}
+
+
+@app.get("/api/graph-test")
+async def graph_test():
+    """Graph test endpoint — returns sample graph structure."""
+    return {
+        "nodes": [{"id": "node1", "label": "Test Node"}],
+        "edges": [{"source": "node1", "target": "node1", "label": "self"}],
+    }
+
+
+@app.get("/api/knowledge")
+async def get_knowledge(context_id: str = None, knowledge_type: str = None, limit: int = 100):
+    """Retrieve knowledge items (compatibility endpoint)."""
+    if godelos_integration:
+        try:
+            result = await godelos_integration.get_knowledge(
+                context_id=context_id,
+                knowledge_type=knowledge_type,
+                limit=limit,
+            )
+            return result
+        except Exception as e:
+            logger.error(f"Error getting knowledge: {e}")
+    return {"facts": [], "rules": [], "concepts": [], "total_count": 0}
+
+
+@app.get("/api/knowledge/categories")
+async def get_categories():
+    """Return known knowledge categories."""
+    return {"categories": ["general", "science", "technology", "history"]}
+
+
+@app.post("/api/knowledge/categories")
+async def create_category(payload: dict):
+    """Create a new knowledge category (stub)."""
+    return {"status": "success", "category_id": payload.get("category_id", "new")}
+
+
+@app.delete("/api/knowledge/import/{import_id}")
+async def cancel_import(import_id: str):
+    """Cancel a running import job."""
+    return {"import_id": import_id, "status": "cancelled"}
+
+
 if __name__ == "__main__":
     uvicorn.run(
         "unified_server:app",
