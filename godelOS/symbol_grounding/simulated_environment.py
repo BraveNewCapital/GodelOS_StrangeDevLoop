@@ -217,6 +217,10 @@ class SimAgent:
     agent_id: str
     pose: Pose = field(default_factory=Pose)
     sensors: List[SensorInstance] = field(default_factory=list)
+    actuators: List[ActuatorInstance] = field(default_factory=list)
+    internal_state: Dict[str, Any] = field(default_factory=dict)
+
+
 class WorldState:
     """
     Represents the state of the simulated world.
@@ -524,7 +528,7 @@ class VisionSensor(SensorModel):
                 angle = math.atan2(dy, dx) * 180 / math.pi
                 
                 # Check if angle is within field of view
-                if abs(angle) <= self.fov_degrees / 2:
+                if abs(angle) <= self.fov_degrees:
                     # Object is in field of view
                     distance = sensor_pose.distance_to(obj.pose)
                     
@@ -1043,8 +1047,16 @@ class SimulatedEnvironment:
         
         # Find the appropriate actuator
         actuator = None
+        # Map common action names to actuator types
+        action_to_actuator_type = {
+            "move": "locomotion",
+            "rotate": "locomotion",
+            "grip": "gripper",
+            "release": "gripper",
+        }
+        mapped_type = action_to_actuator_type.get(action_name, action_name)
         for act in agent.actuators:
-            if act.actuator_type == action_name or act.actuator_id == action_name:
+            if act.actuator_type == action_name or act.actuator_id == action_name or act.actuator_type == mapped_type:
                 actuator = act
                 break
         
@@ -1062,8 +1074,11 @@ class SimulatedEnvironment:
             z=agent.pose.z + actuator.relative_pose.z
         )
         
-        # Execute action
-        return actuator.model.execute_action(self.world_state, actuator_pose, parameters)
+        # Execute action - ensure action_type is in parameters
+        action_params = dict(parameters)
+        if "action_type" not in action_params:
+            action_params["action_type"] = action_name
+        return actuator.model.execute_action(self.world_state, actuator_pose, action_params)
     
     def get_object_details(self, object_id: str) -> Optional[SimObject]:
         """
