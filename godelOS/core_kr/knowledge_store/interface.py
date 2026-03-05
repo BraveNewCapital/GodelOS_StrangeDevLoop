@@ -12,7 +12,7 @@ import threading
 from collections import defaultdict
 from abc import ABC, abstractmethod
 
-from godelOS.core_kr.ast.nodes import AST_Node, VariableNode, ConstantNode, ApplicationNode
+from godelOS.core_kr.ast.nodes import AST_Node, VariableNode, ConstantNode, ApplicationNode, ConnectiveNode
 from godelOS.core_kr.type_system.manager import TypeSystemManager
 from godelOS.core_kr.unification_engine.engine import UnificationEngine
 
@@ -292,12 +292,17 @@ class InMemoryKnowledgeStore(KnowledgeStoreBackend):
                             results.append(filtered_bindings)
                         else:
                             # Convert var_id -> AST_Node to VariableNode -> AST_Node
+                            # Build a map from var_id to the original VariableNode in the query pattern
+                            query_vars = {}
+                            self._collect_variables(query_pattern_ast, query_vars)
                             var_bindings = {}
                             for var_id, ast_node in bindings.items():
-                                # Create a new variable node with the same var_id
-                                var_type = self.unification_engine.type_system.get_type("Entity") or ast_node.type
-                                var = VariableNode(f"?var{var_id}", var_id, var_type)
-                                var_bindings[var] = ast_node
+                                if var_id in query_vars:
+                                    var_bindings[query_vars[var_id]] = ast_node
+                                else:
+                                    var_type = self.unification_engine.type_system.get_type("Entity") or ast_node.type
+                                    var = VariableNode(f"?var{var_id}", var_id, var_type)
+                                    var_bindings[var] = ast_node
                             results.append(var_bindings)
             
             return results
@@ -398,6 +403,18 @@ class InMemoryKnowledgeStore(KnowledgeStoreBackend):
                 raise ValueError(f"Context {context_id} does not exist")
             return set(self._statements.get(context_id, set()))
     
+    def _collect_variables(self, node: AST_Node, var_map: Dict[int, VariableNode]) -> None:
+        """Collect all VariableNodes from an AST, mapping var_id -> VariableNode."""
+        if isinstance(node, VariableNode):
+            var_map[node.var_id] = node
+        elif isinstance(node, ApplicationNode):
+            self._collect_variables(node.operator, var_map)
+            for arg in node.arguments:
+                self._collect_variables(arg, var_map)
+        elif isinstance(node, ConnectiveNode):
+            for operand in node.operands:
+                self._collect_variables(operand, var_map)
+
     def _index_statement(self, statement: AST_Node, context_id: str) -> None:
         """
         Index a statement for faster queries.
