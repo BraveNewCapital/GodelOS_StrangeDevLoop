@@ -252,6 +252,9 @@ class ConstantNode(AST_Node):
     def __hash__(self) -> int:
         return hash((super().__hash__(), self._name, self._value))
     
+    def __str__(self) -> str:
+        return self._name
+
     def __repr__(self) -> str:
         return f"ConstantNode(name='{self._name}', type={self._type})"
 
@@ -324,6 +327,9 @@ class VariableNode(AST_Node):
     def __hash__(self) -> int:
         return hash((super().__hash__(), self._name, self._var_id))
     
+    def __str__(self) -> str:
+        return self._name
+
     def __repr__(self) -> str:
         return f"VariableNode(name='{self._name}', id={self._var_id}, type={self._type})"
 
@@ -400,6 +406,10 @@ class ApplicationNode(AST_Node):
     def __hash__(self) -> int:
         return hash((super().__hash__(), self._operator, self._arguments))
     
+    def __str__(self) -> str:
+        args_str = ", ".join(str(a) for a in self._arguments)
+        return f"{self._operator}({args_str})"
+
     def __repr__(self) -> str:
         return f"ApplicationNode(operator={self._operator}, args={self._arguments})"
 
@@ -493,6 +503,11 @@ class QuantifierNode(AST_Node):
         return hash((super().__hash__(), self._quantifier_type,
                     self._bound_variables, self._scope))
     
+    def __str__(self) -> str:
+        vars_str = ", ".join(str(v) for v in self._bound_variables)
+        q = "∀" if self._quantifier_type == "FORALL" else "∃"
+        return f"{q}{vars_str}.{self._scope}"
+
     def __repr__(self) -> str:
         return f"QuantifierNode(type='{self._quantifier_type}', vars={self._bound_variables})"
 
@@ -569,6 +584,19 @@ class ConnectiveNode(AST_Node):
     def __hash__(self) -> int:
         return hash((super().__hash__(), self._connective_type, self._operands))
     
+    def __str__(self) -> str:
+        if self._connective_type == "NOT":
+            return f"¬{self._operands[0]}"
+        elif self._connective_type == "AND":
+            return f"({' ∧ '.join(str(o) for o in self._operands)})"
+        elif self._connective_type == "OR":
+            return f"({' ∨ '.join(str(o) for o in self._operands)})"
+        elif self._connective_type == "IMPLIES":
+            return f"({self._operands[0]} → {self._operands[1]})"
+        elif self._connective_type == "EQUIV":
+            return f"({self._operands[0]} ↔ {self._operands[1]})"
+        return f"{self._connective_type}({', '.join(str(o) for o in self._operands)})"
+
     def __repr__(self) -> str:
         return f"ConnectiveNode(type='{self._connective_type}', operands={self._operands})"
 
@@ -658,6 +686,11 @@ class ModalOpNode(AST_Node):
         return hash((super().__hash__(), self._modal_operator,
                     self._proposition, self._agent_or_world))
     
+    def __str__(self) -> str:
+        if self._agent_or_world:
+            return f"{self._modal_operator}_{self._agent_or_world}({self._proposition})"
+        return f"{self._modal_operator}({self._proposition})"
+
     def __repr__(self) -> str:
         return f"ModalOpNode(operator='{self._modal_operator}', prop={self._proposition})"
 
@@ -740,6 +773,10 @@ class LambdaNode(AST_Node):
     def __hash__(self) -> int:
         return hash((super().__hash__(), self._bound_variables, self._body))
     
+    def __str__(self) -> str:
+        vars_str = ", ".join(str(v) for v in self._bound_variables)
+        return f"λ{vars_str}.{self._body}"
+
     def __repr__(self) -> str:
         return f"LambdaNode(vars={self._bound_variables}, body={self._body})"
 
@@ -826,5 +863,8 @@ class DefinitionNode(AST_Node):
         return hash((super().__hash__(), self._defined_symbol_name,
                     self._defined_symbol_type, self._definition_body_ast))
     
+    def __str__(self) -> str:
+        return f"{self._defined_symbol_name} := {self._definition_body_ast}"
+
     def __repr__(self) -> str:
         return f"DefinitionNode(name='{self._defined_symbol_name}', body={self._definition_body_ast})"
