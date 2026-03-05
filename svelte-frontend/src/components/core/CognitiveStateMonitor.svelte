@@ -1486,7 +1486,8 @@
     .consciousness-section,
     .history-section,
     .agents-section,
-    .health-section {
+    .health-section,
+    .self-model-section {
       padding: 0.75rem; /* Reduced from 1rem */
     }
 
