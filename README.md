@@ -8,7 +8,7 @@
 [![Stars](https://img.shields.io/github/stars/steake/godelos)](https://github.com/steake)
 
 
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg?style=flat-square)](https://github.com/Steake/GodelOS)
+[![CI](https://github.com/Steake/GodelOS/actions/workflows/ci.yml/badge.svg)](https://github.com/Steake/GodelOS/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/badge/version-0.2.0--beta-blue.svg?style=flat-square)](https://github.com/Steake/GodelOS/releases)
 [![Python](https://img.shields.io/badge/python-3.8+-blue.svg?style=flat-square&logo=python)](https://python.org)
 [![Cognitive Tests](https://img.shields.io/badge/cognitive%20tests-100%25%20passing-green.svg?style=flat-square)](tests/)
