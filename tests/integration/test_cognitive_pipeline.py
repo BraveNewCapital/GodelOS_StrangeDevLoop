@@ -186,7 +186,7 @@ def resolution_prover(knowledge_store, unification_engine) -> ResolutionProver:
 # Test 1: Single-query round-trip  (NLU → KR → NLG)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.integration
+
 class TestSingleQueryRoundTrip:
     """Process a sentence through NLU, store the ASTs in KR, read them back,
     and generate natural language via NLG."""
@@ -250,7 +250,6 @@ class TestSingleQueryRoundTrip:
 # Test 2: Knowledge persistence within a session
 # ---------------------------------------------------------------------------
 
-@pytest.mark.integration
 class TestKnowledgePersistence:
     """Verify that facts stored in the KR survive across multiple
     operations within the same session and across different contexts."""
@@ -349,7 +348,6 @@ class TestKnowledgePersistence:
 # Test 3: Context switching (discourse manager)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.integration
 class TestContextSwitching:
     """Multi-turn NLU processing with discourse context tracking."""
 
@@ -429,7 +427,7 @@ class TestContextSwitching:
 # Test 4: Inference chain with non-trivial reasoning
 # ---------------------------------------------------------------------------
 
-@pytest.mark.integration
+
 class TestInferenceChain:
     """Verify that the resolution prover can derive new facts via
     multi-step deduction using facts and rules stored in the KR system."""
@@ -589,7 +587,6 @@ class TestInferenceChain:
 # Test 5: Full pipeline round-trip  (NLU → KR → Inference → NLG)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.integration
 class TestFullPipelineRoundTrip:
     """Integration across all four subsystems in a single scenario."""
 
