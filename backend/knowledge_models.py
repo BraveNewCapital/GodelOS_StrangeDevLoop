@@ -13,7 +13,7 @@ import time
 
 class ImportSource(BaseModel):
     """Model for import source information."""
-    source_type: Literal["url", "file", "wikipedia", "text", "batch"] = Field(..., description="Type of import source")
+    source_type: Literal["url", "file", "wikipedia", "text", "batch", "manual"] = Field(..., description="Type of import source")
     source_identifier: str = Field(..., description="URL, filename, Wikipedia title, or identifier")
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Source-specific metadata")
 
