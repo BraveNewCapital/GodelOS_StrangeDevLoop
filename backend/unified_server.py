@@ -737,6 +737,27 @@ except ImportError as e:
 except Exception as e:
     logger.error(f"Failed to setup replay endpoints: {e}")
 
+# Include external API router (REST + WebSocket surface for external consumers)
+try:
+    from backend.api.external_api import router as external_api_router, configure as configure_external_api
+    app.include_router(external_api_router, tags=["External API"])
+    # Wire runtime dependencies into the external API module.
+    configure_external_api(
+        godelos_integration=godelos_integration,
+        websocket_manager=websocket_manager,
+        cognitive_state=cognitive_state,
+        startup_time=server_start_time,
+        tool_based_llm=tool_based_llm,
+    )
+    EXTERNAL_API_AVAILABLE = True
+    logger.info("External API endpoints available at /api/v1/external/*")
+except ImportError as e:
+    logger.warning(f"External API endpoints not available: {e}")
+    EXTERNAL_API_AVAILABLE = False
+except Exception as e:
+    logger.error(f"Failed to setup external API endpoints: {e}")
+    EXTERNAL_API_AVAILABLE = False
+
 # Consciousness bootstrap endpoint (manual trigger for 6-phase bootstrap)
 @app.post("/api/consciousness/bootstrap")
 async def api_consciousness_bootstrap(force: bool = Query(default=False)):
