@@ -131,6 +131,12 @@ class KnowledgeSearchEngine:
         # Limit results
         limited_items = sorted_items[:query.max_results]
         
+        # Normalize scores to [0, 1] range as required by SearchResult.relevance_score
+        if limited_items:
+            max_score = max(score for _, score in limited_items)
+            if max_score > 1.0:
+                limited_items = [(item_id, score / max_score) for item_id, score in limited_items]
+        
         # Create search results
         results = []
         for item_id, score in limited_items:

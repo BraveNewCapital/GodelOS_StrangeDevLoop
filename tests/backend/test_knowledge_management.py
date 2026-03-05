@@ -44,7 +44,8 @@ class TestKnowledgeSearchEngine:
                 title="Machine Learning Basics",
                 content="Machine learning is a subset of artificial intelligence that focuses on algorithms.",
                 knowledge_type="concept",
-                source=ImportSource(source_type="manual", source_identifier="test"),
+                source=ImportSource(source_type="text", source_identifier="test"),
+                import_id="import1",
                 categories=["technology", "ai"],
                 auto_categories=["computer_science"],
                 manual_categories=[],
@@ -60,7 +61,8 @@ class TestKnowledgeSearchEngine:
                 title="Python Programming",
                 content="Python is a high-level programming language known for its simplicity and readability.",
                 knowledge_type="fact",
-                source=ImportSource(source_type="web", source_identifier="python.org"),
+                source=ImportSource(source_type="url", source_identifier="python.org"),
+                import_id="import2",
                 categories=["programming", "technology"],
                 auto_categories=["languages"],
                 manual_categories=["tutorial"],
@@ -77,6 +79,7 @@ class TestKnowledgeSearchEngine:
                 content="Quantum computing uses quantum mechanics to process information in quantum bits.",
                 knowledge_type="concept",
                 source=ImportSource(source_type="wikipedia", source_identifier="Quantum_computing"),
+                import_id="import3",
                 categories=["physics", "technology"],
                 auto_categories=["quantum_mechanics"],
                 manual_categories=[],
@@ -100,14 +103,15 @@ class TestKnowledgeSearchEngine:
             id="test_item",
             title="Test Item",
             content="This is a test knowledge item for testing purposes.",
-            knowledge_type="test",
-            source=ImportSource(source_type="test", source_identifier="test_source"),
+            knowledge_type="concept",
+            source=ImportSource(source_type="text", source_identifier="test_source"),
+            import_id="test_import",
             categories=["test"],
             auto_categories=[],
             manual_categories=[],
             quality_score=1.0,
             confidence=1.0,
-            validation_status="new",
+            validation_status="pending",
             extracted_at=time.time(),
             access_count=0,
             last_accessed=time.time()
@@ -122,7 +126,7 @@ class TestKnowledgeSearchEngine:
         assert "test" in self.search_engine.search_index
         assert "test_item" in self.search_engine.search_index["test"]
         assert "test_item" in self.search_engine.category_index["test"]
-        assert "test_item" in self.search_engine.source_index["test"]
+        assert "test_item" in self.search_engine.source_index["text"]
     
     def test_remove_knowledge_item(self):
         """Test removing knowledge items from the search engine."""
@@ -199,7 +203,7 @@ class TestKnowledgeSearchEngine:
             search_type="full_text",
             knowledge_types=["concept"],
             categories=["technology"],
-            source_types=["manual"],
+            source_types=["text"],
             confidence_threshold=0.8,
             max_results=10
         )
@@ -211,7 +215,7 @@ class TestKnowledgeSearchEngine:
             item = result.knowledge_item
             assert item.knowledge_type == "concept"
             assert "technology" in item.categories or "technology" in item.auto_categories
-            assert item.source.source_type == "manual"
+            assert item.source.source_type == "text"
             assert item.confidence >= 0.8
     
     @pytest.mark.asyncio
@@ -359,14 +363,15 @@ class TestKnowledgeManagementService:
             id="test_item",
             title="Test Knowledge",
             content="This is test knowledge content.",
-            knowledge_type="test",
-            source=ImportSource(source_type="test", source_identifier="test"),
+            knowledge_type="concept",
+            source=ImportSource(source_type="text", source_identifier="test"),
+            import_id="test_import",
             categories=["test"],
             auto_categories=[],
             manual_categories=[],
             quality_score=1.0,
             confidence=1.0,
-            validation_status="new",
+            validation_status="pending",
             extracted_at=time.time(),
             access_count=0,
             last_accessed=time.time()
@@ -400,14 +405,15 @@ class TestKnowledgeManagementService:
             id="item1",
             title="Item 1",
             content="Content 1",
-            knowledge_type="test",
-            source=ImportSource(source_type="test", source_identifier="test"),
+            knowledge_type="concept",
+            source=ImportSource(source_type="text", source_identifier="test"),
+            import_id="test_import1",
             categories=["original"],
             auto_categories=[],
             manual_categories=[],
             quality_score=1.0,
             confidence=1.0,
-            validation_status="new",
+            validation_status="pending",
             extracted_at=time.time(),
             access_count=0,
             last_accessed=time.time()
@@ -417,14 +423,15 @@ class TestKnowledgeManagementService:
             id="item2",
             title="Item 2",
             content="Content 2",
-            knowledge_type="test",
-            source=ImportSource(source_type="test", source_identifier="test"),
+            knowledge_type="concept",
+            source=ImportSource(source_type="text", source_identifier="test"),
+            import_id="test_import2",
             categories=["original"],
             auto_categories=[],
             manual_categories=[],
             quality_score=1.0,
             confidence=1.0,
-            validation_status="new",
+            validation_status="pending",
             extracted_at=time.time(),
             access_count=0,
             last_accessed=time.time()
@@ -459,14 +466,15 @@ class TestKnowledgeManagementService:
                 content=f"Content for item {i}",
                 knowledge_type="concept" if i % 2 == 0 else "fact",
                 source=ImportSource(
-                    source_type="web" if i % 3 == 0 else "manual",
+                    source_type="url" if i % 3 == 0 else "text",
                     source_identifier=f"source{i}"
                 ),
+                import_id=f"import{i}",
                 categories=[f"category{i % 3}"],
                 auto_categories=[],
                 manual_categories=[],
-                quality_score=0.5 + (i * 0.1),
-                confidence=0.7 + (i * 0.05),
+                quality_score=min(0.5 + (i * 0.1), 1.0),
+                confidence=min(0.7 + (i * 0.05), 1.0),
                 validation_status="validated",
                 extracted_at=time.time() - (i * 3600),  # Different ages
                 access_count=i,
@@ -484,8 +492,8 @@ class TestKnowledgeManagementService:
         assert stats.total_items == 10
         assert "concept" in stats.items_by_type
         assert "fact" in stats.items_by_type
-        assert "web" in stats.items_by_source
-        assert "manual" in stats.items_by_source
+        assert "url" in stats.items_by_source
+        assert "text" in stats.items_by_source
         assert len(stats.items_by_category) > 0
         assert 0.0 <= stats.average_confidence <= 1.0
         assert "low" in stats.quality_distribution
@@ -505,8 +513,9 @@ class TestKnowledgeManagementService:
             id="search_test",
             title="Search Test Item",
             content="This item is for testing search integration functionality.",
-            knowledge_type="test",
-            source=ImportSource(source_type="test", source_identifier="test"),
+            knowledge_type="concept",
+            source=ImportSource(source_type="text", source_identifier="test"),
+            import_id="test_import",
             categories=["search", "test"],
             auto_categories=[],
             manual_categories=[],
@@ -561,7 +570,7 @@ class TestKnowledgeIngestion:
             priority=5
         )
         
-        assert url_request.url == "https://example.com"
+        assert str(url_request.url).rstrip("/") == "https://example.com"
         assert url_request.source.source_type == "url"
         assert "web" in url_request.categorization_hints
         assert url_request.priority == 5
@@ -640,7 +649,8 @@ class TestKnowledgeModelsValidation:
             title="Valid Item",
             content="This is valid content.",
             knowledge_type="concept",
-            source=ImportSource(source_type="test", source_identifier="test"),
+            source=ImportSource(source_type="text", source_identifier="test"),
+            import_id="test_import",
             categories=["test"],
             auto_categories=[],
             manual_categories=[],
@@ -664,7 +674,7 @@ class TestKnowledgeModelsValidation:
             search_type="full_text",
             knowledge_types=["concept", "fact"],
             categories=["test"],
-            source_types=["manual", "web"],
+            source_types=["text", "url"],
             confidence_threshold=0.5,
             max_results=20,
             include_snippets=True

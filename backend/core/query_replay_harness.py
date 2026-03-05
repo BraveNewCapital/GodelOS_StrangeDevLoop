@@ -20,6 +20,13 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _json_default(obj):
+    """Custom JSON encoder that serialises Enum values as their .value strings."""
+    if isinstance(obj, Enum):
+        return obj.value
+    return str(obj)
+
+
 class ReplayStatus(Enum):
     """Status of a replay operation."""
     PENDING = "pending"
@@ -32,13 +39,17 @@ class ReplayStatus(Enum):
 class ProcessingStep(Enum):
     """Types of processing steps that can be recorded."""
     QUERY_RECEIVED = "query_received"
+    CONTEXT_GATHERING = "context_gathering"
     PREPROCESSING = "preprocessing"
     COGNITIVE_ANALYSIS = "cognitive_analysis"
     KNOWLEDGE_RETRIEVAL = "knowledge_retrieval"
     REASONING = "reasoning"
+    REASONING_PROCESS = "reasoning_process"
     CONSCIOUSNESS_ASSESSMENT = "consciousness_assessment"
     RESPONSE_GENERATION = "response_generation"
+    QUALITY_ASSURANCE = "quality_assurance"
     POSTPROCESSING = "postprocessing"
+    RESPONSE_COMPLETE = "response_complete"
     QUERY_COMPLETED = "query_completed"
 
 
@@ -53,6 +64,11 @@ class RecordedStep:
     metadata: Dict[str, Any]
     error: Optional[str] = None
     correlation_id: Optional[str] = None
+
+    @property
+    def data(self) -> Dict[str, Any]:
+        """Alias for input_data (backward compatibility)."""
+        return self.input_data
 
 
 @dataclass
@@ -70,6 +86,16 @@ class QueryRecording:
     cognitive_state: Dict[str, Any]
     metadata: Dict[str, Any]
     tags: List[str]
+
+    @property
+    def correlation_id(self) -> Optional[str]:
+        """Convenience accessor for the correlation_id stored in metadata."""
+        return self.metadata.get("correlation_id")
+
+    @property
+    def final_result(self) -> Optional[Dict[str, Any]]:
+        """Alias for final_response (backward compatibility)."""
+        return self.final_response
 
 
 @dataclass
@@ -96,8 +122,10 @@ class QueryReplayHarness:
         self.storage_path = Path(storage_path)
         self.storage_path.mkdir(parents=True, exist_ok=True)
         
-        # Active recordings (by correlation_id)
+        # Active recordings keyed by recording_id
         self._active_recordings: Dict[str, QueryRecording] = {}
+        # Reverse lookup: correlation_id -> recording_id
+        self._correlation_to_recording: Dict[str, str] = {}
         
         # Replay operations (by replay_id)
         self._active_replays: Dict[str, ReplayResult] = {}
@@ -108,19 +136,55 @@ class QueryReplayHarness:
         self.enable_recording = True  # Global recording toggle
         
         logger.info(f"Query replay harness initialized with storage at {self.storage_path}")
+
+    @property
+    def active_recordings(self) -> Dict[str, Any]:
+        """Public view of active recordings (keyed by recording_id)."""
+        return self._active_recordings
+
+    @property
+    def replay_results(self) -> Dict[str, Any]:
+        """Public view of replay results (keyed by replay_id)."""
+        return self._active_replays
     
-    def start_recording(self, query: str, context: Dict[str, Any], 
-                       correlation_id: str, tags: List[str] = None) -> str:
-        """Start recording a new query processing session."""
+    def start_recording(self, query: str, context: Dict[str, Any] = None,
+                       correlation_id: str = None, tags: List[str] = None,
+                       metadata: Dict[str, Any] = None) -> str:
+        """Start recording a new query processing session.
+        
+        Args:
+            query: The query string to record.
+            context: Optional context dictionary (defaults to empty dict).
+            correlation_id: Optional correlation ID (generated if not provided).
+            tags: Optional list of tags for the recording.
+            metadata: Optional metadata dictionary (stored in recording metadata).
+        
+        Returns:
+            recording_id: The unique identifier for this recording session,
+                          used as the key in active_recordings.
+        """
         if not self.enable_recording:
             logger.debug("Recording disabled, skipping query recording")
-            return ""
+            return None
+        
+        if context is None:
+            context = {}
+        if correlation_id is None:
+            correlation_id = uuid.uuid4().hex
         
         recording_id = f"rec_{uuid.uuid4().hex[:12]}"
         
         # Capture initial system state
         system_state = self._capture_system_state()
         cognitive_state = self._capture_cognitive_state()
+        
+        rec_metadata = {
+            "correlation_id": correlation_id,
+            "created_at": datetime.now().isoformat(),
+            "version": "1.0"
+        }
+        if metadata:
+            rec_metadata.update(metadata)
         
         recording = QueryRecording(
             recording_id=recording_id,
@@ -133,39 +197,53 @@ class QueryReplayHarness:
             final_response=None,
             system_state=system_state,
             cognitive_state=cognitive_state,
-            metadata={
-                "correlation_id": correlation_id,
-                "created_at": datetime.now().isoformat(),
-                "version": "1.0"
-            },
+            metadata=rec_metadata,
             tags=tags or []
         )
         
-        self._active_recordings[correlation_id] = recording
+        # Store by recording_id; maintain reverse lookup by correlation_id
+        self._active_recordings[recording_id] = recording
+        self._correlation_to_recording[correlation_id] = recording_id
         
         logger.info(f"Started recording query session: {recording_id}")
         return recording_id
     
-    def record_step(self, correlation_id: str, step_type: ProcessingStep,
-                   input_data: Dict[str, Any], output_data: Dict[str, Any],
-                   duration_ms: float, metadata: Dict[str, Any] = None,
-                   error: str = None) -> bool:
-        """Record a processing step in an active session."""
-        if correlation_id not in self._active_recordings:
-            logger.debug(f"No active recording for correlation_id: {correlation_id}")
+    def record_step(self, recording_id: str, step_type: ProcessingStep,
+                   input_data: Dict[str, Any] = None, output_data: Dict[str, Any] = None,
+                   duration_ms: float = 0.0, metadata: Dict[str, Any] = None,
+                   error: str = None, data: Dict[str, Any] = None) -> bool:
+        """Record a processing step in an active session.
+        
+        The first argument may be either a recording_id (as returned by start_recording)
+        or a correlation_id (for backward compatibility).
+        
+        ``data`` is an alias for ``input_data`` (backward compatibility).
+        """
+        # Support ``data`` as an alias for ``input_data``
+        if data is not None and input_data is None:
+            input_data = data
+        input_data = input_data or {}
+        output_data = output_data or {}
+        # Resolve to recording_id: try direct lookup, then reverse-lookup via correlation_id
+        recording_id = recording_id
+        if recording_id not in self._active_recordings:
+            recording_id = self._correlation_to_recording.get(recording_id, "")
+        
+        if recording_id not in self._active_recordings:
+            logger.debug(f"No active recording for: {recording_id}")
             return False
         
-        recording = self._active_recordings[correlation_id]
+        recording = self._active_recordings[recording_id]
         
         step = RecordedStep(
             step_type=step_type,
             timestamp=time.time(),
             duration_ms=duration_ms,
             input_data=self._sanitize_data(input_data),
-            output_data=self._sanitize_data(output_data),
+            output_data=self._sanitize_data(output_data or {}),
             metadata=metadata or {},
             error=error,
-            correlation_id=correlation_id
+            correlation_id=recording.metadata.get("correlation_id", recording_id)
         )
         
         recording.steps.append(step)
@@ -173,13 +251,23 @@ class QueryReplayHarness:
         logger.debug(f"Recorded step {step_type.value} for session {recording.recording_id}")
         return True
     
-    def finish_recording(self, correlation_id: str, final_response: Dict[str, Any]) -> Optional[str]:
-        """Finish recording a query session and save to disk."""
-        if correlation_id not in self._active_recordings:
-            logger.debug(f"No active recording for correlation_id: {correlation_id}")
+    def finish_recording(self, recording_id: str, final_response: Dict[str, Any]) -> Optional[str]:
+        """Finish recording a query session and save to disk.
+        
+        Accepts either a recording_id (as returned by start_recording) or a
+        correlation_id (for backward compatibility).
+        """
+        # Resolve to recording_id
+        recording_id = recording_id
+        if recording_id not in self._active_recordings:
+            recording_id = self._correlation_to_recording.get(recording_id, "")
+        
+        if recording_id not in self._active_recordings:
+            logger.debug(f"No active recording for: {recording_id}")
             return None
         
-        recording = self._active_recordings[correlation_id]
+        recording = self._active_recordings[recording_id]
+        correlation_id = recording.metadata.get("correlation_id", recording_id)
         
         # Finalize recording
         recording.end_timestamp = time.time()
@@ -192,21 +280,31 @@ class QueryReplayHarness:
         
         try:
             with open(filepath, 'w') as f:
-                json.dump(asdict(recording), f, indent=2, default=str)
+                json.dump(asdict(recording), f, indent=2, default=_json_default)
             
             logger.info(f"Saved recording {recording.recording_id} to {filepath}")
             
-            # Remove from active recordings
-            del self._active_recordings[correlation_id]
+            # Remove from active recordings and reverse lookup
+            del self._active_recordings[recording_id]
+            self._correlation_to_recording.pop(correlation_id, None)
             
-            # Cleanup old recordings if needed
-            asyncio.create_task(self._cleanup_old_recordings())
+            # Schedule cleanup of old recordings
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(self._cleanup_old_recordings())
+            except RuntimeError:
+                pass  # No event loop running; skip async cleanup
             
             return recording.recording_id
             
         except Exception as e:
             logger.error(f"Error saving recording {recording.recording_id}: {e}")
             return None
+
+    async def complete_recording(self, recording_id: str, final_response: Dict[str, Any]) -> Optional[str]:
+        """Async alias for finish_recording."""
+        return self.finish_recording(recording_id, final_response)
     
     def load_recording(self, recording_id: str) -> Optional[QueryRecording]:
         """Load a recording from disk."""
@@ -451,8 +549,16 @@ class QueryReplayHarness:
             tags=data.get('tags', [])
         )
     
-    def _compare_results(self, original: QueryRecording, replay: ReplayResult) -> Dict[str, Any]:
-        """Compare original recording with replay result."""
+    def _compare_results(self, original, replay) -> Dict[str, Any]:
+        """Compare original recording with replay result.
+        
+        Accepts either (QueryRecording, ReplayResult) objects or plain dicts
+        containing response data.
+        """
+        # Handle plain dict inputs (e.g. from direct test calls)
+        if isinstance(original, dict) and isinstance(replay, dict):
+            return self._compare_result_dicts(original, replay)
+        
         comparison = {
             "performance": {
                 "original_duration_ms": original.total_duration_ms,
@@ -494,6 +600,50 @@ class QueryReplayHarness:
                 comparison["response_similarity"] = 0.0 if original_hash != replay_hash else 1.0
         
         return comparison
+
+    def _compare_result_dicts(self, original: Dict[str, Any], replay: Dict[str, Any]) -> Dict[str, Any]:
+        """Compare two plain response dicts, returning rich comparison metrics."""
+        comparison: Dict[str, Any] = {
+            "response_similarity": None,
+            "key_differences": [],
+        }
+        
+        # Response text similarity
+        orig_text = str(original.get("response", ""))
+        replay_text = str(replay.get("response", ""))
+        if orig_text == replay_text:
+            comparison["response_similarity"] = 1.0
+        else:
+            # Jaccard word-level similarity
+            orig_words = set(orig_text.lower().split())
+            replay_words = set(replay_text.lower().split())
+            union = orig_words | replay_words
+            intersection = orig_words & replay_words
+            comparison["response_similarity"] = len(intersection) / len(union) if union else 0.0
+        
+        # Confidence difference
+        orig_conf = original.get("confidence")
+        replay_conf = replay.get("confidence")
+        if orig_conf is not None and replay_conf is not None:
+            comparison["confidence_diff"] = round(abs(float(replay_conf) - float(orig_conf)), 10)
+        
+        # Sources overlap
+        orig_sources = original.get("sources", [])
+        replay_sources = replay.get("sources", [])
+        if orig_sources or replay_sources:
+            orig_set = set(orig_sources)
+            replay_set = set(replay_sources)
+            max_len = max(len(orig_set), len(replay_set))
+            intersection = orig_set & replay_set
+            comparison["sources_overlap"] = len(intersection) / max_len if max_len else 0.0
+        
+        # Key differences
+        all_keys = set(original.keys()) | set(replay.keys())
+        for key in sorted(all_keys):
+            if original.get(key) != replay.get(key):
+                comparison["key_differences"].append(key)
+        
+        return comparison
     
     async def _cleanup_old_recordings(self):
         """Clean up old recordings to prevent storage overflow."""
@@ -521,6 +671,42 @@ class QueryReplayHarness:
                 
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")
+
+    def cleanup_old_recordings(self, max_age_days: int = None) -> int:
+        """Synchronous wrapper to clean up old recordings.
+        
+        Args:
+            max_age_days: Override for auto_cleanup_days. Uses self.auto_cleanup_days if None.
+        
+        Returns:
+            Number of recordings deleted.
+        """
+        age_days = max_age_days if max_age_days is not None else self.auto_cleanup_days
+        try:
+            current_time = time.time()
+            cutoff_time = current_time - (age_days * 24 * 3600)
+            
+            deleted_count = 0
+            for filepath in self.storage_path.glob("rec_*.json"):
+                try:
+                    timestamp_str = filepath.stem.split('_')[-1]
+                    file_timestamp = float(timestamp_str)
+                    
+                    if file_timestamp < cutoff_time:
+                        filepath.unlink()
+                        deleted_count += 1
+                        
+                except (ValueError, IndexError):
+                    continue
+            
+            if deleted_count > 0:
+                logger.info(f"Cleaned up {deleted_count} old recordings")
+            
+            return deleted_count
+                
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}")
+            return 0
 
 
 # Global instance
