@@ -343,6 +343,9 @@ class ObjectTracker:
         """
         self.current_time += time_step
         
+        # Remove old tracked objects before matching
+        self._prune_old_objects()
+        
         # Maps original object IDs to tracked IDs
         id_mapping = {}
         
@@ -382,9 +385,6 @@ class ObjectTracker:
                     "last_seen_time": self.current_time
                 }
                 id_mapping[obj_id] = tracked_id
-        
-        # Remove old tracked objects
-        self._prune_old_objects()
         
         return id_mapping
     
@@ -442,9 +442,9 @@ class ObjectTracker:
             matches = 0
             total = 0
             
-            for key in set(vf1.keys()) | set(vf2.keys()):
+            for key in set(vf1.keys()) & set(vf2.keys()):
                 total += 1
-                if key in vf1 and key in vf2 and vf1[key] == vf2[key]:
+                if vf1[key] == vf2[key]:
                     matches += 1
             
             if total > 0:
@@ -626,6 +626,8 @@ class PerceptualCategorizer:
                 # Vision data is expected to be a list of object features
                 if isinstance(sensor_data.data, list):
                     for obj_data in sensor_data.data:
+                        if not isinstance(obj_data, dict):
+                            continue
                         obj_id = obj_data.get("object_id")
                         if not obj_id:
                             continue
@@ -633,13 +635,15 @@ class PerceptualCategorizer:
                         # Extract features for this object
                         features = self._extract_object_features(modality, obj_data)
                         
-                        # Store features for this object
-                        object_features[obj_id] = features
+                        # Store original object data and extracted features for tracking
+                        object_features[obj_id] = {**obj_data, **features}
             
             elif modality == "touch":
                 # Touch data is expected to be a list of contact information
                 if isinstance(sensor_data.data, list):
                     for contact_data in sensor_data.data:
+                        if not isinstance(contact_data, dict):
+                            continue
                         obj_id = contact_data.get("object_id")
                         if not obj_id:
                             continue
@@ -651,7 +655,7 @@ class PerceptualCategorizer:
                         if obj_id in object_features:
                             object_features[obj_id].update(features)
                         else:
-                            object_features[obj_id] = features
+                            object_features[obj_id] = {**contact_data, **features}
         
         # Track objects across time
         tracked_id_mapping = self.object_tracker.update(

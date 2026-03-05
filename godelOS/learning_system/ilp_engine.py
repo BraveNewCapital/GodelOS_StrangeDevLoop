@@ -264,7 +264,7 @@ class ILPEngine:
             
             # Remove positive examples covered by the new clause
             positive_covered, _ = self._get_coverage(best_clause, current_positive_examples, negative_examples, background_knowledge)
-            current_positive_examples -= positive_covered
+            current_positive_examples = current_positive_examples - positive_covered
         
         return learned_theory
     
@@ -689,6 +689,19 @@ class ILPEngine:
             for operand in ast_node.operands:
                 self._extract_variables(operand, variables)
     
+    def _literal_signature(self, node: AST_Node) -> str:
+        """Get a type-independent structural signature for an AST literal."""
+        if isinstance(node, ApplicationNode):
+            op_sig = self._literal_signature(node.operator)
+            arg_sigs = tuple(self._literal_signature(a) for a in node.arguments)
+            return f"App({op_sig}, {arg_sigs})"
+        elif isinstance(node, ConstantNode):
+            return f"Const({node.name})"
+        elif isinstance(node, VariableNode):
+            return f"Var({node.name}, {node.var_id})"
+        else:
+            return repr(node)
+
     def _is_redundant(self, clause: Clause) -> bool:
         """
         Check if a clause is redundant (contains duplicate literals).
@@ -702,10 +715,10 @@ class ILPEngine:
         # Check for duplicate literals in the body
         seen_literals = set()
         for literal in clause.body:
-            literal_str = str(literal)
-            if literal_str in seen_literals:
+            literal_sig = self._literal_signature(literal)
+            if literal_sig in seen_literals:
                 return True
-            seen_literals.add(literal_str)
+            seen_literals.add(literal_sig)
         
         return False
     

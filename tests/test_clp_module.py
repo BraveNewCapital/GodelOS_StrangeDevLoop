@@ -281,13 +281,19 @@ class TestCLPModule(unittest.TestCase):
         # Check the results
         self.assertEqual(len(clauses), 2)
         
+        # Find fact and rule regardless of iteration order
+        facts = [c for c in clauses if c.is_fact()]
+        rules = [c for c in clauses if not c.is_fact() and not c.is_query()]
+        
         # Check the fact
-        fact = clauses[0]
+        self.assertEqual(len(facts), 1)
+        fact = facts[0]
         self.assertTrue(fact.is_fact())
         self.assertEqual(fact.head, p_1)
         
         # Check the rule
-        rule_clause = clauses[1]
+        self.assertEqual(len(rules), 1)
+        rule_clause = rules[0]
         self.assertEqual(rule_clause.head, q_x)
         self.assertEqual(len(rule_clause.body), 1)
         self.assertEqual(rule_clause.body[0], p_x)
@@ -324,9 +330,14 @@ class TestCLPModule(unittest.TestCase):
         q_func = ConstantNode("q", FunctionType([self.int_type], self.bool_type))
         non_constraint = ApplicationNode(q_func, [self.x_var], self.bool_type)
         
-        # Test with a mock solver that can handle the constraint
+        # Test with a mock solver that recognises standard FD constraint names
+        fd_names = {'=', '!=', '<', '<=', '>', '>=', 'AllDifferent', 'SumEquals'}
         mock_solver = MagicMock(spec=ConstraintSolver)
-        mock_solver.can_handle_constraint.return_value = True
+        mock_solver.can_handle_constraint.side_effect = (
+            lambda ast: isinstance(ast, ApplicationNode)
+            and isinstance(ast.operator, ConstantNode)
+            and ast.operator.name in fd_names
+        )
         
         self.clp_module.solver_registry = {"FD": mock_solver}
         

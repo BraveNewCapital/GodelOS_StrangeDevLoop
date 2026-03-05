@@ -66,7 +66,7 @@ class TestParserEnhanced(unittest.TestCase):
         self.parser.register_predicate("R", self.binary_pred_type)
         
         # Parse the formula
-        ast = self.parser.parse(formula)
+        ast, _errors = self.parser.parse(formula)
         
         # Verify the structure of the AST
         self.assertIsInstance(ast, QuantifierNode)
@@ -132,7 +132,7 @@ class TestParserEnhanced(unittest.TestCase):
         self.parser.register_constant("b", self.entity_type)
         
         # Parse the formula
-        ast = self.parser.parse(formula)
+        ast, _errors = self.parser.parse(formula)
         
         # Verify the structure of the AST
         self.assertIsInstance(ast, ConnectiveNode)
@@ -172,7 +172,7 @@ class TestParserEnhanced(unittest.TestCase):
         formula2 = "knows(a, believes(b, P(?x)))"
         
         # Parse the formula
-        ast2 = self.parser.parse(formula2)
+        ast2, _errors = self.parser.parse(formula2)
         
         # Verify the structure of the AST
         self.assertIsInstance(ast2, ModalOpNode)
@@ -208,7 +208,7 @@ class TestParserEnhanced(unittest.TestCase):
         self.parser.register_predicate("P", self.unary_pred_type)
         
         # Parse the formula
-        ast = self.parser.parse(formula)
+        ast, _errors = self.parser.parse(formula)
         
         # Verify the structure of the AST
         self.assertIsInstance(ast, LambdaNode)
@@ -230,7 +230,7 @@ class TestParserEnhanced(unittest.TestCase):
         self.parser.register_predicate("R", self.binary_pred_type)
         
         # Parse the formula
-        ast2 = self.parser.parse(formula2)
+        ast2, _errors = self.parser.parse(formula2)
         
         # Verify the structure of the AST
         self.assertIsInstance(ast2, LambdaNode)
@@ -273,7 +273,7 @@ class TestParserEnhanced(unittest.TestCase):
         self.parser.register_constant("2", self.integer_type, 2)
         
         # Parse the formula
-        ast = self.parser.parse(formula)
+        ast, _errors = self.parser.parse(formula)
         
         # Verify the structure of the AST
         self.assertIsInstance(ast, ApplicationNode)
@@ -420,7 +420,7 @@ class TestParserEnhanced(unittest.TestCase):
             mock_parse.side_effect = mock_parse_expression
             
             # Parse the formula
-            ast = self.parser.parse(formula)
+            ast, _errors = self.parser.parse(formula)
             
             # Verify the structure of the AST
             self.assertIsInstance(ast, ApplicationNode)
@@ -467,7 +467,7 @@ class TestParserEnhanced(unittest.TestCase):
         
         # Measure the time to parse the formula
         start_time = time.time()
-        ast = self.parser.parse(formula)
+        ast, _errors = self.parser.parse(formula)
         parse_time = time.time() - start_time
         
         print(f"Time to parse formula with {num_conjuncts} conjuncts: {parse_time * 1000:.2f} ms")
@@ -521,8 +521,8 @@ class TestParserEnhanced(unittest.TestCase):
             ]
             
             # Parse the formulas
-            ast1 = self.parser.parse(formula1)
-            ast2 = self.parser.parse(formula2)
+            ast1, _errors = self.parser.parse(formula1)
+            ast2, _errors = self.parser.parse(formula2)
             
             # Verify the structure and types of the ASTs
             self.assertIsInstance(ast1, ApplicationNode)

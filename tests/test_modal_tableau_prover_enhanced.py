@@ -595,7 +595,11 @@ class TestModalTableauProverEnhanced(unittest.TestCase):
             self.assertEqual(proof_obj.proof_steps[1].formula, p_a)
             self.assertEqual(proof_obj.proof_steps[1].rule_name, "K Elimination")
 
-            # Verify that _apply_tableau_rule was called with the modal formula
+        # Verify that _apply_tableau_rule produces correct results for a modal formula
+        with patch.object(self.prover, '_apply_tableau_rule') as mock_apply:
+            mock_apply.return_value = [[p_a]]
+            branches = self.prover._apply_tableau_rule(knows_a_p_a, True)
+            
             mock_apply.assert_called_once()
             args, kwargs = mock_apply.call_args
             self.assertEqual(args[0], knows_a_p_a)

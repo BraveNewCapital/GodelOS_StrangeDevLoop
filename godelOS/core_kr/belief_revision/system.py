@@ -207,6 +207,11 @@ class BeliefRevisionSystem:
         new_belief_set_id = f"{belief_set_id}_expanded_{uuid.uuid4().hex[:8]}"
         self.ksi.create_context(new_belief_set_id, parent_context_id=belief_set_id, context_type="beliefs")
         
+        # Copy all statements from the parent belief set
+        parent_statements = self._get_all_statements(belief_set_id)
+        for stmt in parent_statements:
+            self.ksi.add_statement(stmt, context_id=new_belief_set_id)
+        
         # Add the new belief to the new belief set with metadata
         metadata = {
             "operation": "expansion",
@@ -298,18 +303,7 @@ class BeliefRevisionSystem:
         Returns:
             The set of statements
         """
-        # Query the knowledge store for all statements in the context
-        # Using a generic pattern that matches any statement
-        generic_pattern = VariableNode("?x", 1, self.ksi.type_system.get_type("Entity"))
-        query_result = self.ksi.query_statements_match_pattern(generic_pattern, [context_id])
-        
-        # Extract the statements from the query result
-        statements = set()
-        for binding in query_result:
-            for var, node in binding.items():
-                statements.add(node)
-        
-        return statements
+        return self.ksi.get_all_statements_in_context(context_id)
     
     def _find_maximal_subsets(self, statements: Set[AST_Node],
                              belief_to_remove_ast: AST_Node,
@@ -743,18 +737,24 @@ class BeliefRevisionSystem:
                 self.ksi.add_statement(statement, context_id=revised_belief_set_id)
             return revised_belief_set_id
         
-        # Create a negation of the new belief for contraction
-        # In a full implementation, this would use a proper negation function
-        # For now, we create a simple negation using a ConnectiveNode
-        negated_belief_ast = ConnectiveNode(
-            connective_type="NOT",
-            operands=[new_belief_ast],
-            type_ref=new_belief_ast.type
-        )
+        # Levi identity: K*φ = (K÷¬φ)+φ
+        # Create the negation of the new belief for contraction.
+        # If the new belief is already a negation NOT(ψ), contracting by ψ
+        # (double-negation elimination) avoids NOT(NOT(ψ)).
+        if (isinstance(new_belief_ast, ConnectiveNode)
+                and new_belief_ast.connective_type == "NOT"
+                and len(new_belief_ast.operands) == 1):
+            belief_to_contract = new_belief_ast.operands[0]
+        else:
+            belief_to_contract = ConnectiveNode(
+                connective_type="NOT",
+                operands=[new_belief_ast],
+                type_ref=new_belief_ast.type
+            )
         
         # Contract by the negation of the new belief
         contracted_belief_set_id = self.contract_belief_set(
-            belief_set_id, negated_belief_ast, strategy, entrenchment_map
+            belief_set_id, belief_to_contract, strategy, entrenchment_map
         )
         
         # Expand with the new belief

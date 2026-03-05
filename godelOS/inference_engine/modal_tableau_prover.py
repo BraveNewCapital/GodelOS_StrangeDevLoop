@@ -90,14 +90,28 @@ class World:
         Check if this world contains a contradiction.
         
         A contradiction occurs when a formula and its negation both hold in the same world.
+        This handles both sign-based contradictions (T:P and F:P) and explicit negation
+        contradictions (T:P and T:NOT(P), or F:P and F:NOT(P)).
         """
         for formula in self.formulas:
+            # Check for sign-based contradiction: T:X vs F:X
             if formula.negate() in self.formulas:
                 return True
+            # Check for explicit NOT contradiction: T:P vs T:NOT(P)
+            if formula.sign:
+                # If we have T:X, check for T:NOT(X)
+                not_formula = ConnectiveNode("NOT", [formula.formula], formula.formula.type)
+                if SignedFormula(not_formula, True) in self.formulas:
+                    return True
+                # If we have T:NOT(X), check for T:X
+                if isinstance(formula.formula, ConnectiveNode) and formula.formula.connective_type == "NOT":
+                    inner = formula.formula.operands[0]
+                    if SignedFormula(inner, True) in self.formulas:
+                        return True
         return False
 
 
-@dataclass
+@dataclass(frozen=True)
 class AccessibilityRelation:
     """
     Represents an accessibility relation between worlds in a Kripke model.
@@ -121,6 +135,7 @@ class Branch:
     worlds: Dict[int, World] = field(default_factory=dict)
     accessibility_relations: Set[AccessibilityRelation] = field(default_factory=set)
     closed: bool = False
+    expanded_formulas: Set[tuple] = field(default_factory=set)  # Track (world_id, SignedFormula) already expanded
     
     def __str__(self) -> str:
         worlds_str = "\n  ".join(str(w) for w in self.worlds.values())
@@ -257,8 +272,8 @@ class TableauRuleApplicator:
             elif formula.connective_type == "IMPLIES":
                 return FormulaType.BETA if sign else FormulaType.ALPHA
             elif formula.connective_type == "NOT":
-                # Double negation: change sign and return the type of the operand
-                return self.get_formula_type(SignedFormula(formula.operands[0], not sign))
+                # NOT is always an alpha rule (deterministic single-branch)
+                return FormulaType.ALPHA
         
         # If it's not a complex formula, it's a literal
         return FormulaType.LITERAL
@@ -278,7 +293,10 @@ class TableauRuleApplicator:
         sign = signed_formula.sign
         
         if isinstance(formula, ConnectiveNode):
-            if formula.connective_type == "AND":
+            if formula.connective_type == "NOT":
+                # T: NOT(A) -> F: A  ;  F: NOT(A) -> T: A
+                branch.worlds[world_id].add_formula(SignedFormula(formula.operands[0], not sign))
+            elif formula.connective_type == "AND":
                 if sign:  # T: A ∧ B -> T: A, T: B
                     branch.worlds[world_id].add_formula(SignedFormula(formula.operands[0], True))
                     branch.worlds[world_id].add_formula(SignedFormula(formula.operands[1], True))
@@ -355,9 +373,11 @@ class TableauRuleApplicator:
     
     def apply_pi_rule(self, signed_formula: SignedFormula, branch: Branch, world_id: int) -> None:
         """
-        Apply the pi rule to a box formula.
+        Apply the pi rule to a universal modal formula.
         
-        The pi rule adds the formula inside the box to all accessible worlds.
+        PI formulas propagate to ALL accessible worlds.
+        T: □A -> add T: A to all accessible worlds
+        F: ◇A -> add F: A to all accessible worlds
         
         Args:
             signed_formula: The signed formula to expand
@@ -367,16 +387,23 @@ class TableauRuleApplicator:
         formula = signed_formula.formula
         sign = signed_formula.sign
         
-        if isinstance(formula, ModalOpNode) and formula.modal_operator == "NECESSARY":
-            if sign:  # T: □A -> add T: A to all accessible worlds
+        if isinstance(formula, ModalOpNode):
+            if formula.modal_operator == "NECESSARY" and sign:
+                # T: □A -> add T: A to all accessible worlds
                 for accessible_world in branch.get_accessible_worlds(world_id):
                     accessible_world.add_formula(SignedFormula(formula.proposition, True))
+            elif formula.modal_operator == "POSSIBLE" and not sign:
+                # F: ◇A -> add F: A to all accessible worlds
+                for accessible_world in branch.get_accessible_worlds(world_id):
+                    accessible_world.add_formula(SignedFormula(formula.proposition, False))
     
     def apply_nu_rule(self, signed_formula: SignedFormula, branch: Branch, world_id: int, tableau: Tableau) -> None:
         """
-        Apply the nu rule to a diamond formula.
+        Apply the nu rule to an existential modal formula.
         
-        The nu rule creates a new accessible world and adds the formula inside the diamond to it.
+        NU formulas create a NEW accessible world.
+        T: ◇A -> create new world with T: A
+        F: □A -> create new world with F: A
         
         Args:
             signed_formula: The signed formula to expand
@@ -387,15 +414,22 @@ class TableauRuleApplicator:
         formula = signed_formula.formula
         sign = signed_formula.sign
         
-        if isinstance(formula, ModalOpNode) and formula.modal_operator == "POSSIBLE":
-            if sign:  # T: ◇A -> create new world with T: A
+        if isinstance(formula, ModalOpNode):
+            if formula.modal_operator == "POSSIBLE" and sign:
+                # T: ◇A -> create new world with T: A
                 new_world_id = tableau.create_new_world()
                 new_world = World(new_world_id)
                 new_world.add_formula(SignedFormula(formula.proposition, True))
                 branch.add_world(new_world)
                 branch.add_accessibility_relation(AccessibilityRelation(world_id, new_world_id))
-                
-                # Apply accessibility relation properties based on the modal system
+                self.apply_accessibility_properties(branch, new_world_id)
+            elif formula.modal_operator == "NECESSARY" and not sign:
+                # F: □A -> create new world with F: A
+                new_world_id = tableau.create_new_world()
+                new_world = World(new_world_id)
+                new_world.add_formula(SignedFormula(formula.proposition, False))
+                branch.add_world(new_world)
+                branch.add_accessibility_relation(AccessibilityRelation(world_id, new_world_id))
                 self.apply_accessibility_properties(branch, new_world_id)
     
     def apply_accessibility_properties(self, branch: Branch, world_id: int) -> None:
@@ -452,29 +486,46 @@ class TableauRuleApplicator:
         if branch.is_closed():
             return [branch]
         
+        # Apply accessibility properties for the modal system first
+        for world_id in list(branch.worlds.keys()):
+            self.apply_accessibility_properties(branch, world_id)
+        
         # Find an unexpanded formula in any world
         for world_id, world in branch.worlds.items():
-            for signed_formula in world.formulas:
+            for signed_formula in list(world.formulas):
+                # Skip if already expanded in this world
+                expansion_key = (world_id, signed_formula)
+                if expansion_key in branch.expanded_formulas:
+                    continue
+                
                 formula_type = self.get_formula_type(signed_formula)
                 
                 if formula_type == FormulaType.ALPHA:
+                    branch.expanded_formulas.add(expansion_key)
                     self.apply_alpha_rule(signed_formula, branch, world_id)
                     return [branch]  # Continue with the same branch
                 
                 elif formula_type == FormulaType.BETA:
+                    branch.expanded_formulas.add(expansion_key)
                     new_branches = self.apply_beta_rule(signed_formula, branch, world_id)
+                    # Copy expanded_formulas to new branches
+                    for b in new_branches:
+                        b.expanded_formulas = set(branch.expanded_formulas)
                     return new_branches  # Return the new branches
                 
                 elif formula_type == FormulaType.PI:
+                    branch.expanded_formulas.add(expansion_key)
                     self.apply_pi_rule(signed_formula, branch, world_id)
                     return [branch]  # Continue with the same branch
                 
                 elif formula_type == FormulaType.NU:
+                    branch.expanded_formulas.add(expansion_key)
                     self.apply_nu_rule(signed_formula, branch, world_id, tableau)
                     return [branch]  # Continue with the same branch
         
-        # If no rules were applied, the branch is fully expanded
-        return [branch]
+        # If no rules were applied, the branch is fully expanded - mark it
+        branch.closed = False  # It stays open
+        return []  # Return empty to signal no more work
 
 
 class ModalTableauProver(BaseProver):
@@ -543,7 +594,7 @@ class ModalTableauProver(BaseProver):
     
     def _negate_formula(self, formula: AST_Node) -> AST_Node:
         """
-        Negate a formula.
+        Negate a formula, with double-negation elimination.
         
         Args:
             formula: The formula to negate
@@ -551,9 +602,13 @@ class ModalTableauProver(BaseProver):
         Returns:
             The negated formula
         """
-        # If the formula is already a negation, return its operand
+        # If the formula is already a negation, return its operand (double-negation elimination)
         if isinstance(formula, ConnectiveNode) and formula.connective_type == "NOT":
-            return formula.operands[0]
+            inner = formula.operands[0]
+            # Recursively simplify if the inner formula is also a negation
+            if isinstance(inner, ConnectiveNode) and inner.connective_type == "NOT":
+                return self._negate_formula(inner)
+            return inner
         
         # Otherwise, wrap it in a negation
         return ConnectiveNode("NOT", [formula], formula.type)
@@ -646,6 +701,9 @@ class ModalTableauProver(BaseProver):
             if new_branches:
                 tableau.branches.remove(branch)
                 tableau.branches.extend(new_branches)
+            else:
+                # Branch is fully expanded with no more work - stop trying to expand it
+                break
             
             nodes_explored += 1
             max_depth = max(max_depth, len(tableau.branches))
@@ -759,6 +817,87 @@ class ModalTableauProver(BaseProver):
         
         return proof_steps
     
+    def _check_tableau_provable(self, goal_ast: AST_Node, context_asts: Set[AST_Node] = None,
+                               modal_system_name: str = "K", check_validity: bool = True,
+                               resources: Optional[ResourceLimits] = None) -> Tuple[bool, Any]:
+        """
+        Check if a formula is provable using the tableau method.
+        
+        Args:
+            goal_ast: The goal formula
+            context_asts: Context assertions
+            modal_system_name: Modal system name
+            check_validity: Whether to check validity
+            resources: Optional resource limits
+            
+        Returns:
+            Tuple of (is_provable, proof_steps_or_reason)
+        """
+        if context_asts is None:
+            context_asts = set()
+        if resources is None:
+            resources = ResourceLimits(time_limit_ms=10000, depth_limit=100, nodes_limit=10000)
+        
+        try:
+            modal_system = ModalSystem[modal_system_name]
+        except KeyError:
+            return (False, f"Unknown modal system: {modal_system_name}")
+        
+        # Create and expand the tableau
+        tableau = self._create_initial_tableau(goal_ast, context_asts, check_validity)
+        expanded_tableau, resources_consumed = self._expand_tableau(tableau, modal_system, resources)
+        
+        # Check if resource limits were exceeded
+        if resources.time_limit_ms and resources_consumed.get("time_taken_ms", 0) > resources.time_limit_ms:
+            return (False, "Timeout")
+        
+        is_closed = expanded_tableau.is_closed()
+        proof_steps = self._create_proof_steps(expanded_tableau, goal_ast, check_validity)
+        
+        if (is_closed and check_validity) or (not is_closed and not check_validity):
+            return (True, proof_steps)
+        else:
+            return (False, proof_steps)
+    
+    def _apply_tableau_rule(self, formula: AST_Node, sign: bool) -> List[List[AST_Node]]:
+        """
+        Apply a tableau rule to a formula.
+        
+        Args:
+            formula: The formula to apply the rule to
+            sign: The sign of the formula (True/False)
+            
+        Returns:
+            A list of branches, where each branch is a list of formulas
+        """
+        signed = SignedFormula(formula, sign)
+        rule_applicator = TableauRuleApplicator(ModalSystem.K)
+        formula_type = rule_applicator.get_formula_type(signed)
+        
+        if isinstance(formula, ConnectiveNode):
+            if formula.connective_type == "NOT":
+                return [[formula.operands[0]]]
+            elif formula.connective_type == "AND":
+                if sign:
+                    return [list(formula.operands)]
+                else:
+                    return [[op] for op in formula.operands]
+            elif formula.connective_type == "OR":
+                if sign:
+                    return [[op] for op in formula.operands]
+                else:
+                    return [list(formula.operands)]
+            elif formula.connective_type == "IMPLIES":
+                if sign:
+                    return [[formula.operands[1]]]
+                else:
+                    return [[formula.operands[0], self._negate_formula(formula.operands[1])]]
+        
+        if isinstance(formula, ModalOpNode):
+            return [[formula.proposition]]
+        
+        return [[formula]]
+
     def prove(self, goal_ast: AST_Node, context_asts: Set[AST_Node],
              resources: Optional[ResourceLimits] = None,
              modal_system_name: str = "K",
@@ -792,57 +931,52 @@ class ModalTableauProver(BaseProver):
         logger.info(f"Check validity: {check_validity}")
         
         try:
-            # Convert modal system name to enum
-            try:
-                modal_system = ModalSystem[modal_system_name]
-            except KeyError:
+            # Delegate to _check_tableau_provable
+            is_provable, result = self._check_tableau_provable(
+                goal_ast, context_asts, modal_system_name, check_validity,
+                resources=resources
+            )
+            
+            end_time = time.time()
+            time_taken_ms = (end_time - start_time) * 1000
+            
+            if isinstance(result, str):
+                # Error or reason string
+                if result == "Timeout":
+                    return ProofObject.create_failure(
+                        status_message="Failed: Resource limits exceeded",
+                        inference_engine_used=self.name,
+                        time_taken_ms=time_taken_ms,
+                        resources_consumed={"timeout": True}
+                    )
                 return ProofObject.create_failure(
-                    status_message=f"Unknown modal system: {modal_system_name}",
+                    status_message=result,
                     inference_engine_used=self.name,
-                    time_taken_ms=0.0,
+                    time_taken_ms=time_taken_ms,
                     resources_consumed={}
                 )
             
-            # Create the initial tableau
-            tableau = self._create_initial_tableau(goal_ast, context_asts, check_validity)
+            proof_steps = result if isinstance(result, list) else []
             
-            # Expand the tableau
-            expanded_tableau, resources_consumed = self._expand_tableau(tableau, modal_system, resources)
-            
-            # Check if the tableau is closed
-            is_closed = expanded_tableau.is_closed()
-            
-            # Calculate time taken
-            end_time = time.time()
-            time_taken_ms = (end_time - start_time) * 1000
-            resources_consumed["time_taken_ms"] = time_taken_ms
-            
-            # Create proof steps
-            proof_steps = self._create_proof_steps(expanded_tableau, goal_ast, check_validity)
-            
-            # Create the proof object
-            if (is_closed and check_validity) or (not is_closed and not check_validity):
-                # Success: tableau closed when checking validity, or open when checking satisfiability
+            if is_provable:
                 return ProofObject.create_success(
                     conclusion_ast=goal_ast,
                     proof_steps=proof_steps,
                     used_axioms_rules=context_asts,
                     inference_engine_used=self.name,
                     time_taken_ms=time_taken_ms,
-                    resources_consumed=resources_consumed
+                    resources_consumed={}
                 )
             else:
-                # Failure: tableau open when checking validity, or closed when checking satisfiability
                 status_message = "Formula is invalid" if check_validity else "Formula is unsatisfiable"
                 return ProofObject.create_failure(
                     status_message=status_message,
                     inference_engine_used=self.name,
                     time_taken_ms=time_taken_ms,
-                    resources_consumed=resources_consumed
+                    resources_consumed={}
                 )
                 
         except Exception as e:
-            # Handle exceptions
             logger.error(f"Error during tableau proof: {str(e)}", exc_info=True)
             
             end_time = time.time()

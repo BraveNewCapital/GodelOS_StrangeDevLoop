@@ -396,9 +396,10 @@ class ActionEffectModel(GroundingModel):
         
         # Update the effect prototype using the prototype model
         prototype_model = PrototypeModel(self.modality)
+        effect_data = new_example.get("effect", new_example) if isinstance(new_example, dict) else new_example
         updated_effect_prototype = prototype_model.update(
             sub_symbolic_representation["effect_prototype"],
-            new_example.get("effect", {})
+            effect_data
         )
         
         return {
@@ -568,10 +569,19 @@ class SymbolGroundingAssociator:
         # Collect relevant experiences for this symbol
         relevant_experiences = []
         for trace in self.experience_buffer:
+            found = False
             for symbol in trace.active_symbols_in_kb:
-                if (isinstance(symbol, ConstantNode) and symbol.name == symbol_ast_id) or \
-                   (isinstance(symbol, ApplicationNode) and isinstance(symbol.operator, ConstantNode) and 
-                    symbol.operator.name == symbol_ast_id):
+                if isinstance(symbol, ConstantNode) and symbol.name == symbol_ast_id:
+                    found = True
+                elif isinstance(symbol, ApplicationNode) and isinstance(symbol.operator, ConstantNode):
+                    if symbol.operator.name == symbol_ast_id:
+                        found = True
+                    else:
+                        for arg in symbol.arguments:
+                            if isinstance(arg, ConstantNode) and arg.name == symbol_ast_id:
+                                found = True
+                                break
+                if found:
                     relevant_experiences.append(trace)
                     break
         

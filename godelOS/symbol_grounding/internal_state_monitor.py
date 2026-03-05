@@ -677,7 +677,7 @@ class InternalStateMonitor:
         metrics = []
         
         # CPU load
-        cpu_load = self.system_metric_api.get_cpu_load()
+        cpu_load = psutil.cpu_percent(interval=0.1)
         cpu_status = ResourceStatus.LOW
         if cpu_load > 90:
             cpu_status = ResourceStatus.CRITICAL
@@ -694,7 +694,14 @@ class InternalStateMonitor:
         ))
         
         # Memory usage
-        memory = self.system_metric_api.get_memory_usage()
+        mem = psutil.virtual_memory()
+        memory = {
+            "total": mem.total,
+            "available": mem.available,
+            "percent": mem.percent,
+            "used": mem.used,
+            "free": mem.free
+        }
         memory_status = ResourceStatus.LOW
         if memory["percent"] > 90:
             memory_status = ResourceStatus.CRITICAL
@@ -711,7 +718,13 @@ class InternalStateMonitor:
         ))
         
         # Disk usage
-        disk = self.system_metric_api.get_disk_usage()
+        disk_info = psutil.disk_usage('/')
+        disk = {
+            "total": disk_info.total,
+            "used": disk_info.used,
+            "free": disk_info.free,
+            "percent": disk_info.percent
+        }
         disk_status = ResourceStatus.LOW
         if disk["percent"] > 90:
             disk_status = ResourceStatus.CRITICAL
