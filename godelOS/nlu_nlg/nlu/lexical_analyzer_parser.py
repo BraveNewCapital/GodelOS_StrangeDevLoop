@@ -14,8 +14,16 @@ downstream components.
 
 from typing import Dict, List, Optional, Tuple, Any, Set
 from dataclasses import dataclass, field
-import spacy
-from spacy.tokens import Doc, Token as SpacyToken
+
+try:
+    import spacy
+    from spacy.tokens import Doc, Token as SpacyToken
+    _SPACY_AVAILABLE = True
+except ImportError:
+    spacy = None  # type: ignore[assignment]
+    Doc = None  # type: ignore[assignment,misc]
+    SpacyToken = None  # type: ignore[assignment,misc]
+    _SPACY_AVAILABLE = False
 
 # Dependency-label heuristic groups for head inference fallback.
 VERB_DEP_LABELS = {
