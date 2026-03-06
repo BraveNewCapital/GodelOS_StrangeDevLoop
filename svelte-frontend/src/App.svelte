@@ -24,6 +24,7 @@
   // import TransparencyDashboard from './components/transparency/TransparencyDashboard.svelte'; // LAZY LOADED - 2,011 lines
   import ReasoningSessionViewer from './components/transparency/ReasoningSessionViewer.svelte';
   import ProvenanceTracker from './components/transparency/ProvenanceTracker.svelte';
+  import TransparencyPanel from './components/transparency/TransparencyPanel.svelte';
   
   // Knowledge Management - LAZY LOADED to improve startup performance
   // import KnowledgeGraph from './components/knowledge/KnowledgeGraph.svelte'; // LAZY LOADED - 3,632 lines
@@ -264,7 +265,7 @@
           icon: '🔍',
           title: 'Transparency',
           description: 'Cognitive transparency and reasoning insights',
-          modal: 'transparency' // Use modal trigger instead of direct component
+          component: TransparencyPanel
         },
         reasoning: {
           icon: '🎯',
@@ -666,8 +667,6 @@
                 showConsciousnessModal = true;
               } else if (viewConfig[activeView].modal === 'autonomous') {
                 showAutonomousLearningModal = true;
-              } else if (viewConfig[activeView].modal === 'transparency') {
-                showTransparencyModal = true;
               } else if (viewConfig[activeView].modal === 'import') {
                 showSmartImportModal = true;
               } else if (viewConfig[activeView].modal === 'jobs') {
