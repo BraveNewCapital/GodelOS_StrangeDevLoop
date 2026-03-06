@@ -604,14 +604,15 @@ class GlobalWorkspace:
         mean_weight = 1.0 / max(len(ids), 1)
         winners = [sid for sid, w in weights.items() if w >= mean_weight]
 
-        if not winners:
+        if not winners and weights:
             # Fallback: pick the single highest
             winners = [max(weights, key=weights.get)]
 
         # Attention focus = strongest winner
-        self._attention_focus = max(
-            winners, key=lambda s: weights.get(s, 0.0)
-        )
+        if winners:
+            self._attention_focus = max(
+                winners, key=lambda s: weights.get(s, 0.0)
+            )
 
         return winners, weights
 
