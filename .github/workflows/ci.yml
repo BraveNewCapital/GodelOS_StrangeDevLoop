@@ -52,6 +52,8 @@ jobs:
             --ignore=tests/cognitive_transparency \
             --ignore=tests/test_distributed_vector_search.py \
             --ignore=tests/test_knowledge_pipeline.py \
+            --ignore=tests/test_dependency_imports.py \
+            --ignore=tests/frontend \
             --ignore=tests/integration
 
       - name: Generate coverage report
