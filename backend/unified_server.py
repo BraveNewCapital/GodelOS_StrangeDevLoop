@@ -3957,6 +3957,117 @@ async def cancel_import(import_id: str):
     }
 
 
+# ---------------------------------------------------------------------------
+# Self-Modification Engine endpoints
+# ---------------------------------------------------------------------------
+
+try:
+    from backend.core.self_modification_engine import get_engine as _get_sme
+    SELF_MODIFICATION_AVAILABLE = True
+except ImportError as _sme_err:
+    logger.warning("SelfModificationEngine not available: %s", _sme_err)
+    SELF_MODIFICATION_AVAILABLE = False
+
+
+class SelfModificationProposeRequest(BaseModel):
+    target: str
+    modification_type: str
+    parameters: Dict[str, Any] = {}
+
+
+@app.post("/api/self-modification/propose", tags=["Self-Modification"])
+async def propose_modification(body: SelfModificationProposeRequest):
+    """Create a sandboxed modification proposal.
+
+    Returns ``proposal_id``, ``predicted_impact`` and ``risk_level``.
+    """
+    if not SELF_MODIFICATION_AVAILABLE:
+        raise HTTPException(status_code=503, detail="SelfModificationEngine not available")
+    engine = _get_sme(cognitive_manager)
+    try:
+        result = engine.propose_modification(
+            target=body.target,
+            modification_type=body.modification_type,
+            parameters=body.parameters,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "proposal_id": result.proposal_id,
+        "target": result.target,
+        "modification_type": result.modification_type,
+        "parameters": result.parameters,
+        "predicted_impact": result.predicted_impact,
+        "risk_level": result.risk_level,
+        "status": result.status,
+        "created_at": result.created_at,
+    }
+
+
+@app.post("/api/self-modification/apply/{proposal_id}", tags=["Self-Modification"])
+async def apply_modification(proposal_id: str):
+    """Apply an accepted modification proposal to the live system."""
+    if not SELF_MODIFICATION_AVAILABLE:
+        raise HTTPException(status_code=503, detail="SelfModificationEngine not available")
+    engine = _get_sme(cognitive_manager)
+    result = engine.apply_modification(proposal_id)
+    if not result.success:
+        raise HTTPException(status_code=400, detail=result.error or "Apply failed")
+    return {
+        "proposal_id": result.proposal_id,
+        "success": result.success,
+        "applied_changes": result.applied_changes,
+        "applied_at": result.applied_at,
+    }
+
+
+@app.post("/api/self-modification/rollback/{proposal_id}", tags=["Self-Modification"])
+async def rollback_modification(proposal_id: str):
+    """Roll back a previously applied modification."""
+    if not SELF_MODIFICATION_AVAILABLE:
+        raise HTTPException(status_code=503, detail="SelfModificationEngine not available")
+    engine = _get_sme(cognitive_manager)
+    result = engine.rollback_modification(proposal_id)
+    if not result.success:
+        raise HTTPException(status_code=400, detail=result.error or "Rollback failed")
+    return {
+        "proposal_id": result.proposal_id,
+        "success": result.success,
+        "reverted_to": result.reverted_to,
+        "rolled_back_at": result.rolled_back_at,
+    }
+
+
+@app.get("/api/self-modification/history", tags=["Self-Modification"])
+async def get_modification_history():
+    """Return the full self-modification audit trail (most-recent first)."""
+    if not SELF_MODIFICATION_AVAILABLE:
+        raise HTTPException(status_code=503, detail="SelfModificationEngine not available")
+    engine = _get_sme(cognitive_manager)
+    records = engine.get_modification_history()
+    return {
+        "history": [
+            {
+                "proposal_id": r.proposal_id,
+                "target": r.target,
+                "modification_type": r.modification_type,
+                "parameters": r.parameters,
+                "predicted_impact": r.predicted_impact,
+                "risk_level": r.risk_level,
+                "status": r.status,
+                "created_at": r.created_at,
+                "applied_at": r.applied_at,
+                "rolled_back_at": r.rolled_back_at,
+                "applied_changes": r.applied_changes,
+                "reverted_to": r.reverted_to,
+                "error": r.error,
+            }
+            for r in records
+        ],
+        "total": len(records),
+    }
+
+
 if __name__ == "__main__":
     uvicorn.run(
         "unified_server:app",

@@ -34,6 +34,7 @@
   // Evolution Tracking
   import CapabilityDashboard from './components/evolution/CapabilityDashboard.svelte';
   import ArchitectureTimeline from './components/evolution/ArchitectureTimeline.svelte';
+  import SelfModificationPanel from './components/evolution/SelfModificationPanel.svelte';
   
   // UI Components
   import Modal from './components/ui/Modal.svelte';
@@ -304,6 +305,13 @@
           title: 'Resources',
           description: 'Resource allocation and performance',
           component: ResourceAllocation
+        },
+        selfModification: {
+          icon: '🔧',
+          title: 'Self-Modification',
+          description: 'Propose, apply and roll back system modifications',
+          component: SelfModificationPanel,
+          featured: true
         }
       }
     }
