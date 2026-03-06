@@ -2,7 +2,7 @@
 Integration tests for dormant module activation (Issue #76).
 
 Tests cover:
-  - GET /api/system/modules returns the correct schema for all 8 modules
+  - GET /api/system/dormant-modules returns the correct schema for all 8 modules
   - DormantModuleManager initializes and ticks without errors
   - WebSocket broadcast is attempted on each tick
   - The manager correctly reports active/inactive status from CognitivePipeline
@@ -215,11 +215,11 @@ class TestModuleRecord:
 
 
 # ---------------------------------------------------------------------------
-# REST endpoint tests — GET /api/system/modules
+# REST endpoint tests — GET /api/system/dormant-modules
 # ---------------------------------------------------------------------------
 
 class TestModulesEndpoint:
-    """Tests for GET /api/system/modules using TestClient."""
+    """Tests for GET /api/system/dormant-modules using TestClient."""
 
     def setup_method(self):
         """Import app and patch global dormant_module_manager."""
@@ -246,7 +246,7 @@ class TestModulesEndpoint:
         try:
             us.dormant_module_manager = self._make_active_manager()
             client = TestClient(us.app)
-            response = client.get("/api/system/modules")
+            response = client.get("/api/system/dormant-modules")
             assert response.status_code == 200
         finally:
             us.dormant_module_manager = original
@@ -258,7 +258,7 @@ class TestModulesEndpoint:
         try:
             us.dormant_module_manager = self._make_active_manager()
             client = TestClient(us.app)
-            data = client.get("/api/system/modules").json()
+            data = client.get("/api/system/dormant-modules").json()
             assert "modules" in data
             assert isinstance(data["modules"], list)
         finally:
@@ -271,7 +271,7 @@ class TestModulesEndpoint:
         try:
             us.dormant_module_manager = self._make_active_manager()
             client = TestClient(us.app)
-            data = client.get("/api/system/modules").json()
+            data = client.get("/api/system/dormant-modules").json()
             names = {m["module_name"] for m in data["modules"]}
             assert names == set(DORMANT_MODULE_NAMES)
         finally:
@@ -284,7 +284,7 @@ class TestModulesEndpoint:
         try:
             us.dormant_module_manager = self._make_active_manager()
             client = TestClient(us.app)
-            data = client.get("/api/system/modules").json()
+            data = client.get("/api/system/dormant-modules").json()
             for m in data["modules"]:
                 assert m["active"] is True, f"Module {m['module_name']} not active"
         finally:
@@ -297,7 +297,7 @@ class TestModulesEndpoint:
         try:
             us.dormant_module_manager = self._make_active_manager()
             client = TestClient(us.app)
-            data = client.get("/api/system/modules").json()
+            data = client.get("/api/system/dormant-modules").json()
             required_fields = {"module_name", "active", "last_tick", "tick_count", "last_output", "error"}
             for m in data["modules"]:
                 assert required_fields.issubset(set(m.keys())), (
@@ -316,7 +316,7 @@ class TestModulesEndpoint:
             us.dormant_module_manager = None
             us.godelos_integration = None
             client = TestClient(us.app)
-            response = client.get("/api/system/modules")
+            response = client.get("/api/system/dormant-modules")
             assert response.status_code == 200
             data = response.json()
             assert "modules" in data

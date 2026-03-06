@@ -2462,7 +2462,7 @@ async def cognitive_subsystem_status():
         raise HTTPException(status_code=500, detail=f"Subsystem status error: {str(e)}")
 
 
-@app.get("/api/system/modules")
+@app.get("/api/system/dormant-modules")
 async def get_dormant_module_status():
     """
     Return activation status for each of the 8 formerly-dormant cognitive modules.

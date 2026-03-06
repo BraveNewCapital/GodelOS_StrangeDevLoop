@@ -32,6 +32,7 @@ jobs:
           pip install \
             fastapi uvicorn pydantic pydantic-settings websockets aiofiles PyYAML \
             python-multipart psutil networkx numpy scipy jsonschema httpx aiohttp \
+            nltk \
             pytest pytest-cov pytest-asyncio pytest-timeout
 
       - name: Run tests
