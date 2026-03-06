@@ -308,10 +308,14 @@ class TestThresholdConfig:
         assert det.threshold == 0.5
 
     def test_env_var_override(self, monkeypatch):
+        """Verify the env-var-driven module constant feeds the default threshold."""
         monkeypatch.setenv("GODELOS_EMERGENCE_THRESHOLD", "0.95")
-        # Re-import to pick up env var (or just test the module-level default)
-        from backend.core.consciousness_emergence_detector import EMERGENCE_THRESHOLD as _
-        # The class parameter is read at instantiation, so module-level const
-        # reflects the value at import time. We test the constructor directly.
-        det = ConsciousnessEmergenceDetector(threshold=0.95)
+        # Force re-evaluation of the module-level constant
+        import importlib
+        import backend.core.consciousness_emergence_detector as mod
+        importlib.reload(mod)
+        det = mod.ConsciousnessEmergenceDetector()
         assert det.threshold == 0.95
+        # Restore original default
+        monkeypatch.delenv("GODELOS_EMERGENCE_THRESHOLD", raising=False)
+        importlib.reload(mod)

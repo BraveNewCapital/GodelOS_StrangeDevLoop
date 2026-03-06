@@ -18,7 +18,7 @@ import os
 import time
 from collections import deque
 from pathlib import Path
-from typing import Any, AsyncIterator, Callable, Deque, Dict, List, Optional
+from typing import Any, AsyncIterator, Callable, Deque, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,13 @@ EMERGENCE_THRESHOLD: float = float(
 
 DEFAULT_WINDOW_SIZE: float = float(
     os.environ.get("GODELOS_EMERGENCE_WINDOW", "60.0")
+)
+
+# Default log directory — prefer GODELOS_LOG_DIR env var, then fall back to
+# <project_root>/logs (two levels up from this file's location).
+_DEFAULT_LOG_DIR: str = os.environ.get(
+    "GODELOS_LOG_DIR",
+    str(Path(__file__).resolve().parents[2] / "logs"),
 )
 
 # Dimension weights (from issue #82 spec)
@@ -134,7 +141,7 @@ class ConsciousnessEmergenceDetector:
         self.websocket_manager = websocket_manager
 
         # Rolling window: each entry is (timestamp, {dim: raw_value})
-        self._samples: Deque = deque()
+        self._samples: Deque[Tuple[float, Dict[str, float]]] = deque()
 
         # Latest computed score
         self._current_score: float = 0.0
@@ -142,7 +149,7 @@ class ConsciousnessEmergenceDetector:
 
         # Breakthrough log path
         if log_dir is None:
-            log_dir = Path(__file__).resolve().parents[2] / "logs"
+            log_dir = _DEFAULT_LOG_DIR
         self._log_path = Path(log_dir) / "breakthroughs.jsonl"
 
     # ------------------------------------------------------------------
