@@ -402,10 +402,10 @@ class QueryReplayHarness:
                 
                 # Return summary info
                 summary = {
-                    "recording_id": data['recording_id'],
-                    "query": data['query'][:100] + ("..." if len(data['query']) > 100 else ""),
-                    "timestamp": data['start_timestamp'],
-                    "duration_ms": data.get('total_duration_ms'),
+                    "recording_id": data.get('recording_id', filepath.stem),
+                    "query": (data.get('query', '')[:100] + ("..." if len(data.get('query', '')) > 100 else "")),
+                    "timestamp": data.get('start_timestamp', data.get('timestamp', 0)),
+                    "duration_ms": data.get('total_duration_ms', data.get('duration_ms')),
                     "steps_count": len(data.get('steps', [])),
                     "tags": data.get('tags', []),
                     "created_at": data.get('metadata', {}).get('created_at')
