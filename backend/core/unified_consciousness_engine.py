@@ -16,9 +16,12 @@ import time
 import uuid
 import logging
 from dataclasses import dataclass, asdict
+from itertools import combinations
 from typing import Dict, List, Optional, Any, Tuple, AsyncGenerator
 from enum import Enum
 from datetime import datetime
+
+import numpy as np
 
 # Import existing consciousness components
 from .consciousness_engine import ConsciousnessState, ConsciousnessLevel
@@ -296,20 +299,37 @@ class CognitiveStateInjector:
         return UnifiedConsciousnessState()
 
 class InformationIntegrationTheory:
-    """Implements Integrated Information Theory (IIT) for consciousness measurement"""
-    
+    """Implements Integrated Information Theory (IIT) for consciousness measurement.
+
+    Uses a tractable bipartition-based approximation of Tononi's φ (2004):
+    the cognitive state is converted to a numeric vector, every non-trivial
+    bipartition of the subsystems is evaluated, and φ equals the *minimum*
+    mutual information across all cuts, penalised by self-model contradiction.
+
+    Requires only numpy — no external IIT libraries.
+    """
+
+    _NUM_BINS: int = 16  # histogram resolution for entropy estimation
+    _NOISE_FLOOR: float = 0.05  # MI below this is treated as zero (idle noise)
+
     def __init__(self):
-        self.phi_history = []
-        self.integration_threshold = 5.0
-    
+        self.phi_history: List[float] = []
+        self.integration_threshold: float = 5.0
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
     def calculate_phi(self, consciousness_state: UnifiedConsciousnessState,
                       mean_contradiction: float = 0.0,
                       contradiction_penalty_weight: float = 0.5) -> float:
-        """
-        Calculate φ (phi) - the measure of integrated information
-        
-        This is a simplified implementation of IIT's core concept:
-        consciousness corresponds to integrated information.
+        """Calculate φ (phi) via bipartition mutual-information approximation.
+
+        1. Flatten each cognitive subsystem dict into a numeric vector.
+        2. For every non-trivial bipartition of the seven subsystems,
+           compute MI(A, B) = H(A) + H(B) − H(A∪B)  (binned Shannon entropy).
+        3. φ = min MI across all bipartitions  (the minimum-information cut).
+        4. Apply a contradiction penalty from the self-model validator.
 
         Args:
             consciousness_state: Current unified consciousness state.
@@ -318,89 +338,141 @@ class InformationIntegrationTheory:
             contradiction_penalty_weight: Scaling factor for the penalty
                 (default 0.5).  The effective multiplier is clamped so that
                 phi never goes negative.
+
+        Returns:
+            φ ≥ 0.  Zero when all subsystems are idle.
         """
-        # Get information from different cognitive subsystems
-        subsystems = [
-            consciousness_state.recursive_awareness,
-            consciousness_state.phenomenal_experience,
-            consciousness_state.global_workspace,
-            consciousness_state.metacognitive_state,
-            consciousness_state.intentional_layer,
-            consciousness_state.creative_synthesis,
-            consciousness_state.embodied_cognition
-        ]
-        
-        # Calculate integration across subsystems
-        total_information = 0.0
-        integration_strength = 0.0
-        
-        for i, subsystem in enumerate(subsystems):
-            # Information content of subsystem
-            subsystem_info = self._calculate_subsystem_information(subsystem)
-            total_information += subsystem_info
-            
-            # Integration with other subsystems
-            for j, other_subsystem in enumerate(subsystems[i+1:], i+1):
-                integration = self._calculate_integration(subsystem, other_subsystem)
-                integration_strength += integration
-        
-        # φ is integrated information: how much information is generated
-        # by the whole system beyond the sum of its parts
-        num_connections = len(subsystems) * (len(subsystems) - 1) / 2
-        avg_integration = integration_strength / num_connections if num_connections > 0 else 0
-        
+        vectors = self._state_to_subsystem_vectors(consciousness_state)
+        full_vec = np.concatenate(vectors)
+
+        # Fast path: if the entire state is uniform (idle), φ = 0
+        if full_vec.size == 0 or np.ptp(full_vec) == 0:
+            consciousness_state.information_integration["phi"] = 0.0
+            consciousness_state.information_integration["complexity"] = 0.0
+            self.phi_history.append(0.0)
+            return 0.0
+
+        # Enumerate non-trivial bipartitions at the subsystem level.
+        # For n subsystems there are 2^(n-1) − 1 unique bipartitions;
+        # we iterate partition-A sizes from 1 to n//2 to avoid duplicates.
+        n = len(vectors)
+        indices = list(range(n))
+        min_mi = float("inf")
+
+        for k in range(1, n // 2 + 1):
+            for partition_a in combinations(indices, k):
+                partition_b = tuple(i for i in indices if i not in partition_a)
+                mi = self._bipartition_mi(vectors, partition_a, partition_b)
+                if mi < min_mi:
+                    min_mi = mi
+
+        phi = min_mi if min_mi != float("inf") else 0.0
+
+        # Suppress idle-state noise: MI below the noise floor is
+        # indistinguishable from zero integration.
+        if phi < self._NOISE_FLOOR:
+            phi = 0.0
+
+        # Contradiction penalty (clamped so φ never goes negative)
         penalty = max(0.0, 1.0 - mean_contradiction * contradiction_penalty_weight)
-        phi = total_information * avg_integration * penalty
-        
-        # Update state
+        phi *= penalty
+
+        # Complexity = total entropy of the full state vector
+        complexity = float(self._binned_entropy(full_vec))
+
+        # Update state dict
         consciousness_state.information_integration["phi"] = phi
-        consciousness_state.information_integration["complexity"] = total_information
-        
+        consciousness_state.information_integration["complexity"] = complexity
+
         self.phi_history.append(phi)
         return phi
-    
-    def _calculate_subsystem_information(self, subsystem: Dict[str, Any]) -> float:
-        """Calculate information content of a cognitive subsystem"""
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _state_to_subsystem_vectors(
+        self, state: UnifiedConsciousnessState
+    ) -> List[np.ndarray]:
+        """Return one numeric vector per cognitive subsystem."""
+        subsystems = [
+            state.recursive_awareness,
+            state.phenomenal_experience,
+            state.global_workspace,
+            state.metacognitive_state,
+            state.intentional_layer,
+            state.creative_synthesis,
+            state.embodied_cognition,
+        ]
+        return [self._subsystem_to_vector(s) for s in subsystems]
+
+    @staticmethod
+    def _subsystem_to_vector(subsystem: Optional[Dict[str, Any]]) -> np.ndarray:
+        """Flatten a subsystem dict into a 1-D float64 vector."""
         if not subsystem:
+            return np.zeros(1, dtype=np.float64)
+        values = InformationIntegrationTheory._flatten_to_floats(subsystem)
+        return np.asarray(values, dtype=np.float64) if values else np.zeros(1, dtype=np.float64)
+
+    @staticmethod
+    def _flatten_to_floats(obj: Any) -> List[float]:
+        """Recursively extract numeric scalars from a nested structure."""
+        if obj is None:
+            return [0.0]
+        if isinstance(obj, bool):
+            return [1.0 if obj else 0.0]
+        if isinstance(obj, (int, float)):
+            return [float(obj)]
+        if isinstance(obj, str):
+            return [float(len(obj))]
+        if isinstance(obj, (list, tuple)):
+            if not obj:
+                return [0.0]
+            result: List[float] = []
+            for item in obj:
+                result.extend(InformationIntegrationTheory._flatten_to_floats(item))
+            return result or [0.0]
+        if isinstance(obj, dict):
+            if not obj:
+                return [0.0]
+            result = []
+            for v in obj.values():
+                result.extend(InformationIntegrationTheory._flatten_to_floats(v))
+            return result or [0.0]
+        return [0.0]
+
+    @staticmethod
+    def _binned_entropy(values: np.ndarray, num_bins: int = _NUM_BINS) -> float:
+        """Shannon entropy (bits) estimated via histogram binning."""
+        if values.size < 2:
             return 0.0
-        
-        # Count non-empty/non-zero values as information
-        info_count = 0
-        for key, value in subsystem.items():
-            if value:  # Non-empty, non-zero, non-None
-                if isinstance(value, (list, dict)):
-                    info_count += len(value) if value else 0
-                elif isinstance(value, (int, float)):
-                    info_count += 1 if value != 0 else 0
-                elif isinstance(value, str):
-                    info_count += len(value.split()) if value.strip() else 0
-                else:
-                    info_count += 1
-        
-        return float(info_count)
-    
-    def _calculate_integration(self, subsystem1: Dict[str, Any], subsystem2: Dict[str, Any]) -> float:
-        """Calculate integration between two subsystems"""
-        # Look for shared concepts, cross-references, or causal relationships
-        shared_concepts = 0
-        
-        # Simple heuristic: look for overlapping keys or values
-        keys1 = set(subsystem1.keys())
-        keys2 = set(subsystem2.keys())
-        shared_keys = keys1.intersection(keys2)
-        shared_concepts += len(shared_keys)
-        
-        # Look for cross-references in values (simplified)
-        values1 = str(subsystem1).lower()
-        values2 = str(subsystem2).lower()
-        
-        # Count word overlaps as integration
-        words1 = set(values1.split())
-        words2 = set(values2.split())
-        shared_words = words1.intersection(words2)
-        shared_concepts += len(shared_words)
-        
-        return float(shared_concepts)
+        if np.ptp(values) == 0:
+            return 0.0
+        counts, _ = np.histogram(values, bins=num_bins)
+        probs = counts / counts.sum()
+        probs = probs[probs > 0]
+        return float(-np.sum(probs * np.log2(probs)))
+
+    @classmethod
+    def _bipartition_mi(
+        cls,
+        vectors: List[np.ndarray],
+        partition_a: tuple,
+        partition_b: tuple,
+    ) -> float:
+        """Mutual information across a subsystem-level bipartition.
+
+        MI(A; B) = H(A) + H(B) − H(A ∪ B), clamped to ≥ 0.
+        """
+        vec_a = np.concatenate([vectors[i] for i in partition_a])
+        vec_b = np.concatenate([vectors[i] for i in partition_b])
+        vec_all = np.concatenate([vec_a, vec_b])
+
+        h_a = cls._binned_entropy(vec_a)
+        h_b = cls._binned_entropy(vec_b)
+        h_all = cls._binned_entropy(vec_all)
+
+        return max(0.0, h_a + h_b - h_all)
 
 class GlobalWorkspace:
     """Implements Global Workspace Theory (GWT) for consciousness broadcasting"""
@@ -804,6 +876,7 @@ class UnifiedConsciousnessEngine:
                     safe_broadcast_data = {
                         'type': 'unified_consciousness_update',
                         'consciousness_score': current_state.consciousness_score,
+                        'phi': phi_measure,
                         'phi_measure': phi_measure,
                         'emergence_score': emergence_score,
                         'timestamp': time.time(),
