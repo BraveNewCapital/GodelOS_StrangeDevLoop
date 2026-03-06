@@ -124,7 +124,7 @@ class TestProbabilisticLogicModule(unittest.TestCase):
     def test_learn_weights(self):
         """Test learning weights from data."""
         # Create a training database context
-        self.ksi.create_context("TRAINING_DB", context_type="database")
+        self.ksi.create_context("TRAINING_DB", parent_context_id=None, context_type="database")
         
         # Add some training data
         self.ksi.add_statement(self.smokes_alice, "TRAINING_DB", {"world_id": 1})
@@ -137,7 +137,7 @@ class TestProbabilisticLogicModule(unittest.TestCase):
         self.ksi.add_statement(self.smokes_bob, "TRAINING_DB", {"world_id": 2})
         
         # Create a formula skeletons context
-        self.ksi.create_context("FORMULA_SKELETONS", context_type="rules")
+        self.ksi.create_context("FORMULA_SKELETONS", parent_context_id=None, context_type="rules")
         
         # Add formula skeletons
         self.plm.add_weighted_formula(self.smoking_causes_cancer, 0.0, "FORMULA_SKELETONS")
