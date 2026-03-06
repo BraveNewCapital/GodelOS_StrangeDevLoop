@@ -12,8 +12,15 @@ from godelOS.core_kr.knowledge_store.interface import (
     DynamicContextModel,
     CachingMemoizationLayer
 )
-from godelOS.core_kr.knowledge_store.chroma_store import ChromaKnowledgeStore
-from godelOS.core_kr.knowledge_store.hot_reloader import OntologyHotReloader
+try:
+    from godelOS.core_kr.knowledge_store.chroma_store import ChromaKnowledgeStore
+except ImportError:  # chromadb not installed in slim CI environments
+    ChromaKnowledgeStore = None  # type: ignore[assignment,misc]
+
+try:
+    from godelOS.core_kr.knowledge_store.hot_reloader import OntologyHotReloader
+except ImportError:
+    OntologyHotReloader = None  # type: ignore[assignment,misc]
 
 __all__ = [
     "KnowledgeStoreInterface",
