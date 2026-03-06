@@ -122,8 +122,8 @@ class ChromaKnowledgeStore(KnowledgeStoreBackend):
 
     @staticmethod
     def _deserialize_statement(hex_str: str) -> AST_Node:
-        """Hex string → unpickled AST node."""
-        return pickle.loads(bytes.fromhex(hex_str))  # noqa: S301 — trusted internal data
+        """Hex string -> unpickled AST node."""
+        return pickle.loads(bytes.fromhex(hex_str))  # noqa: S301 - trusted internal data
 
     @staticmethod
     def _extract_metadata(statement: AST_Node) -> Dict[str, str]:
@@ -357,14 +357,17 @@ class ChromaKnowledgeStore(KnowledgeStoreBackend):
             raise ValueError(f"Context {context_id} does not exist")
         col = self._get_collection(context_id)
 
-        # Clamp n_results to actual collection size (minus sentinel)
-        actual_count = max(col.count() - 1, 0)  # exclude sentinel doc
-        n = min(n_results, actual_count) if actual_count > 0 else 1
+        # Early return if collection is empty (minus sentinel doc)
+        actual_count = max(col.count() - 1, 0)
+        if actual_count == 0:
+            return []
+
+        n = min(n_results, actual_count)
 
         results = col.query(
             query_texts=[query_text],
             n_results=n,
-            where={"node_type": {"$ne": ""}},  # exclude sentinel
+            where={"_blob": {"$ne": ""}},  # exclude sentinel (no _blob field)
         )
 
         output: list[Dict[str, Any]] = []
