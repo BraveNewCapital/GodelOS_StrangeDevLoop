@@ -588,5 +588,5 @@ class TestASTNodesAdditional:
         self.assertTrue(lambda_x_p_x_y.contains_variable(y_var))
 
 
-    if __name__ == "__main__":
+if __name__ == "__main__":
     unittest.main()
