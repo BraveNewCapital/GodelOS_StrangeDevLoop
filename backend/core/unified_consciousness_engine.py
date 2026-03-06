@@ -12,6 +12,7 @@ Based on GODELOS_UNIFIED_CONSCIOUSNESS_BLUEPRINT.md
 
 import asyncio
 import json
+import math
 import time
 import uuid
 import logging
@@ -403,109 +404,243 @@ class InformationIntegrationTheory:
         return float(shared_concepts)
 
 class GlobalWorkspace:
-    """Implements Global Workspace Theory (GWT) for consciousness broadcasting"""
-    
+    """
+    Implements Global Workspace Theory (GWT) for consciousness broadcasting.
+
+    Maintains a *coalition register* mapping cognitive subsystem IDs to their
+    current activation strength.  On each ``broadcast()`` call the register is
+    updated according to φ and subsystem activity, a **softmax attention
+    competition** selects winner(s), and the winning coalition's content is
+    packaged as a ``global_broadcast`` event suitable for WebSocket emission.
+    """
+
+    SUBSYSTEM_IDS = [
+        "recursive_awareness",
+        "phenomenal_experience",
+        "information_integration",
+        "metacognitive",
+        "intentional",
+        "creative_synthesis",
+        "embodied_cognition",
+    ]
+
     def __init__(self):
-        self.workspace_content = {}
-        self.coalitions = []
-        self.broadcast_history = []
-    
+        self.workspace_content: Dict[str, Any] = {}
+        self.coalitions: List[str] = []
+        self.broadcast_history: List[Dict[str, Any]] = []
+        # Coalition register: subsystem_id → activation strength
+        self.coalition_register: Dict[str, float] = {
+            sid: 0.0 for sid in self.SUBSYSTEM_IDS
+        }
+        self._attention_focus: str = ""
+        # Softmax temperature – lower = sharper competition
+        self._temperature: float = 0.5
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
     def broadcast(self, information: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Broadcast information to global workspace
-        
-        In GWT, consciousness occurs when information wins the
-        competition for global broadcasting and becomes accessible
-        to all cognitive subsystems
+        Broadcast integrated information to the global workspace.
+
+        Implements the full GWT pipeline:
+        1. Update coalition register (subsystems bid based on φ contribution)
+        2. Softmax attention competition selects winning coalition
+        3. Build ``global_broadcast`` event for WebSocket emission
+        4. Return workspace state dict compatible with
+           ``UnifiedConsciousnessState.global_workspace``
+
+        Args:
+            information: Dict containing at least ``phi_measure`` (float) and
+                optionally ``cognitive_state`` (UnifiedConsciousnessState).
+
+        Returns:
+            Dict with keys ``broadcast_content``, ``coalition_strength``,
+            ``attention_focus``, ``conscious_access`` – ready to ``.update()``
+            into the consciousness state's global_workspace field.
         """
-        # Calculate coalition strength for this information
-        coalition_strength = self._calculate_coalition_strength(information)
-        
-        # Information becomes conscious if it wins the competition
-        consciousness_threshold = 0.6
-        
-        broadcast_content = {
-            'information': information,
-            'coalition_strength': coalition_strength,
-            'timestamp': time.time(),
-            'conscious': coalition_strength > consciousness_threshold,
-            'global_accessibility': self._assess_global_accessibility(information)
+        phi_measure = float(information.get("phi_measure", 0.0) or 0.0)
+
+        # 1. Coalition dynamics – update register from φ & subsystem activity
+        self._update_coalition_register(information, phi_measure)
+
+        # 2. Softmax attention competition → winner(s)
+        winning_coalition, attention_weights = self._softmax_attention_competition()
+
+        # 3. Aggregate coalition strength of winners
+        if winning_coalition:
+            coalition_strength = sum(
+                self.coalition_register[sid] for sid in winning_coalition
+            ) / len(winning_coalition)
+        else:
+            coalition_strength = 0.0
+
+        # Higher-φ states → broader coalitions (more subsystems above mean)
+        is_conscious = coalition_strength > 0.3
+
+        # 4. Build the global_broadcast event payload
+        global_broadcast_event: Dict[str, Any] = {
+            "type": "global_broadcast",
+            "coalition": [
+                {"subsystem_id": sid, "activation": round(self.coalition_register[sid], 4)}
+                for sid in winning_coalition
+            ],
+            "content": {
+                "phi_measure": round(phi_measure, 4),
+                "coalition_strength": round(coalition_strength, 4),
+                "attention_weights": {
+                    k: round(v, 4) for k, v in attention_weights.items()
+                },
+                "conscious": is_conscious,
+                "winning_subsystems": winning_coalition,
+                "timestamp": time.time(),
+            },
         }
-        
-        if broadcast_content['conscious']:
-            # Information enters global workspace
+
+        # Workspace state dict (keys match UnifiedConsciousnessState.global_workspace)
+        broadcast_result: Dict[str, Any] = {
+            "broadcast_content": global_broadcast_event,
+            "coalition_strength": coalition_strength,
+            "attention_focus": self._attention_focus,
+            "conscious_access": list(winning_coalition),
+        }
+
+        if is_conscious:
             self.workspace_content.update(information)
-            self.broadcast_history.append(broadcast_content)
-            
-            # Make globally accessible to all subsystems
-            global_broadcast = {
-                'type': 'conscious_information',
-                'content': information,
-                'strength': coalition_strength,
-                'timestamp': time.time()
+            self.broadcast_history.append(global_broadcast_event)
+            # Bound history
+            if len(self.broadcast_history) > 100:
+                self.broadcast_history = self.broadcast_history[-50:]
+
+        self.coalitions = list(winning_coalition)
+
+        logger.debug(
+            "GWT broadcast: φ=%.3f coalition_strength=%.3f winners=%s",
+            phi_measure,
+            coalition_strength,
+            winning_coalition,
+        )
+
+        return broadcast_result
+
+    def get_broadcast_event(self) -> Optional[Dict[str, Any]]:
+        """Return the most recent ``global_broadcast`` event, or *None*."""
+        if self.broadcast_history:
+            return self.broadcast_history[-1]
+        return None
+
+    # ------------------------------------------------------------------
+    # Coalition dynamics
+    # ------------------------------------------------------------------
+
+    def _update_coalition_register(
+        self, information: Dict[str, Any], phi: float
+    ) -> None:
+        """
+        Update coalition activations based on φ contribution and subsystem
+        activity.  Each subsystem's new activation is a weighted blend of its
+        previous activation (momentum), current measured activity, and a
+        φ-proportional boost that rewards higher integrated information with
+        broader coalition participation.
+        """
+        cognitive_state = information.get("cognitive_state")
+
+        subsystem_states: Dict[str, Any] = {}
+        if cognitive_state is not None and hasattr(
+            cognitive_state, "recursive_awareness"
+        ):
+            subsystem_states = {
+                "recursive_awareness": cognitive_state.recursive_awareness,
+                "phenomenal_experience": cognitive_state.phenomenal_experience,
+                "information_integration": cognitive_state.information_integration,
+                "metacognitive": cognitive_state.metacognitive_state,
+                "intentional": cognitive_state.intentional_layer,
+                "creative_synthesis": cognitive_state.creative_synthesis,
+                "embodied_cognition": cognitive_state.embodied_cognition,
             }
-            
-            logger.info(f"Global broadcast: {information} (strength: {coalition_strength:.2f})")
-            return global_broadcast
-        
-        return {}
-    
-    def _calculate_coalition_strength(self, information: Dict[str, Any]) -> float:
-        """Calculate how strongly information competes for global access"""
-        # Factors that increase coalition strength:
-        # - Novelty
-        # - Relevance to current goals
-        # - Emotional significance
-        # - Coherence with existing knowledge
-        
-        strength = 0.0
-        
-        # Novelty: new information gets higher priority
-        if self._is_novel(information):
-            strength += 0.3
-        
-        # Relevance: information related to current focus
-        if self._is_relevant_to_focus(information):
-            strength += 0.4
-        
-        # Coherence: information that fits with existing knowledge
-        if self._is_coherent(information):
-            strength += 0.2
-        
-        # Emotional significance (simplified)
-        if self._has_emotional_significance(information):
-            strength += 0.1
-        
-        return min(strength, 1.0)
-    
-    def _is_novel(self, information: Dict[str, Any]) -> bool:
-        """Check if information is novel"""
-        # Simple check: not in recent broadcast history
-        recent_content = [b['information'] for b in self.broadcast_history[-10:]]
-        return information not in recent_content
-    
-    def _is_relevant_to_focus(self, information: Dict[str, Any]) -> bool:
-        """Check if information is relevant to current attention focus"""
-        # For now, always consider relevant
-        return True
-    
-    def _is_coherent(self, information: Dict[str, Any]) -> bool:
-        """Check if information is coherent with existing knowledge"""
-        # For now, always consider coherent
-        return True
-    
-    def _has_emotional_significance(self, information: Dict[str, Any]) -> bool:
-        """Check if information has emotional significance"""
-        # Look for emotional keywords or significance markers
-        info_str = str(information).lower()
-        emotional_keywords = ['important', 'urgent', 'error', 'success', 'failure', 'breakthrough']
-        return any(keyword in info_str for keyword in emotional_keywords)
-    
-    def _assess_global_accessibility(self, information: Dict[str, Any]) -> float:
-        """Assess how globally accessible information becomes"""
-        # In a real implementation, this would check if all subsystems
-        # can access and process this information
-        return 0.8  # Simplified
+
+        for sid in self.SUBSYSTEM_IDS:
+            state = subsystem_states.get(sid, {})
+            activity = self._measure_subsystem_activity(state)
+            phi_boost = min(phi * 0.3, 1.0)
+            prev = self.coalition_register.get(sid, 0.0)
+            # Exponential moving average with φ boost
+            self.coalition_register[sid] = (
+                0.3 * prev + 0.5 * activity + 0.2 * phi_boost
+            )
+
+    # ------------------------------------------------------------------
+    # Attention competition
+    # ------------------------------------------------------------------
+
+    def _softmax_attention_competition(
+        self,
+    ) -> Tuple[List[str], Dict[str, float]]:
+        """
+        Run softmax over coalition activations.
+
+        Returns:
+            ``(winning_ids, attention_weights)`` where *winning_ids* are
+            subsystems whose attention weight ≥ the mean weight (i.e. they
+            are above-average competitors).
+        """
+        ids = list(self.coalition_register.keys())
+        activations = [self.coalition_register[sid] for sid in ids]
+
+        if not activations:
+            return [], {}
+
+        # Numerically stable softmax
+        max_a = max(activations)
+        exp_vals = [
+            math.exp((a - max_a) / max(self._temperature, 1e-6))
+            for a in activations
+        ]
+        total = sum(exp_vals) or 1.0
+        weights = {sid: ev / total for sid, ev in zip(ids, exp_vals)}
+
+        # Winners: above-mean attention weight → broader at higher φ
+        mean_weight = 1.0 / max(len(ids), 1)
+        winners = [sid for sid, w in weights.items() if w >= mean_weight]
+
+        if not winners:
+            # Fallback: pick the single highest
+            winners = [max(weights, key=weights.get)]
+
+        # Attention focus = strongest winner
+        self._attention_focus = max(
+            winners, key=lambda s: weights.get(s, 0.0)
+        )
+
+        return winners, weights
+
+    # ------------------------------------------------------------------
+    # Subsystem activity measurement
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _measure_subsystem_activity(state: Any) -> float:
+        """
+        Measure how active a subsystem is from its state dict.
+
+        Returns a value in [0, 1].
+        """
+        if not state or not isinstance(state, dict):
+            return 0.0
+
+        activity = 0.0
+        for value in state.values():
+            if value:
+                if isinstance(value, (list, dict)):
+                    activity += min(len(value), 5) / 5.0
+                elif isinstance(value, (int, float)):
+                    activity += min(abs(float(value)), 1.0)
+                elif isinstance(value, str) and value.strip():
+                    activity += 0.5
+                elif isinstance(value, bool):
+                    activity += 0.3
+        return min(activity / max(len(state), 1), 1.0)
 
 class UnifiedConsciousnessEngine:
     """
@@ -751,6 +886,19 @@ class UnifiedConsciousnessEngine:
                     'phi_measure': phi_measure,
                     'timestamp': time.time()
                 })
+
+                # 3a. Emit global_broadcast event on WebSocket
+                broadcast_event = broadcast_content.get("broadcast_content")
+                if (
+                    broadcast_event
+                    and self.websocket_manager
+                    and hasattr(self.websocket_manager, "has_connections")
+                    and self.websocket_manager.has_connections()
+                ):
+                    try:
+                        await self.websocket_manager.broadcast(broadcast_event)
+                    except Exception as e:
+                        logger.warning("Could not emit global_broadcast: %s", e)
                 
                 # 4. PHENOMENAL EXPERIENCE GENERATION
                 if self.phenomenal_experience_generator:
@@ -862,8 +1010,22 @@ class UnifiedConsciousnessEngine:
             broadcast_content = self.global_workspace.broadcast({
                 'prompt': prompt,
                 'context': context,
-                'cognitive_state': cognitive_state
+                'cognitive_state': cognitive_state,
+                'phi_measure': phi_measure,
             })
+
+            # 3a. Emit global_broadcast event on WebSocket
+            broadcast_event = broadcast_content.get("broadcast_content")
+            if (
+                broadcast_event
+                and self.websocket_manager
+                and hasattr(self.websocket_manager, "has_connections")
+                and self.websocket_manager.has_connections()
+            ):
+                try:
+                    await self.websocket_manager.broadcast(broadcast_event)
+                except Exception as e:
+                    logger.warning("Could not emit global_broadcast: %s", e)
             
             # 4. GENERATE PHENOMENAL EXPERIENCE
             if self.phenomenal_experience_generator:
