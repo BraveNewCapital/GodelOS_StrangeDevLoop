@@ -77,8 +77,10 @@ class SQLiteKnowledgeStore(KnowledgeStoreBackend):
         self._lock = threading.RLock()
         self._bridge = _AsyncBridge()
 
-        # Ensure the parent directory exists
-        os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
+        # Ensure the parent directory exists (skip if db_path has no directory)
+        parent_dir = os.path.dirname(os.path.abspath(db_path))
+        if parent_dir:
+            os.makedirs(parent_dir, exist_ok=True)
 
         # Initialise the database schema
         self._bridge.run(self._init_db())
@@ -313,6 +315,11 @@ class SQLiteKnowledgeStore(KnowledgeStoreBackend):
         with self._lock:
             return self._bridge.run(self._list_context_names())
 
+    def get_context_info(self, context_id: str) -> Optional[Dict[str, Any]]:
+        """Return metadata for *context_id*, or ``None`` if missing."""
+        with self._lock:
+            return self._bridge.run(self._get_context_info(context_id))
+
     def get_all_statements_in_context(self, context_id: str) -> Set[AST_Node]:
         """Return every statement stored in *context_id*."""
         with self._lock:
@@ -413,9 +420,11 @@ class SQLiteKnowledgeStore(KnowledgeStoreBackend):
 
     async def _delete_triples(self, ids: List[int]) -> None:
         async with aiosqlite.connect(self.db_path) as db:
-            placeholders = ",".join("?" for _ in ids)
+            # Validate ids are integers to prevent injection
+            validated = [int(i) for i in ids]
+            placeholders = ",".join("?" for _ in validated)
             await db.execute(
-                f"DELETE FROM triples WHERE id IN ({placeholders})", ids
+                f"DELETE FROM triples WHERE id IN ({placeholders})", validated
             )
             await db.commit()
 

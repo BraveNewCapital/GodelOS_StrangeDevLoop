@@ -85,11 +85,10 @@ def _parse_ttl_triples(path: str) -> Set[tuple]:
 
 def _parse_file(path: str) -> Set[tuple]:
     """Dispatch to the correct parser based on extension."""
-    _, ext = os.path.splitext(path)
-    ext = ext.lower()
-    if ext == ".json-ld" or path.lower().endswith(".json-ld"):
+    lower_path = path.lower()
+    if lower_path.endswith(".json-ld"):
         return _parse_jsonld_triples(path)
-    if ext == ".ttl":
+    if lower_path.endswith(".ttl"):
         return _parse_ttl_triples(path)
     return set()
 

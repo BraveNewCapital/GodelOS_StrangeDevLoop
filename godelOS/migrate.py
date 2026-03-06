@@ -45,8 +45,8 @@ def migrate_memory_to_sqlite(
     existing_dest = set(dest.list_contexts())
     for ctx_id in contexts:
         if ctx_id not in existing_dest:
-            # Retrieve context metadata from the source backend
-            ctx_info = source._backend._contexts.get(ctx_id, {})
+            # Retrieve context metadata via the public backend API
+            ctx_info = source._backend.get_context_info(ctx_id) or {}
             parent = ctx_info.get("parent")
             ctx_type = ctx_info.get("type", "generic")
             dest.create_context(ctx_id, parent, ctx_type)

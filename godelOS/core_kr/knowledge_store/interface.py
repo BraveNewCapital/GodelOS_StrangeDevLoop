@@ -153,6 +153,19 @@ class KnowledgeStoreBackend(ABC):
             A list of context IDs
         """
         pass
+    
+    def get_context_info(self, context_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get metadata for a context.
+        
+        Args:
+            context_id: The ID of the context
+            
+        Returns:
+            A dict with keys ``parent`` and ``type``, or ``None``
+            if the context does not exist.
+        """
+        return None  # default; concrete backends should override
 
 
 class InMemoryKnowledgeStore(KnowledgeStoreBackend):
@@ -396,6 +409,14 @@ class InMemoryKnowledgeStore(KnowledgeStoreBackend):
         """
         with self._lock:
             return list(self._contexts.keys())
+    
+    def get_context_info(self, context_id: str) -> Optional[Dict[str, Any]]:
+        """Return metadata for *context_id*, or ``None`` if missing."""
+        with self._lock:
+            info = self._contexts.get(context_id)
+            if info is None:
+                return None
+            return {"parent": info.get("parent"), "type": info.get("type", "generic")}
     
     def get_all_statements_in_context(self, context_id: str) -> Set[AST_Node]:
         """Return every statement stored in *context_id* without pattern matching."""
@@ -661,10 +682,20 @@ class KnowledgeStoreInterface:
         self.unification_engine = UnificationEngine(type_system)
         
         # Resolve backend choice from explicit arg → env-var → default
+        _valid_backends = {"memory", "sqlite"}
         chosen_backend = (
             backend
             or os.environ.get("KNOWLEDGE_STORE_BACKEND", "memory")
         ).lower()
+
+        if chosen_backend not in _valid_backends:
+            import logging as _logging
+
+            _logging.getLogger(__name__).warning(
+                "Unknown KNOWLEDGE_STORE_BACKEND=%r; falling back to 'memory'",
+                chosen_backend,
+            )
+            chosen_backend = "memory"
 
         if chosen_backend == "sqlite":
             from godelOS.core_kr.knowledge_store.sqlite_store import SQLiteKnowledgeStore
