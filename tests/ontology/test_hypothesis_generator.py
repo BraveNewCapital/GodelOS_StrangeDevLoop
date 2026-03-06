@@ -202,7 +202,7 @@ class TestHypothesisGenerator(unittest.TestCase):
         self.assertEqual(hypotheses1, hypotheses2)
         
         # Check cache directly
-        cache_key = (str(self.observations), str(self.context), "abductive", str({}), 5)
+        cache_key = (str(self.observations), str(self.context), "abductive", str(None), 5)
         self.assertIn(cache_key, self.hypothesis_generator._hypothesis_cache)
         self.assertEqual(hypotheses1, self.hypothesis_generator._hypothesis_cache[cache_key])
     
@@ -315,8 +315,8 @@ class TestHypothesisGenerator(unittest.TestCase):
         causal_relations = self.hypothesis_generator._find_causal_relations("steam")
         self.assertIsNotNone(causal_relations)
         
-        # Test _generate_predictions
-        predictions = self.hypothesis_generator._generate_predictions("ice", self.context)
+        # Test _generate_predictions (water has outgoing relations)
+        predictions = self.hypothesis_generator._generate_predictions("water", self.context)
         self.assertIsNotNone(predictions)
         self.assertGreater(len(predictions), 0)
         

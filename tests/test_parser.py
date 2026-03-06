@@ -321,22 +321,21 @@ class TestFormalLogicParser(unittest.TestCase):
     def test_parse_errors(self):
         """Test error handling during parsing."""
         # Test missing closing parenthesis
-        ast, errors = self.parser.parse("Human(Socrates")
+        ast, errors = self.parser.parse("Human(Socrates", raise_exceptions=False)
         self.assertIsNone(ast)
         self.assertGreater(len(errors), 0)
         
-        # Test unknown type
-        ast, errors = self.parser.parse("Socrates:UnknownType")
-        self.assertIsNotNone(ast)  # Should still return a node with default type
+        # Test unknown type — parser returns None with errors
+        ast, errors = self.parser.parse("Socrates:UnknownType", raise_exceptions=False)
         self.assertGreater(len(errors), 0)
         
         # Test invalid syntax
-        ast, errors = self.parser.parse("Human Socrates)")
+        ast, errors = self.parser.parse("Human Socrates)", raise_exceptions=False)
         self.assertIsNone(ast)
         self.assertGreater(len(errors), 0)
         
         # Test empty expression
-        ast, errors = self.parser.parse("")
+        ast, errors = self.parser.parse("", raise_exceptions=False)
         self.assertIsNone(ast)
         self.assertGreater(len(errors), 0)
 

@@ -73,7 +73,7 @@ class Lexer:
         ('POSSIBLE', r'possible|◇'),
         ('NECESSARY', r'necessary|□'),
         # Probability modality: restrict to explicit probability syntax (prob or P[...])
-        ('PROBABILITY', r'prob\\b|P\\['),
+        ('PROBABILITY', r'prob\b|P\['),
         ('DEFEASIBLE', r'defeasibly|def'),
         ('TRUE', r'True|true|⊤'),
         ('FALSE', r'False|false|⊥'),

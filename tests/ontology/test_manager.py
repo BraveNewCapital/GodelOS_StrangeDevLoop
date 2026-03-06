@@ -46,7 +46,8 @@ class TestOntologyCreativityManager(unittest.TestCase):
     
     @patch('json.load')
     @patch('builtins.open', new_callable=mock_open, read_data='{"test": "config"}')
-    def test_load_config(self, mock_file, mock_json_load):
+    @patch('os.path.exists', return_value=True)
+    def test_load_config(self, mock_exists, mock_file, mock_json_load):
         """Test loading configuration from a file."""
         # Set up the mock
         mock_json_load.return_value = {"test": "config"}

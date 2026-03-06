@@ -283,6 +283,10 @@ class TestAbstractionHierarchyModule(unittest.TestCase):
         
         # Test with only abstract level assigned
         self.ahm.remove_concept_from_level("taxonomy", "dog", dog_level)
+        # Remove animal from its auto-assigned level before re-assigning
+        old_animal_level = self.ahm.get_concept_level("taxonomy", "animal")
+        if old_animal_level is not None:
+            self.ahm.remove_concept_from_level("taxonomy", "animal", old_animal_level)
         self.ahm.add_concept_to_level("taxonomy", "animal", 2)
         result = self.ahm.add_abstraction_relation("taxonomy", "dog", "animal")
         self.assertTrue(result)
@@ -402,12 +406,15 @@ class TestAbstractionHierarchyModule(unittest.TestCase):
         # Check that the abstraction was added to the hierarchy
         self.assertIsNotNone(abstraction_data)
         
-        # Find the abstraction ID in the ontology
+        # Find the abstraction ID that was added to the hierarchy
         abstraction_id = None
         for concept_id, concept_data in self.ontology_manager.get_all_concepts().items():
             if concept_data.get("type") == "abstraction" and "dog" in concept_data.get("instance_ids", []) and "cat" in concept_data.get("instance_ids", []):
-                abstraction_id = concept_id
-                break
+                # Only match the one that is actually in the hierarchy
+                level = self.ahm.get_concept_level("taxonomy", concept_id)
+                if level is not None:
+                    abstraction_id = concept_id
+                    break
         
         self.assertIsNotNone(abstraction_id)
         

@@ -169,7 +169,7 @@ class TestQueryReplayHarness:
             saved_data = json.load(f)
         
         assert saved_data["recording_id"] == recording_id
-        assert saved_data["final_result"] == final_result
+        assert saved_data["final_response"] == final_result
         assert len(saved_data["steps"]) == 2
     
     @pytest.mark.asyncio
@@ -187,7 +187,7 @@ class TestQueryReplayHarness:
         assert loaded_recording.recording_id == recording_id
         assert loaded_recording.query == "Test query"
         assert len(loaded_recording.steps) == 1
-        assert loaded_recording.final_result["result"] == "test"
+        assert loaded_recording.final_response["result"] == "test"
     
     @pytest.mark.asyncio
     async def test_replay_query(self, harness, mock_cognitive_manager):

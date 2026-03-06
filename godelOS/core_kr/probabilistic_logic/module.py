@@ -354,30 +354,27 @@ class GradientDescentWeightLearning(WeightLearningAlgorithm):
         Returns:
             A list of worlds (dictionaries mapping formulas to truth values)
         """
-        # This is a simplified implementation
-        # In a real implementation, we would query the knowledge store for the training data
+        # Simplified implementation: retrieve all statements directly from the
+        # backend's internal storage and group them by world_id metadata.
+
+        worlds: List[Dict[AST_Node, bool]] = []
+
+        backend = self.module.ksi._backend
+        statements = getattr(backend, '_statements', {}).get(training_database_context_id, set())
         
-        # Get all statements in the training database context
-        query_result = self.module.ksi.query_statements_match_pattern(
-            AST_Node(self.module.ksi.type_system.get_type("Entity")),  # A generic pattern that matches anything
-            [training_database_context_id]
-        )
+        if not statements:
+            return worlds
+
+        # Group statements by world_id metadata
+        world_groups: Dict[Any, List[Tuple[AST_Node, bool]]] = defaultdict(list)
         
-        # Convert the query result to a list of worlds
-        worlds = []
+        for stmt in statements:
+            meta = getattr(stmt, 'metadata', None) or {}
+            world_id = meta.get("world_id", 0)
+            world_groups[world_id].append((stmt, True))
         
-        # Group statements by their metadata to identify separate worlds
-        world_groups = defaultdict(list)
-        
-        for binding in query_result:
-            for var, node in binding.items():
-                # Use a world_id from metadata if available, otherwise create a new world
-                world_id = node.metadata.get("world_id", len(world_groups))
-                world_groups[world_id].append((node, True))  # Assume all statements are true
-        
-        # Convert each group to a world
-        for world_id, statements in world_groups.items():
-            world = {stmt: truth for stmt, truth in statements}
+        for world_id, stmts in world_groups.items():
+            world = {s: t for s, t in stmts}
             worlds.append(world)
         
         return worlds
