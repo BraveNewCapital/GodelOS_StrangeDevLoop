@@ -1,18 +1,19 @@
 """
-Tests for the SQLite knowledge store, OntologyHotReloader, and migration utility.
+Tests for the ChromaDB knowledge store, OntologyHotReloader, and
+ChromaDB-backed KnowledgeStoreInterface.
 
 Covers:
-- Round-trip persistence (add → close → reopen → verify)
-- All KnowledgeStoreBackend operations via SQLiteKnowledgeStore
+- Round-trip persistence (add → destroy client → reopen → verify)
+- All KnowledgeStoreBackend operations via ChromaKnowledgeStore
+- Semantic retrieval via Chroma vector search
+- Structured retrieval via ``where`` metadata filters
 - OntologyHotReloader fires on file change
-- Migration utility produces valid SQLite DB
-- KnowledgeStoreInterface backend selection via constructor arg
+- KnowledgeStoreInterface backend selection via constructor arg and env var
 """
 
 import json
 import os
 import shutil
-import sqlite3
 import tempfile
 import time
 import unittest
@@ -31,11 +32,10 @@ from godelOS.core_kr.knowledge_store.hot_reloader import (
     _parse_ttl_triples,
 )
 from godelOS.core_kr.knowledge_store.interface import KnowledgeStoreInterface
-from godelOS.core_kr.knowledge_store.sqlite_store import SQLiteKnowledgeStore
+from godelOS.core_kr.knowledge_store.chroma_store import ChromaKnowledgeStore
 from godelOS.core_kr.type_system.manager import TypeSystemManager
 from godelOS.core_kr.type_system.types import FunctionType
 from godelOS.core_kr.unification_engine.engine import UnificationEngine
-from godelOS.migrate import migrate_memory_to_sqlite
 
 
 # ---------------------------------------------------------------------------
@@ -85,24 +85,24 @@ def _make_fixtures():
 
 
 # ---------------------------------------------------------------------------
-# SQLiteKnowledgeStore tests
+# ChromaKnowledgeStore tests
 # ---------------------------------------------------------------------------
 
 
-class TestSQLiteKnowledgeStore(unittest.TestCase):
-    """Direct tests against the SQLiteKnowledgeStore backend."""
+class TestChromaKnowledgeStore(unittest.TestCase):
+    """Direct tests against the ChromaKnowledgeStore backend."""
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.db_path = os.path.join(self.tmpdir, "test.db")
         self.fix = _make_fixtures()
         self.ue = UnificationEngine(self.fix["tsm"])
-        self.store = SQLiteKnowledgeStore(self.ue, db_path=self.db_path)
+        self.store = ChromaKnowledgeStore(
+            self.ue, persist_directory=self.tmpdir
+        )
         # Create default context
         self.store.create_context("TRUTHS", None, "truths")
 
     def tearDown(self):
-        self.store.close()
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     # -- context CRUD ------------------------------------------------------
@@ -135,6 +135,12 @@ class TestSQLiteKnowledgeStore(unittest.TestCase):
     def test_delete_nonexistent_context_raises(self):
         with self.assertRaises(ValueError):
             self.store.delete_context("NOPE")
+
+    def test_get_context_info(self):
+        info = self.store.get_context_info("TRUTHS")
+        self.assertIsNotNone(info)
+        self.assertEqual(info["type"], "truths")
+        self.assertIsNone(info["parent"])
 
     # -- statement CRUD ----------------------------------------------------
 
@@ -229,13 +235,15 @@ class TestSQLiteKnowledgeStore(unittest.TestCase):
     # -- round-trip persistence --------------------------------------------
 
     def test_round_trip_persistence(self):
-        """Add data, close, reopen from same DB, verify presence."""
+        """Add data, destroy client, reopen from same dir, verify presence."""
         self.store.add_statement(self.fix["human_socrates"], "TRUTHS")
         self.store.add_statement(self.fix["mortal_socrates"], "TRUTHS")
-        self.store.close()
 
-        # Reopen
-        store2 = SQLiteKnowledgeStore(self.ue, db_path=self.db_path)
+        # Destroy the existing client to force a cold restart
+        del self.store
+
+        # Reopen from disk
+        store2 = ChromaKnowledgeStore(self.ue, persist_directory=self.tmpdir)
         self.assertTrue(
             store2.statement_exists(self.fix["human_socrates"], ["TRUTHS"])
         )
@@ -249,34 +257,80 @@ class TestSQLiteKnowledgeStore(unittest.TestCase):
         )
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0][self.fix["var_x"]], self.fix["socrates"])
-        store2.close()
 
     def test_round_trip_connective(self):
         """Connective nodes survive serialisation round-trip."""
         self.store.add_statement(self.fix["implies_hm"], "TRUTHS")
-        self.store.close()
+        del self.store
 
-        store2 = SQLiteKnowledgeStore(self.ue, db_path=self.db_path)
+        store2 = ChromaKnowledgeStore(self.ue, persist_directory=self.tmpdir)
         self.assertTrue(
             store2.statement_exists(self.fix["implies_hm"], ["TRUTHS"])
         )
-        store2.close()
+
+    # -- semantic retrieval ------------------------------------------------
+
+    def test_query_by_similarity(self):
+        """Semantic vector search returns relevant results."""
+        self.store.add_statement(self.fix["human_socrates"], "TRUTHS")
+        self.store.add_statement(self.fix["mortal_socrates"], "TRUTHS")
+
+        results = self.store.query_by_similarity(
+            "who is human", "TRUTHS", n_results=2
+        )
+        self.assertTrue(len(results) > 0)
+        # Each result should have expected keys
+        for r in results:
+            self.assertIn("id", r)
+            self.assertIn("document", r)
+            self.assertIn("metadata", r)
+            self.assertIn("distance", r)
+            self.assertIn("statement", r)
+
+    def test_query_by_similarity_empty_context(self):
+        """Semantic query on empty context returns empty list."""
+        results = self.store.query_by_similarity(
+            "anything", "TRUTHS", n_results=5
+        )
+        self.assertEqual(len(results), 0)
+
+    # -- structured metadata retrieval -------------------------------------
+
+    def test_query_by_metadata(self):
+        """Structured metadata filter returns matching items."""
+        self.store.add_statement(self.fix["human_socrates"], "TRUTHS")
+        self.store.add_statement(self.fix["mortal_socrates"], "TRUTHS")
+
+        results = self.store.query_by_metadata(
+            "TRUTHS", {"predicate": "Human"}
+        )
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["metadata"]["predicate"], "Human")
+
+    def test_query_by_metadata_subject(self):
+        """Filter by subject metadata."""
+        self.store.add_statement(self.fix["human_socrates"], "TRUTHS")
+        self.store.add_statement(self.fix["human_plato"], "TRUTHS")
+
+        results = self.store.query_by_metadata(
+            "TRUTHS", {"subject": "Plato"}
+        )
+        self.assertEqual(len(results), 1)
 
 
 # ---------------------------------------------------------------------------
-# KnowledgeStoreInterface with SQLite backend
+# KnowledgeStoreInterface with ChromaDB backend
 # ---------------------------------------------------------------------------
 
 
-class TestKnowledgeStoreInterfaceSQLite(unittest.TestCase):
-    """Test KnowledgeStoreInterface configured to use the SQLite backend."""
+class TestKnowledgeStoreInterfaceChroma(unittest.TestCase):
+    """Test KnowledgeStoreInterface configured to use the ChromaDB backend."""
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.db_path = os.path.join(self.tmpdir, "iface_test.db")
         self.fix = _make_fixtures()
         self.ks = KnowledgeStoreInterface(
-            self.fix["tsm"], backend="sqlite", db_path=self.db_path
+            self.fix["tsm"], backend="chroma", db_path=self.tmpdir
         )
 
     def tearDown(self):
@@ -296,25 +350,24 @@ class TestKnowledgeStoreInterfaceSQLite(unittest.TestCase):
     def test_persistence_across_interface_recreations(self):
         """Knowledge survives interface tear-down/re-creation."""
         self.ks.add_statement(self.fix["human_socrates"])
-        # Tear down and recreate
         del self.ks
         ks2 = KnowledgeStoreInterface(
-            self.fix["tsm"], backend="sqlite", db_path=self.db_path
+            self.fix["tsm"], backend="chroma", db_path=self.tmpdir
         )
         self.assertTrue(ks2.statement_exists(self.fix["human_socrates"]))
 
     def test_env_var_backend_selection(self):
         """KNOWLEDGE_STORE_BACKEND env-var selects the backend."""
-        db2 = os.path.join(self.tmpdir, "env_test.db")
+        db2 = os.path.join(self.tmpdir, "env_test")
         old_backend = os.environ.get("KNOWLEDGE_STORE_BACKEND")
         old_path = os.environ.get("KNOWLEDGE_STORE_PATH")
         try:
-            os.environ["KNOWLEDGE_STORE_BACKEND"] = "sqlite"
+            os.environ["KNOWLEDGE_STORE_BACKEND"] = "chroma"
             os.environ["KNOWLEDGE_STORE_PATH"] = db2
             ks = KnowledgeStoreInterface(self.fix["tsm"])
             ks.add_statement(self.fix["human_socrates"])
             self.assertTrue(ks.statement_exists(self.fix["human_socrates"]))
-            # DB file should exist
+            # Persistence directory should exist
             self.assertTrue(os.path.exists(db2))
         finally:
             if old_backend is None:
@@ -325,55 +378,6 @@ class TestKnowledgeStoreInterfaceSQLite(unittest.TestCase):
                 os.environ.pop("KNOWLEDGE_STORE_PATH", None)
             else:
                 os.environ["KNOWLEDGE_STORE_PATH"] = old_path
-
-
-# ---------------------------------------------------------------------------
-# Migration utility
-# ---------------------------------------------------------------------------
-
-
-class TestMigration(unittest.TestCase):
-    """Test the migrate_memory_to_sqlite helper."""
-
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-        self.db_path = os.path.join(self.tmpdir, "migrated.db")
-        self.fix = _make_fixtures()
-
-    def tearDown(self):
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-    def test_migrate_empty(self):
-        source = KnowledgeStoreInterface(self.fix["tsm"])
-        count = migrate_memory_to_sqlite(source, self.db_path)
-        self.assertEqual(count, 0)
-        # DB should still contain default contexts
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.execute("SELECT name FROM contexts")
-        names = {row[0] for row in cursor.fetchall()}
-        conn.close()
-        self.assertIn("TRUTHS", names)
-        self.assertIn("BELIEFS", names)
-
-    def test_migrate_with_statements(self):
-        source = KnowledgeStoreInterface(self.fix["tsm"])
-        source.add_statement(self.fix["human_socrates"])
-        source.add_statement(self.fix["mortal_socrates"])
-        source.add_statement(self.fix["human_plato"], context_id="BELIEFS")
-
-        count = migrate_memory_to_sqlite(source, self.db_path)
-        self.assertEqual(count, 3)
-
-        # Verify via a fresh SQLiteKnowledgeStore
-        ue = UnificationEngine(self.fix["tsm"])
-        store = SQLiteKnowledgeStore(ue, db_path=self.db_path)
-        self.assertTrue(
-            store.statement_exists(self.fix["human_socrates"], ["TRUTHS"])
-        )
-        self.assertTrue(
-            store.statement_exists(self.fix["human_plato"], ["BELIEFS"])
-        )
-        store.close()
 
 
 # ---------------------------------------------------------------------------
@@ -428,10 +432,8 @@ class TestOntologyHotReloader(unittest.TestCase):
         reloader = OntologyHotReloader(
             self.tmpdir, self._on_add, self._on_remove
         )
-        # Initial snapshot should include the triple
-        self.assertEqual(len(self.added), 0)  # no delta yet
+        self.assertEqual(len(self.added), 0)
 
-        # Remove the file
         os.remove(path)
         reloader.reload()
         self.assertEqual(len(self.removed), 1)
@@ -447,13 +449,11 @@ class TestOntologyHotReloader(unittest.TestCase):
             self.tmpdir, self._on_add, self._on_remove
         )
 
-        # Modify the file (change the value)
         data2 = [{"@id": "ex:A", "ex:val": "2"}]
         with open(path, "w") as fh:
             json.dump(data2, fh)
 
         reloader.reload()
-        # Old triple removed, new one added
         self.assertIn(("ex:A", "ex:val", "1"), self.removed)
         self.assertIn(("ex:A", "ex:val", "2"), self.added)
 
@@ -461,14 +461,13 @@ class TestOntologyHotReloader(unittest.TestCase):
         reloader = OntologyHotReloader(
             self.tmpdir, self._on_add, self._on_remove
         )
-        # Write a TTL file *after* initial snapshot is taken
         path = os.path.join(self.tmpdir, "onto.ttl")
         with open(path, "w") as fh:
             fh.write("# comment\n")
             fh.write("<ex:Cat> <rdf:type> <ex:Animal> .\n")
             fh.write("<ex:Dog> <rdf:type> <ex:Animal> .\n")
 
-        reloader.reload()  # picks up the new file vs empty initial snapshot
+        reloader.reload()
         self.assertEqual(len(self.added), 2)
 
     def test_hot_reload_via_observer(self):
@@ -483,7 +482,6 @@ class TestOntologyHotReloader(unittest.TestCase):
             with open(path, "w") as fh:
                 json.dump(data, fh)
 
-            # Wait for the observer to fire (up to 5 s)
             deadline = time.monotonic() + 5.0
             while not self.added and time.monotonic() < deadline:
                 time.sleep(0.2)

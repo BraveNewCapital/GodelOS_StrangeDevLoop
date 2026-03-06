@@ -669,20 +669,20 @@ class KnowledgeStoreInterface:
         Args:
             type_system: The type system manager
             cache_manager: Optional caching and memoization layer
-            backend: Backend type (``"memory"`` or ``"sqlite"``).  Defaults
+            backend: Backend type (``"memory"`` or ``"chroma"``).  Defaults
                      to the ``KNOWLEDGE_STORE_BACKEND`` env-var, falling back
                      to ``"memory"``.
-            db_path: Path to the SQLite database file.  Only used when
-                     *backend* is ``"sqlite"``.  Defaults to the
+            db_path: Path for the persistent backend.  Only used when
+                     *backend* is ``"chroma"``.  Defaults to the
                      ``KNOWLEDGE_STORE_PATH`` env-var, falling back to
-                     ``"./data/knowledge.db"``.
+                     ``"./data/chroma"``.
         """
         self.type_system = type_system
         self.cache_manager = cache_manager or CachingMemoizationLayer()
         self.unification_engine = UnificationEngine(type_system)
         
         # Resolve backend choice from explicit arg → env-var → default
-        _valid_backends = {"memory", "sqlite"}
+        _valid_backends = {"memory", "chroma"}
         chosen_backend = (
             backend
             or os.environ.get("KNOWLEDGE_STORE_BACKEND", "memory")
@@ -697,20 +697,20 @@ class KnowledgeStoreInterface:
             )
             chosen_backend = "memory"
 
-        if chosen_backend == "sqlite":
-            from godelOS.core_kr.knowledge_store.sqlite_store import SQLiteKnowledgeStore
+        if chosen_backend == "chroma":
+            from godelOS.core_kr.knowledge_store.chroma_store import ChromaKnowledgeStore
 
             resolved_path = db_path or os.environ.get(
-                "KNOWLEDGE_STORE_PATH", "./data/knowledge.db"
+                "KNOWLEDGE_STORE_PATH", "./data/chroma"
             )
-            self._backend: KnowledgeStoreBackend = SQLiteKnowledgeStore(
-                self.unification_engine, db_path=resolved_path
+            self._backend: KnowledgeStoreBackend = ChromaKnowledgeStore(
+                self.unification_engine, persist_directory=resolved_path
             )
         else:
             self._backend = InMemoryKnowledgeStore(self.unification_engine)
         
         # Initialize default contexts (only if they don't already exist,
-        # which matters for a persisted SQLite backend across restarts).
+        # which matters for a persisted ChromaDB backend across restarts).
         existing = set(self._backend.list_contexts())
         if "TRUTHS" not in existing:
             self._backend.create_context("TRUTHS", None, "truths")
