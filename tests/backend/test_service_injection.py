@@ -130,6 +130,7 @@ def test_service_injection_allows_mocks():
     try:
         # Force-reload backend.main so it picks up stubs
         sys.modules.pop("backend.main", None)
+        sys.modules.pop("backend.unified_server", None)
         from backend.main import create_app
 
         print("Given 🧪 mock services and a fake WebSocket manager")
