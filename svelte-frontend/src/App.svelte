@@ -22,8 +22,8 @@
   import ResourceAllocation from './components/transparency/ResourceAllocation.svelte';
   import ProcessInsight from './components/transparency/ProcessInsight.svelte';
   // import TransparencyDashboard from './components/transparency/TransparencyDashboard.svelte'; // LAZY LOADED - 2,011 lines
-  import ReasoningSessionViewer from './components/transparency/ReasoningSessionViewer.svelte';
-  import ProvenanceTracker from './components/transparency/ProvenanceTracker.svelte';
+  // ReasoningSessionViewer removed — redundant with TransparencyPanel reasoning trace tab; called non-existent endpoints
+  // ProvenanceTracker removed — called non-existent /api/transparency/provenance/* endpoints
   import TransparencyPanel from './components/transparency/TransparencyPanel.svelte';
   
   // Knowledge Management - LAZY LOADED to improve startup performance
@@ -267,23 +267,11 @@
           description: 'Cognitive transparency and reasoning insights',
           component: TransparencyPanel
         },
-        reasoning: {
-          icon: '🎯',
-          title: 'Reasoning Sessions',
-          description: 'Live reasoning session monitoring',
-          component: ReasoningSessionViewer
-        },
         reflection: {
           icon: '🪞',
           title: 'Reflection',
           description: 'System introspection and analysis',
           component: ReflectionVisualization
-        },
-        provenance: {
-          icon: '🔗',
-          title: 'Provenance',
-          description: 'Data lineage and attribution tracking',
-          component: ProvenanceTracker
         }
       }
     },
