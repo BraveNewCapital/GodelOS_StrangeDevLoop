@@ -761,7 +761,7 @@ export class GödelOSAPI {
       const response = await fetch(`${API_BASE_URL}/api/transparency/provenance/snapshot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
+        body: JSON.stringify({ description: '', include_quality_metrics: true })
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return await response.json();

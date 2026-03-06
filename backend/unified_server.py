@@ -29,6 +29,14 @@ from dotenv import load_dotenv
 # Ensure repository root is on sys.path before importing backend.* packages
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from backend.core.errors import CognitiveError, from_exception
+from backend.schemas import (
+    WikipediaImportSchema,
+    URLImportSchema,
+    TextImportSchema,
+    BatchImportSchema,
+    AddKnowledgeSchema,
+    EnhancedCognitiveQuerySchema,
+)
 from backend.core.structured_logging import (
     setup_structured_logging, correlation_context, CorrelationTracker,
     api_logger, performance_logger, track_operation
@@ -2669,7 +2677,7 @@ async def import_knowledge_from_file(file: UploadFile = File(...), filename: str
             raise HTTPException(status_code=500, detail=f"File import error: {str(e)}")
 
 @app.post("/api/knowledge/import/wikipedia")
-async def import_knowledge_from_wikipedia(request: dict):
+async def import_knowledge_from_wikipedia(request: WikipediaImportSchema):
     """Import knowledge from Wikipedia article."""
     if not (KNOWLEDGE_SERVICES_AVAILABLE and knowledge_ingestion_service):
         raise HTTPException(status_code=503, detail="Knowledge ingestion service not available")
@@ -2677,7 +2685,7 @@ async def import_knowledge_from_wikipedia(request: dict):
     try:
         from backend.knowledge_models import WikipediaImportRequest, ImportSource
         
-        title = request.get("title") or request.get("topic") or ""
+        title = request.title or request.topic or ""
         if not title:
             raise HTTPException(status_code=400, detail="Wikipedia title is required")
         
@@ -2685,16 +2693,16 @@ async def import_knowledge_from_wikipedia(request: dict):
         import_source = ImportSource(
             source_type="wikipedia",
             source_identifier=title,
-            metadata={"language": request.get("language", "en")}
+            metadata={"language": request.language}
         )
         
         # Create proper Wikipedia import request
         wiki_request = WikipediaImportRequest(
             page_title=title,
-            language=request.get("language", "en"),
+            language=request.language,
             source=import_source,
-            include_references=request.get("include_references", True),
-            section_filter=request.get("section_filter", [])
+            include_references=request.include_references,
+            section_filter=request.section_filter
         )
         
         # Use the actual knowledge ingestion service
@@ -2712,7 +2720,7 @@ async def import_knowledge_from_wikipedia(request: dict):
         raise HTTPException(status_code=500, detail=f"Wikipedia import error: {str(e)}")
 
 @app.post("/api/knowledge/import/url")
-async def import_knowledge_from_url(request: dict):
+async def import_knowledge_from_url(request: URLImportSchema):
     """Import knowledge from URL."""
     if not (KNOWLEDGE_SERVICES_AVAILABLE and knowledge_ingestion_service):
         raise HTTPException(status_code=503, detail="Knowledge ingestion service not available")
@@ -2720,7 +2728,7 @@ async def import_knowledge_from_url(request: dict):
     try:
         from backend.knowledge_models import URLImportRequest, ImportSource
         
-        url = request.get("url", "")
+        url = request.url
         if not url:
             raise HTTPException(status_code=400, detail="URL is required")
         
@@ -2728,16 +2736,16 @@ async def import_knowledge_from_url(request: dict):
         import_source = ImportSource(
             source_type="url",
             source_identifier=url,
-            metadata={"url": url}
+            metadata={"url": url, "category": request.category}
         )
         
         # Create proper URL import request
         url_request = URLImportRequest(
             url=url,
             source=import_source,
-            max_depth=request.get("max_depth", 1),
-            follow_links=request.get("follow_links", False),
-            content_selectors=request.get("content_selectors", [])
+            max_depth=request.max_depth,
+            follow_links=request.follow_links,
+            content_selectors=request.content_selectors
         )
         
         # Use the actual knowledge ingestion service
@@ -2766,7 +2774,7 @@ async def import_knowledge_from_url(request: dict):
         raise HTTPException(status_code=500, detail=f"URL import error: {str(e)}")
 
 @app.post("/api/knowledge/import/text")
-async def import_knowledge_from_text(request: dict):
+async def import_knowledge_from_text(request: TextImportSchema):
     """Import knowledge from text content."""
     if not (KNOWLEDGE_SERVICES_AVAILABLE and knowledge_ingestion_service):
         raise HTTPException(status_code=503, detail="Knowledge ingestion service not available")
@@ -2774,17 +2782,17 @@ async def import_knowledge_from_text(request: dict):
     try:
         from backend.knowledge_models import TextImportRequest, ImportSource
         
-        content = request.get("content", "")
+        content = request.content
         if not content:
             raise HTTPException(status_code=400, detail="Text content is required")
         
-        title = request.get("title", "Manual Text Input")
+        title = request.title
         
         # Create proper import source
         import_source = ImportSource(
             source_type="text",
             source_identifier=title,
-            metadata={"manual_input": True}
+            metadata={"manual_input": True, "category": request.category}
         )
         
         # Create proper text import request
@@ -2792,7 +2800,7 @@ async def import_knowledge_from_text(request: dict):
             content=content,
             title=title,
             source=import_source,
-            format_type=request.get("format_type", "plain")
+            format_type=request.format_type
         )
         
         # Use the actual knowledge ingestion service
@@ -2811,12 +2819,12 @@ async def import_knowledge_from_text(request: dict):
         raise HTTPException(status_code=500, detail=f"Text import error: {str(e)}")
 
 @app.post("/api/enhanced-cognitive/query")
-async def enhanced_cognitive_query(query_request: dict):
+async def enhanced_cognitive_query(query_request: EnhancedCognitiveQuerySchema):
     """Enhanced cognitive query processing with unified consciousness integration."""
     try:
-        query = query_request.get("query", "")
-        reasoning_trace = query_request.get("reasoning_trace", False)
-        context = query_request.get("context", {})
+        query = query_request.query
+        reasoning_trace = query_request.reasoning_trace
+        context = query_request.context or {}
 
         # PRIORITY: Process through unified consciousness engine if available
         if unified_consciousness_engine:
@@ -3063,12 +3071,12 @@ async def knowledge_search(query: str, k: int = 5):
 
 # Simple knowledge addition endpoint for compatibility with integration tests
 @app.post("/api/knowledge")
-async def add_knowledge(payload: dict):
+async def add_knowledge(payload: AddKnowledgeSchema):
     """Add knowledge (simple or standard format). Returns success for compatibility."""
     try:
-        concept = payload.get("concept") or payload.get("title")
-        definition = payload.get("definition") or payload.get("content")
-        category = payload.get("category", "general")
+        concept = payload.concept or payload.title
+        definition = payload.definition or payload.content
+        category = payload.category or "general"
         # If knowledge management service is available, we could route it; for now, acknowledge
         if websocket_manager and websocket_manager.has_connections():
             try:
@@ -3085,8 +3093,8 @@ async def add_knowledge(payload: dict):
 
 # Batch import compatibility endpoint
 @app.post("/api/knowledge/import/batch")
-async def import_knowledge_batch(request: dict):
-    sources = request.get("sources", [])
+async def import_knowledge_batch(request: BatchImportSchema):
+    sources = request.sources
     import_ids = [f"batch_{i}_{int(time.time()*1000)}" for i, _ in enumerate(sources)]
     return {"import_ids": import_ids, "batch_size": len(import_ids), "status": "queued"}
 
