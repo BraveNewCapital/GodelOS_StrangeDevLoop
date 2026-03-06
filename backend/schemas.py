@@ -151,8 +151,8 @@ class EnhancedCognitiveQuerySchema(BaseModel):
     """Canonical request for ``POST /api/enhanced-cognitive/query``."""
 
     query: str = Field(..., description="Natural language query")
-    context: Optional[str] = Field(
-        None, description="Context identifier (e.g. 'user_interface')"
+    context: Optional[Any] = Field(
+        None, description="Context (string identifier or dict)"
     )
     reasoning_trace: bool = Field(
         False, description="Whether to include a reasoning trace"

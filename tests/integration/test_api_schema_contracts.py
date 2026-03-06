@@ -194,6 +194,14 @@ class TestEnhancedCognitiveQuery:
         })
         assert resp.status_code != 422, f"422 from field mismatch: {resp.text}"
 
+    def test_enhanced_query_dict_context(self, client):
+        """Context may also be a dict."""
+        resp = client.post("/api/enhanced-cognitive/query", json={
+            "query": "Explain consciousness",
+            "context": {"source": "user_interface"},
+        })
+        assert resp.status_code != 422, f"422 from field mismatch: {resp.text}"
+
 
 # ---------------------------------------------------------------------------
 # POST /api/transparency/provenance/query — frontend sends extended fields
