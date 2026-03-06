@@ -1,6 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { evolutionState, cognitiveState } from '../../stores/cognitive.js';
+  import { API_BASE_URL } from '../../config.js';
   import * as d3 from 'd3';
   
   let container;
@@ -64,7 +65,7 @@
   async function loadCapabilityData() {
     try {
       // Try to get capabilities from the existing backend endpoint
-      const response = await fetch('http://localhost:8000/api/capabilities');
+      const response = await fetch(`${API_BASE_URL}/api/capabilities`);
       if (response.ok) {
         const data = await response.json();
         

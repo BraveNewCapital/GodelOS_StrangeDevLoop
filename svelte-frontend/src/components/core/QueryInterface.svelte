@@ -1,6 +1,7 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   import { cognitiveState } from '../../stores/cognitive.js';
+  import { transparencyMode } from '../../stores/transparency.js';
   import { sendQuery } from '../../utils/websocket.js';
   import { GödelOSAPI } from '../../utils/api.js';
   
@@ -338,6 +339,16 @@
           />
           <span>Enable Learning</span>
           <small>Update knowledge from interaction</small>
+        </label>
+        
+        <label class="option-item">
+          <input
+            type="checkbox"
+            checked={$transparencyMode}
+            on:change={() => transparencyMode.update(v => !v)}
+          />
+          <span>Transparency Mode</span>
+          <small>Show reasoning trace inline with responses</small>
         </label>
         
         <label class="option-item range-item">
