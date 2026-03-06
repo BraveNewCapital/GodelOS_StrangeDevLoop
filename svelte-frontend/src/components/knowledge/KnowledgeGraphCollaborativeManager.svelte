@@ -7,13 +7,15 @@ Handles real-time collaborative editing, conflict resolution, and synchronizatio
   import { writable, derived } from 'svelte/store';
   import { createEventDispatcher } from 'svelte';
   
+  import { WS_BASE_URL } from '../../config.js';
+  
   const dispatch = createEventDispatcher();
   
   // Props
   export let graphData = { nodes: [], edges: [] };
   export let userId = null;
   export let sessionId = null;
-  export let websocketUrl = 'ws://localhost:8000/ws/knowledge-graph';
+  export let websocketUrl = `${WS_BASE_URL}/ws/knowledge-graph`;
   export let isEnabled = false;
   
   // Collaborative state

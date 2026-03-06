@@ -22,8 +22,9 @@
   import ResourceAllocation from './components/transparency/ResourceAllocation.svelte';
   import ProcessInsight from './components/transparency/ProcessInsight.svelte';
   // import TransparencyDashboard from './components/transparency/TransparencyDashboard.svelte'; // LAZY LOADED - 2,011 lines
-  import ReasoningSessionViewer from './components/transparency/ReasoningSessionViewer.svelte';
-  import ProvenanceTracker from './components/transparency/ProvenanceTracker.svelte';
+  // ReasoningSessionViewer removed — redundant with TransparencyPanel reasoning trace tab; called non-existent endpoints
+  // ProvenanceTracker removed — called non-existent /api/transparency/provenance/* endpoints
+  import TransparencyPanel from './components/transparency/TransparencyPanel.svelte';
   
   // Knowledge Management - LAZY LOADED to improve startup performance
   // import KnowledgeGraph from './components/knowledge/KnowledgeGraph.svelte'; // LAZY LOADED - 3,632 lines
@@ -264,25 +265,13 @@
           icon: '🔍',
           title: 'Transparency',
           description: 'Cognitive transparency and reasoning insights',
-          modal: 'transparency' // Use modal trigger instead of direct component
-        },
-        reasoning: {
-          icon: '🎯',
-          title: 'Reasoning Sessions',
-          description: 'Live reasoning session monitoring',
-          component: ReasoningSessionViewer
+          component: TransparencyPanel
         },
         reflection: {
           icon: '🪞',
           title: 'Reflection',
           description: 'System introspection and analysis',
           component: ReflectionVisualization
-        },
-        provenance: {
-          icon: '🔗',
-          title: 'Provenance',
-          description: 'Data lineage and attribution tracking',
-          component: ProvenanceTracker
         }
       }
     },
@@ -666,8 +655,6 @@
                 showConsciousnessModal = true;
               } else if (viewConfig[activeView].modal === 'autonomous') {
                 showAutonomousLearningModal = true;
-              } else if (viewConfig[activeView].modal === 'transparency') {
-                showTransparencyModal = true;
               } else if (viewConfig[activeView].modal === 'import') {
                 showSmartImportModal = true;
               } else if (viewConfig[activeView].modal === 'jobs') {

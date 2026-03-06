@@ -25,12 +25,18 @@ logger = logging.getLogger(__name__)
 # Global consciousness engine reference (will be set by unified_server)
 unified_consciousness_engine = None
 enhanced_websocket_manager = None
+emergence_detector = None  # ConsciousnessEmergenceDetector instance
 
 def set_consciousness_engine(engine, websocket_manager):
     """Set the global consciousness engine and websocket manager references"""
     global unified_consciousness_engine, enhanced_websocket_manager
     unified_consciousness_engine = engine
     enhanced_websocket_manager = websocket_manager
+
+def set_emergence_detector(detector):
+    """Set the global emergence detector reference"""
+    global emergence_detector
+    emergence_detector = detector
 
 # Create router
 router = APIRouter(prefix="/api/consciousness", tags=["Unified Consciousness"])
@@ -218,6 +224,39 @@ async def get_consciousness_history(limit: int = Query(100, ge=1, le=1000)):
         logger.error(f"Failed to get consciousness history: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to retrieve consciousness history: {str(e)}")
 
+# Emergence score endpoint
+
+@router.get("/emergence")
+async def get_emergence_score():
+    """Get current consciousness emergence score and dimensional breakdown."""
+    try:
+        if emergence_detector is not None:
+            return emergence_detector.get_emergence_status()
+
+        # Fallback: derive a basic score from the consciousness engine
+        if unified_consciousness_engine:
+            state = unified_consciousness_engine.consciousness_state
+            score = unified_consciousness_engine._detect_consciousness_emergence(state)
+            return {
+                "emergence_score": score,
+                "dimensions": {},
+                "threshold": 0.8,
+                "window_size": 60.0,
+                "window_samples": 0,
+                "breakthrough": score >= 0.8,
+                "timestamp": time.time(),
+            }
+
+        raise HTTPException(
+            status_code=503,
+            detail="Neither emergence detector nor consciousness engine is available",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get emergence score: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve emergence score: {str(e)}")
+
 # WebSocket endpoints for real-time consciousness streaming
 
 @router.websocket("/stream")
@@ -371,4 +410,4 @@ async def assess_consciousness_level(query: str = "", context: Optional[Dict] = 
         raise HTTPException(status_code=500, detail=f"Assessment failed: {str(e)}")
 
 # Export router
-__all__ = ['router', 'set_consciousness_engine']
+__all__ = ['router', 'set_consciousness_engine', 'set_emergence_detector']
