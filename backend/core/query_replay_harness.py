@@ -117,8 +117,7 @@ class QueryReplayHarness:
         
         logger.info(f"Query replay harness initialized with storage at {self.storage_path}")
     
-    async def start_recording(self, query: str, context: Dict[str, Any] = None, 
-                       correlation_id: str, tags: List[str] = None) -> str:
+    async def start_recording(self, query: str, correlation_id: str, context: Dict[str, Any] = None, tags: List[str] = None) -> str:
         """Start recording a new query processing session."""
         if not self.enable_recording:
             logger.debug("Recording disabled, skipping query recording")
