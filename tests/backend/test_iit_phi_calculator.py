@@ -240,11 +240,25 @@ class TestHelpers:
         result = InformationIntegrationTheory._flatten_to_floats([1, 2, 3])
         assert result == [1.0, 2.0, 3.0]
 
+    def test_flatten_to_floats_nested_list(self):
+        result = InformationIntegrationTheory._flatten_to_floats([[1, 2], [3, 4]])
+        assert result == [1.0, 2.0, 3.0, 4.0]
+
+    def test_flatten_to_floats_mixed_types(self):
+        result = InformationIntegrationTheory._flatten_to_floats([1, "ab", 2.5])
+        assert result == [1.0, 2.0, 2.5]
+
     def test_flatten_to_floats_nested_dict(self):
         result = InformationIntegrationTheory._flatten_to_floats(
             {"a": 1.0, "b": {"c": 2.0}}
         )
         assert result == [1.0, 2.0]
+
+    def test_flatten_to_floats_multi_key_dict(self):
+        result = InformationIntegrationTheory._flatten_to_floats(
+            {"x": 1, "y": 2, "z": 3}
+        )
+        assert result == [1.0, 2.0, 3.0]
 
     def test_flatten_to_floats_bool(self):
         assert InformationIntegrationTheory._flatten_to_floats(True) == [1.0]
@@ -286,10 +300,15 @@ class TestPerformance:
         # Warm up
         iit.calculate_phi(active_state)
 
-        start = time.perf_counter()
         iterations = 50
+        timings = []
         for _ in range(iterations):
+            start = time.perf_counter()
             iit.calculate_phi(active_state)
-        avg_ms = (time.perf_counter() - start) * 1000 / iterations
+            timings.append((time.perf_counter() - start) * 1000)
 
-        assert avg_ms < 50, f"φ computation averaged {avg_ms:.1f} ms (target < 50 ms)"
+        avg_ms = sum(timings) / len(timings)
+        max_ms = max(timings)
+
+        assert avg_ms < 50, f"φ avg {avg_ms:.1f} ms exceeds 50 ms target"
+        assert max_ms < 50, f"φ worst-case {max_ms:.1f} ms exceeds 50 ms target"

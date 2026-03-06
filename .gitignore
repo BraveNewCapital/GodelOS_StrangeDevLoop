@@ -311,3 +311,4 @@ data/
 # Diagnostic script output (plots)
 diagnostic_output/
 godelos_data/
+query_*test*.json
