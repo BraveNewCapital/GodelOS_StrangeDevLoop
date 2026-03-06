@@ -4,8 +4,14 @@
   import { transparencyMode } from '../../stores/transparency.js';
   import { WS_BASE_URL, API_BASE_URL } from '../../config.js';
 
+  // --- Constants ---
+  const WS_RECONNECT_DELAY_MS = 5000;
+  const MAX_REASONING_STEPS = 200;
+  const STEP_GROUPING_WINDOW_SECONDS = 2;
+
   // --- State ---
   let activeTab = 'reasoning'; // 'reasoning' | 'decisions' | 'cognitive-map'
+  let idCounter = 0;
 
   // Reasoning trace (live via WebSocket)
   let reasoningSteps = [];
@@ -26,6 +32,7 @@
   let mapLoading = false;
   let svgEl = null;
   let simulation = null;
+  let d3Cached = null;
 
   // Errors
   let error = null;
@@ -76,12 +83,13 @@
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
       connectWS();
-    }, 5000);
+    }, WS_RECONNECT_DELAY_MS);
   }
 
   function handleWSMessage(msg) {
+    idCounter += 1;
     const step = {
-      id: Date.now() + Math.random(),
+      id: `ws-${Date.now()}-${idCounter}`,
       timestamp: msg.timestamp || Date.now() / 1000,
       type: msg.type || 'event',
       description: msg.data?.description || msg.data?.event_type || msg.type || 'Unknown',
@@ -90,15 +98,15 @@
       children: []
     };
 
-    // Group by type — nest under parent if same type within 2s
+    // Group by type — nest under parent if same type within grouping window
     const parent = reasoningSteps.find(
-      s => s.type === step.type && (step.timestamp - s.timestamp) < 2
+      s => s.type === step.type && (step.timestamp - s.timestamp) < STEP_GROUPING_WINDOW_SECONDS
     );
     if (parent) {
       parent.children = [...parent.children, step];
       reasoningSteps = [...reasoningSteps]; // trigger reactivity
     } else {
-      reasoningSteps = [step, ...reasoningSteps].slice(0, 200);
+      reasoningSteps = [step, ...reasoningSteps].slice(0, MAX_REASONING_STEPS);
     }
   }
 
@@ -111,8 +119,9 @@
 
       if (data.traces) {
         for (const trace of data.traces) {
+          const traceId = trace.trace_id || `trace-${Date.now()}`;
           const steps = (trace.steps || []).map((s, i) => ({
-            id: `http-${trace.trace_id}-${i}`,
+            id: `http-${traceId}-${i}`,
             timestamp: Date.now() / 1000,
             type: s.type || 'step',
             description: s.description || `Step ${s.step}`,
@@ -124,7 +133,7 @@
           const existingIds = new Set(reasoningSteps.map(s => s.id));
           const newSteps = steps.filter(s => !existingIds.has(s.id));
           if (newSteps.length > 0) {
-            reasoningSteps = [...newSteps, ...reasoningSteps].slice(0, 200);
+            reasoningSteps = [...newSteps, ...reasoningSteps].slice(0, MAX_REASONING_STEPS);
           }
         }
       }
@@ -186,8 +195,11 @@
   async function renderForceGraph() {
     if (!svgEl || mapNodes.length === 0) return;
 
-    // Dynamic import of d3 (tree-shake friendly)
-    const d3 = await import('d3');
+    // Cache d3 import to avoid repeated dynamic imports
+    if (!d3Cached) {
+      d3Cached = await import('d3');
+    }
+    const d3 = d3Cached;
 
     const width = svgEl.clientWidth || 700;
     const height = svgEl.clientHeight || 500;
@@ -205,6 +217,9 @@
     // Validate links reference existing nodes
     const nodeIds = new Set(nodes.map(n => n.id));
     const validLinks = links.filter(l => nodeIds.has(l.source) && nodeIds.has(l.target));
+    if (validLinks.length < links.length) {
+      console.warn(`Cognitive map: filtered ${links.length - validLinks.length} invalid link(s) referencing missing nodes`);
+    }
 
     if (simulation) simulation.stop();
     simulation = d3.forceSimulation(nodes)
