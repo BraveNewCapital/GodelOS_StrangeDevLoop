@@ -2047,16 +2047,29 @@ async def get_knowledge_concepts():
 @app.get("/api/knowledge/graph")
 async def get_knowledge_graph():
     """Get the UNIFIED knowledge graph structure - single source of truth."""
+    _empty = {
+        "nodes": [],
+        "edges": [],
+        "metadata": {
+            "node_count": 0,
+            "edge_count": 0,
+            "last_updated": datetime.now().isoformat(),
+            "data_source": "system_not_ready",
+        },
+    }
     try:
-        # Import here to avoid circular dependency
-        from backend.cognitive_transparency_integration import cognitive_transparency_api
-        
+        # Import here to avoid circular dependency; may fail if optional deps absent
+        try:
+            from backend.cognitive_transparency_integration import cognitive_transparency_api
+        except Exception:
+            cognitive_transparency_api = None
+
         # UNIFIED SYSTEM: Only one knowledge graph source
-        if cognitive_transparency_api and cognitive_transparency_api.knowledge_graph:
+        if cognitive_transparency_api and getattr(cognitive_transparency_api, "knowledge_graph", None):
             try:
                 # Get dynamic graph data from the UNIFIED transparency system
                 graph_data = await cognitive_transparency_api.knowledge_graph.export_graph()
-                
+
                 # Return unified format
                 return {
                     "nodes": graph_data.get("nodes", []),
@@ -2065,28 +2078,23 @@ async def get_knowledge_graph():
                         "node_count": len(graph_data.get("nodes", [])),
                         "edge_count": len(graph_data.get("edges", [])),
                         "last_updated": datetime.now().isoformat(),
-                        "data_source": "unified_dynamic_transparency_system"
-                    }
+                        "data_source": "unified_dynamic_transparency_system",
+                    },
                 }
+            except HTTPException:
+                raise
             except Exception as e:
                 logger.warning(f"Failed to get unified dynamic knowledge graph: {e}")
-                # Re-raise the error instead of falling back to static data
-                raise HTTPException(status_code=500, detail=f"Knowledge graph error: {str(e)}")
+                _empty["metadata"]["error"] = str(e)
+                return _empty
         else:
-            # System not ready - return empty graph, NO STATIC FALLBACK
+            # System not ready — return empty graph gracefully
             logger.warning("Cognitive transparency system not initialized")
-            return {
-                "nodes": [],
-                "edges": [],
-                "metadata": {
-                    "node_count": 0,
-                    "edge_count": 0,
-                    "last_updated": datetime.now().isoformat(),
-                    "data_source": "system_not_ready",
-                    "error": "Cognitive transparency system not initialized"
-                }
-            }
-        
+            _empty["metadata"]["error"] = "Cognitive transparency system not initialized"
+            return _empty
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error retrieving unified knowledge graph: {e}")
         raise HTTPException(status_code=500, detail=f"Knowledge graph error: {str(e)}")
