@@ -14,9 +14,15 @@ import time
 from godelOS.core_kr.ast.nodes import AST_Node
 from godelOS.core_kr.type_system.manager import TypeSystemManager
 
-from godelOS.nlu_nlg.nlu.lexical_analyzer_parser import (
-    LexicalAnalyzerParser, SyntacticParseOutput
-)
+try:
+    from godelOS.nlu_nlg.nlu.lexical_analyzer_parser import (
+        LexicalAnalyzerParser, SyntacticParseOutput
+    )
+    _LAP_AVAILABLE = True
+except (ImportError, Exception):
+    LexicalAnalyzerParser = None  # type: ignore[assignment,misc]
+    SyntacticParseOutput = None  # type: ignore[assignment,misc]
+    _LAP_AVAILABLE = False
 from godelOS.nlu_nlg.nlu.semantic_interpreter import (
     SemanticInterpreter, IntermediateSemanticRepresentation
 )
@@ -78,7 +84,14 @@ class NLUPipeline:
         self.logger = logging.getLogger(__name__)
         
         # Initialize the pipeline components
-        self.lexical_analyzer_parser = LexicalAnalyzerParser()
+        if _LAP_AVAILABLE and LexicalAnalyzerParser is not None:
+            self.lexical_analyzer_parser = LexicalAnalyzerParser()
+        else:
+            self.lexical_analyzer_parser = None
+            self.logger.warning(
+                "LexicalAnalyzerParser unavailable (spaCy not installed); "
+                "NLU pipeline running in degraded mode."
+            )
         self.semantic_interpreter = SemanticInterpreter()
         self.formalizer = Formalizer(type_system)
         self.discourse_manager = DiscourseStateManager()
@@ -111,6 +124,10 @@ class NLUPipeline:
         
         try:
             # Step 1: Lexical Analysis and Syntactic Parsing
+            if self.lexical_analyzer_parser is None:
+                result.errors.append("NLU running in degraded mode: spaCy not installed")
+                result.success = False
+                return result
             lap_start = time.time()
             syntactic_parse = self.lexical_analyzer_parser.process(text)
             lap_end = time.time()
