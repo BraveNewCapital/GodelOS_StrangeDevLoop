@@ -14,6 +14,25 @@ from godelOS.cognitive_pipeline import CognitivePipeline
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Optional-dependency guards
+# ---------------------------------------------------------------------------
+
+def _spacy_available() -> bool:
+    """Return True if spaCy and the en_core_web_sm model are installed."""
+    try:
+        import spacy
+        spacy.load("en_core_web_sm")
+        return True
+    except (ImportError, OSError):
+        return False
+
+_HAS_SPACY = _spacy_available()
+requires_spacy = pytest.mark.skipif(
+    not _HAS_SPACY,
+    reason="spaCy or en_core_web_sm model not available",
+)
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -102,6 +121,7 @@ class TestSubsystemActivation:
 # 2. NLU pipeline processes text
 # ---------------------------------------------------------------------------
 
+@requires_spacy
 class TestNLUPipeline:
     """The NLU pipeline should accept text and produce structured output."""
 
@@ -265,6 +285,7 @@ class TestEndToEndFlow:
     """A query should traverse NLU → KS → Inference → Context → NLG
     without silently dropping at any junction."""
 
+    @requires_spacy
     def test_nlu_to_knowledge_store(self, pipeline):
         """NLU output can be stored in the knowledge store."""
         nlu = pipeline.get_instance("nlu_pipeline")

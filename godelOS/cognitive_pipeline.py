@@ -90,9 +90,17 @@ class CognitivePipeline:
     # ------------------------------------------------------------------
 
     def _register(self, name: str, factory: Callable[[], Any]) -> Any:
-        """Run *factory*, record the result, and return the instance."""
+        """Run *factory*, record the result, and return the instance.
+
+        If the factory returns ``None`` (e.g. because a dependency is
+        unavailable), the subsystem is recorded as ``error`` so that
+        ``get_subsystem_status`` never reports ``active`` with a ``None``
+        instance.
+        """
         try:
             instance = factory()
+            if instance is None:
+                raise RuntimeError("dependency unavailable")
             self._subsystems[name] = {"status": "active", "instance": instance}
             logger.info("  ✔ %s activated", name)
             return instance
