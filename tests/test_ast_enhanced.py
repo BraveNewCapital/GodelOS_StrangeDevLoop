@@ -202,7 +202,10 @@ class TestASTNodesEnhanced(unittest.TestCase):
         # First operand should be Loves(?y, ?y)
         first_app = inner_and.operands[0]
         self.assertIsInstance(first_app, ApplicationNode)
-def test_visitor_pattern_with_complex_transformations(self):
+
+class TestASTNodesAdditional:
+    """Additional AST tests — originally orphaned top-level functions."""
+    def test_visitor_pattern_with_complex_transformations(self):
         """Test the visitor pattern with complex AST transformations.
         
         This test verifies that the visitor pattern can be used to perform
@@ -295,7 +298,7 @@ def test_visitor_pattern_with_complex_transformations(self):
         folder = ConstantFolding()
         optimized_expr = expr.accept(folder)
         
-def test_modal_logic_operators(self):
+    def test_modal_logic_operators(self):
         """Test modal logic operators with complex nested structures.
         
         This test verifies that modal operators correctly handle nested structures
@@ -356,7 +359,7 @@ def test_modal_logic_operators(self):
             
             def visit_lambda(self, node: LambdaNode) -> int:
                 return node.body.accept(self)
-def test_definition_node_with_complex_body(self):
+    def test_definition_node_with_complex_body(self):
         """Test DefinitionNode with complex definition bodies.
         
         This test verifies that DefinitionNode correctly handles complex definition
@@ -404,7 +407,7 @@ def test_definition_node_with_complex_body(self):
         
         # The result should still be the same as the original definition
         self.assertEqual(affecting_result, definition)
-def test_ast_node_metadata_inheritance(self):
+    def test_ast_node_metadata_inheritance(self):
         """Test metadata inheritance during AST node transformations.
         
         This test verifies that metadata is correctly inherited during
@@ -452,7 +455,7 @@ def test_ast_node_metadata_inheritance(self):
         new_human_x = human_x.with_updated_metadata(completely_new_metadata)
         
         self.assertEqual(new_human_x.metadata["new_source"], "inference")
-def test_performance_critical_operations(self):
+    def test_performance_critical_operations(self):
         """Test performance of critical AST operations.
         
         This test measures the performance of critical operations like
@@ -520,7 +523,7 @@ def test_performance_critical_operations(self):
         
         print(f"Traversal time for {count} nodes: {traversal_time * 1000:.2f} ms")
         
-def test_contains_variable_edge_cases(self):
+    def test_contains_variable_edge_cases(self):
         """Test edge cases for the contains_variable method.
         
         This test verifies that the contains_variable method correctly handles
@@ -585,5 +588,5 @@ def test_contains_variable_edge_cases(self):
         self.assertTrue(lambda_x_p_x_y.contains_variable(y_var))
 
 
-if __name__ == "__main__":
+    if __name__ == "__main__":
     unittest.main()
