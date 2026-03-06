@@ -7,6 +7,7 @@ knowledge base backend(s).
 """
 
 from typing import Dict, List, Optional, Set, Tuple, Any, DefaultDict
+import os
 import uuid
 import threading
 from collections import defaultdict
@@ -638,25 +639,54 @@ class KnowledgeStoreInterface:
     unification_engine: "UnificationEngine" = None  # type: ignore[assignment]
     
     def __init__(self, type_system: TypeSystemManager, 
-                 cache_manager: Optional[CachingMemoizationLayer] = None):
+                 cache_manager: Optional[CachingMemoizationLayer] = None,
+                 backend: Optional[str] = None,
+                 db_path: Optional[str] = None):
         """
         Initialize the knowledge store interface.
         
         Args:
             type_system: The type system manager
             cache_manager: Optional caching and memoization layer
+            backend: Backend type (``"memory"`` or ``"sqlite"``).  Defaults
+                     to the ``KNOWLEDGE_STORE_BACKEND`` env-var, falling back
+                     to ``"memory"``.
+            db_path: Path to the SQLite database file.  Only used when
+                     *backend* is ``"sqlite"``.  Defaults to the
+                     ``KNOWLEDGE_STORE_PATH`` env-var, falling back to
+                     ``"./data/knowledge.db"``.
         """
         self.type_system = type_system
         self.cache_manager = cache_manager or CachingMemoizationLayer()
         self.unification_engine = UnificationEngine(type_system)
         
-        # Initialize the backend
-        self._backend = InMemoryKnowledgeStore(self.unification_engine)
+        # Resolve backend choice from explicit arg → env-var → default
+        chosen_backend = (
+            backend
+            or os.environ.get("KNOWLEDGE_STORE_BACKEND", "memory")
+        ).lower()
+
+        if chosen_backend == "sqlite":
+            from godelOS.core_kr.knowledge_store.sqlite_store import SQLiteKnowledgeStore
+
+            resolved_path = db_path or os.environ.get(
+                "KNOWLEDGE_STORE_PATH", "./data/knowledge.db"
+            )
+            self._backend: KnowledgeStoreBackend = SQLiteKnowledgeStore(
+                self.unification_engine, db_path=resolved_path
+            )
+        else:
+            self._backend = InMemoryKnowledgeStore(self.unification_engine)
         
-        # Initialize default contexts
-        self._backend.create_context("TRUTHS", None, "truths")
-        self._backend.create_context("BELIEFS", None, "beliefs")
-        self._backend.create_context("HYPOTHETICAL", None, "hypothetical")
+        # Initialize default contexts (only if they don't already exist,
+        # which matters for a persisted SQLite backend across restarts).
+        existing = set(self._backend.list_contexts())
+        if "TRUTHS" not in existing:
+            self._backend.create_context("TRUTHS", None, "truths")
+        if "BELIEFS" not in existing:
+            self._backend.create_context("BELIEFS", None, "beliefs")
+        if "HYPOTHETICAL" not in existing:
+            self._backend.create_context("HYPOTHETICAL", None, "hypothetical")
     
     def add_statement(self, statement_ast: AST_Node, context_id: str = "TRUTHS", 
                      metadata: Optional[Dict[str, Any]] = None) -> bool:
