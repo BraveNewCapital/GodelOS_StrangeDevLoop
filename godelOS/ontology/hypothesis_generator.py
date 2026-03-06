@@ -169,7 +169,9 @@ class HypothesisGenerator:
                     "predictions": self._generate_predictions(concept_id, context)
                 }
                 
-                hypotheses.append(hypothesis)
+                # Also check constraints for fallback hypotheses
+                if self._is_consistent_with_constraints(hypothesis, constraints):
+                    hypotheses.append(hypothesis)
         
         return hypotheses
     

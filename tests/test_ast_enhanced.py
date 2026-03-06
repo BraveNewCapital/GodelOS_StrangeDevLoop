@@ -321,7 +321,7 @@ class TestASTNodesAdditional(unittest.TestCase):
         """
         # Create variables and constants
         x_var = VariableNode("?x", 1, self.entity_type)
-        a_const = ConstantNode("a", self.entity_type)
+        a_var = VariableNode("?a", 2, self.entity_type)
         
         # Create a predicate
         p_pred = ConstantNode("P", self.unary_pred_type)
@@ -329,15 +329,15 @@ class TestASTNodesAdditional(unittest.TestCase):
         # Create an application: P(?x)
         p_x = ApplicationNode(p_pred, [x_var], self.boolean_type)
         
-        # Create modal operators: K_a(P(?x)) - "a knows P(?x)"
-        knows_a_p_x = ModalOpNode("KNOWS", p_x, self.boolean_type, a_const)
+        # Create modal operators: K_?a(P(?x)) - "?a knows P(?x)"
+        knows_a_p_x = ModalOpNode("KNOWS", p_x, self.boolean_type, a_var)
         
-        # Create nested modal operators: B_a(K_a(P(?x))) - "a believes that a knows P(?x)"
-        believes_a_knows_p_x = ModalOpNode("BELIEVES", knows_a_p_x, self.boolean_type, a_const)
+        # Create nested modal operators: B_?a(K_?a(P(?x))) - "?a believes that ?a knows P(?x)"
+        believes_a_knows_p_x = ModalOpNode("BELIEVES", knows_a_p_x, self.boolean_type, a_var)
         
         # Test substitution
         b_const = ConstantNode("b", self.entity_type)
-        substitution = {a_const: b_const}
+        substitution = {a_var: b_const}
         
         result = believes_a_knows_p_x.substitute(substitution)
         

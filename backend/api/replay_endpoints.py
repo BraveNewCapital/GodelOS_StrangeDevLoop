@@ -14,7 +14,8 @@ logger = logging.getLogger(__name__)
 def setup_replay_endpoints(app, cognitive_manager):
     """Setup replay harness API endpoints."""
     
-    from backend.core.query_replay_harness import replay_harness, ReplayStatus
+    import backend.core.query_replay_harness as _harness_mod
+    ReplayStatus = _harness_mod.ReplayStatus
     
     @app.get("/api/v1/replay/recordings")
     async def list_recordings(
@@ -24,7 +25,7 @@ def setup_replay_endpoints(app, cognitive_manager):
         """List available query recordings."""
         try:
             filter_tags = tags.split(',') if tags else None
-            recordings = replay_harness.list_recordings(tags=filter_tags, limit=limit)
+            recordings = _harness_mod.replay_harness.list_recordings(tags=filter_tags, limit=limit)
             
             return {
                 "status": "success",
@@ -42,7 +43,7 @@ def setup_replay_endpoints(app, cognitive_manager):
     async def get_recording(recording_id: str):
         """Get details of a specific recording."""
         try:
-            recording = replay_harness.load_recording(recording_id)
+            recording = _harness_mod.replay_harness.load_recording(recording_id)
             
             if not recording:
                 raise HTTPException(status_code=404, detail=f"Recording not found: {recording_id}")
@@ -74,12 +75,12 @@ def setup_replay_endpoints(app, cognitive_manager):
                 raise HTTPException(status_code=503, detail="Cognitive manager not available")
             
             # Check if recording exists
-            recording = replay_harness.load_recording(recording_id)
+            recording = _harness_mod.replay_harness.load_recording(recording_id)
             if not recording:
                 raise HTTPException(status_code=404, detail=f"Recording not found: {recording_id}")
             
             # Start replay
-            replay_result = await replay_harness.replay_query(
+            replay_result = await _harness_mod.replay_harness.replay_query(
                 recording_id=recording_id,
                 cognitive_manager=cognitive_manager,
                 compare_results=compare_results,
@@ -108,7 +109,7 @@ def setup_replay_endpoints(app, cognitive_manager):
     async def get_replay_status(replay_id: str):
         """Get the status of a replay operation."""
         try:
-            status = replay_harness.get_replay_status(replay_id)
+            status = _harness_mod.replay_harness.get_replay_status(replay_id)
             
             if not status:
                 raise HTTPException(status_code=404, detail=f"Replay not found: {replay_id}")
@@ -128,7 +129,7 @@ def setup_replay_endpoints(app, cognitive_manager):
     async def analyze_recording(recording_id: str):
         """Analyze a recording to extract insights and patterns."""
         try:
-            recording = replay_harness.load_recording(recording_id)
+            recording = _harness_mod.replay_harness.load_recording(recording_id)
             if not recording:
                 raise HTTPException(status_code=404, detail=f"Recording not found: {recording_id}")
             
@@ -152,7 +153,7 @@ def setup_replay_endpoints(app, cognitive_manager):
         """Get statistics about recordings and replays."""
         try:
             # Get all recordings
-            all_recordings = replay_harness.list_recordings(limit=1000)
+            all_recordings = _harness_mod.replay_harness.list_recordings(limit=1000)
             
             # Calculate statistics
             total_recordings = len(all_recordings)
@@ -209,7 +210,7 @@ def setup_replay_endpoints(app, cognitive_manager):
             # Find and delete the recording file
             from pathlib import Path
             
-            recording_files = list(replay_harness.storage_path.glob(f"{recording_id}_*.json"))
+            recording_files = list(_harness_mod.replay_harness.storage_path.glob(f"{recording_id}_*.json"))
             
             if not recording_files:
                 raise HTTPException(status_code=404, detail=f"Recording not found: {recording_id}")
@@ -241,22 +242,22 @@ def setup_replay_endpoints(app, cognitive_manager):
             settings_updated = {}
             
             if enable_recording is not None:
-                replay_harness.enable_recording = enable_recording
+                _harness_mod.replay_harness.enable_recording = enable_recording
                 settings_updated["enable_recording"] = enable_recording
             
             if max_recordings is not None:
-                replay_harness.max_recordings = max_recordings
+                _harness_mod.replay_harness.max_recordings = max_recordings
                 settings_updated["max_recordings"] = max_recordings
             
             if auto_cleanup_days is not None:
-                replay_harness.auto_cleanup_days = auto_cleanup_days
+                _harness_mod.replay_harness.auto_cleanup_days = auto_cleanup_days
                 settings_updated["auto_cleanup_days"] = auto_cleanup_days
             
             # Get current settings
             current_settings = {
-                "enable_recording": replay_harness.enable_recording,
-                "max_recordings": replay_harness.max_recordings,
-                "auto_cleanup_days": replay_harness.auto_cleanup_days
+                "enable_recording": _harness_mod.replay_harness.enable_recording,
+                "max_recordings": _harness_mod.replay_harness.max_recordings,
+                "auto_cleanup_days": _harness_mod.replay_harness.auto_cleanup_days
             }
             
             return {

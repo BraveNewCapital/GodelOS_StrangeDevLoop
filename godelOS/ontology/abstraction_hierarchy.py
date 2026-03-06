@@ -603,3 +603,78 @@ class AbstractionHierarchyModule:
             all_specializations.update(lower_specializations)
         
         return all_specializations
+
+    # Consistency checking methods
+
+    def check_hierarchy_consistency(self, hierarchy_id: str) -> List[Dict[str, Any]]:
+        """
+        Check the consistency of an abstraction hierarchy.
+
+        Verifies that:
+        - All referenced concepts exist in the ontology.
+        - Abstraction relations satisfy level ordering (specific < abstract).
+
+        Args:
+            hierarchy_id: Identifier of the hierarchy.
+
+        Returns:
+            A list of inconsistency descriptions.  Empty list means consistent.
+        """
+        inconsistencies: List[Dict[str, Any]] = []
+
+        if hierarchy_id not in self._hierarchies:
+            inconsistencies.append({
+                "type": "missing_hierarchy",
+                "message": f"Hierarchy {hierarchy_id} does not exist",
+            })
+            return inconsistencies
+
+        # Check concept existence
+        for level, concept_ids in self._abstraction_levels.get(hierarchy_id, {}).items():
+            for cid in concept_ids:
+                if cid not in self._ontology_manager.get_all_concepts():
+                    inconsistencies.append({
+                        "type": "missing_concept",
+                        "concept_id": cid,
+                        "level": level,
+                        "message": f"Concept {cid} at level {level} not found in ontology",
+                    })
+
+        # Check level ordering of abstraction relations
+        abstractions = self._concept_abstractions.get(hierarchy_id, {})
+        for specific_id, abstract_map in abstractions.items():
+            specific_level = self.get_concept_level(hierarchy_id, specific_id)
+            for abstract_id in abstract_map:
+                abstract_level = self.get_concept_level(hierarchy_id, abstract_id)
+                if specific_level is not None and abstract_level is not None:
+                    if specific_level >= abstract_level:
+                        inconsistencies.append({
+                            "type": "level_ordering",
+                            "specific": specific_id,
+                            "abstract": abstract_id,
+                            "specific_level": specific_level,
+                            "abstract_level": abstract_level,
+                            "message": (
+                                f"Specific concept {specific_id} (level {specific_level}) "
+                                f"must be below abstract concept {abstract_id} (level {abstract_level})"
+                            ),
+                        })
+
+        return inconsistencies
+
+    def repair_hierarchy_consistency(self, hierarchy_id: str) -> int:
+        """
+        Attempt to repair inconsistencies in a hierarchy.
+
+        Returns:
+            Number of repairs performed.
+        """
+        repairs = 0
+        inconsistencies = self.check_hierarchy_consistency(hierarchy_id)
+        for issue in inconsistencies:
+            if issue["type"] == "missing_concept":
+                cid = issue["concept_id"]
+                level = issue["level"]
+                self.remove_concept_from_level(hierarchy_id, cid, level)
+                repairs += 1
+        return repairs

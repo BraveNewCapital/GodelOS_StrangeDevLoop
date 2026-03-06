@@ -80,6 +80,11 @@ class QueryRecording:
     metadata: Dict[str, Any]
     tags: List[str]
 
+    @property
+    def correlation_id(self) -> Optional[str]:
+        """Return correlation_id stored in metadata."""
+        return self.metadata.get("correlation_id")
+
 
 @dataclass
 class ReplayResult:
@@ -239,8 +244,14 @@ class QueryReplayHarness:
         filepath = self.storage_path / filename
         
         try:
+            def _json_serializer(obj):
+                """Custom JSON serializer for dataclass fields."""
+                if isinstance(obj, ProcessingStep):
+                    return obj.value
+                return str(obj)
+            
             with open(filepath, 'w') as f:
-                json.dump(asdict(recording), f, indent=2, default=str)
+                json.dump(asdict(recording), f, indent=2, default=_json_serializer)
             
             logger.info(f"Saved recording {recording.recording_id} to {filepath}")
             
@@ -378,7 +389,7 @@ class QueryReplayHarness:
         """List available recordings with optional filtering."""
         recordings = []
         
-        for filepath in self.storage_path.glob("rec_*.json"):
+        for filepath in self.storage_path.glob("rec*.json"):
             try:
                 with open(filepath, 'r') as f:
                     data = json.load(f)
@@ -476,8 +487,23 @@ class QueryReplayHarness:
         # Convert steps
         steps = []
         for step_data in data.get('steps', []):
+            # Handle enum deserialization from various serialization formats
+            raw_step_type = step_data['step_type']
+            if isinstance(raw_step_type, ProcessingStep):
+                step_type = raw_step_type
+            elif isinstance(raw_step_type, str):
+                # Try direct value first, then name-based lookup
+                try:
+                    step_type = ProcessingStep(raw_step_type)
+                except ValueError:
+                    # Handle "ProcessingStep.CONTEXT_GATHERING" format
+                    name = raw_step_type.split('.')[-1] if '.' in raw_step_type else raw_step_type
+                    step_type = ProcessingStep[name]
+            else:
+                step_type = ProcessingStep(str(raw_step_type))
+
             step = RecordedStep(
-                step_type=ProcessingStep(step_data['step_type']),
+                step_type=step_type,
                 timestamp=step_data['timestamp'],
                 duration_ms=step_data['duration_ms'],
                 input_data=step_data['input_data'],
@@ -541,8 +567,8 @@ class QueryReplayHarness:
             repl_sources = set(replay.get("sources", []))
             if orig_sources or repl_sources:
                 intersection = orig_sources & repl_sources
-                union = orig_sources | repl_sources
-                comparison["sources_overlap"] = len(intersection) / max(len(union), 1)
+                max_len = max(len(orig_sources), len(repl_sources))
+                comparison["sources_overlap"] = len(intersection) / max(max_len, 1)
 
             # Key differences
             all_keys = set(original.keys()) | set(replay.keys())
@@ -609,7 +635,7 @@ class QueryReplayHarness:
             cutoff_time = current_time - (self.auto_cleanup_days * 24 * 3600)
             
             deleted_count = 0
-            for filepath in self.storage_path.glob("rec_*.json"):
+            for filepath in self.storage_path.glob("rec*.json"):
                 # Extract timestamp from filename
                 try:
                     timestamp_str = filepath.stem.split('_')[-1]

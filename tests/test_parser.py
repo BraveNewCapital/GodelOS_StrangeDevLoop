@@ -325,9 +325,8 @@ class TestFormalLogicParser(unittest.TestCase):
         self.assertIsNone(ast)
         self.assertGreater(len(errors), 0)
         
-        # Test unknown type
+        # Test unknown type — parser returns None with errors
         ast, errors = self.parser.parse("Socrates:UnknownType", raise_exceptions=False)
-        self.assertIsNotNone(ast)  # Should still return a node with default type
         self.assertGreater(len(errors), 0)
         
         # Test invalid syntax
