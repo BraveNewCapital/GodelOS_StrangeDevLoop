@@ -3105,11 +3105,12 @@ async def import_knowledge_batch(request: dict):
     """Batch import knowledge from multiple sources."""
     sources = request.get("sources", [])
     if not sources:
-        return {"import_ids": [], "batch_size": 0, "status": "queued"}
+        return {"import_ids": [], "batch_size": 0, "status": "completed"}
 
     import_ids = []
     for i, source in enumerate(sources):
         src_type = source.get("type", "text")
+        fallback_id = f"batch_{i}_{int(time.time()*1000)}"
         try:
             if KNOWLEDGE_SERVICES_AVAILABLE and knowledge_ingestion_service:
                 from backend.knowledge_models import (
@@ -3148,10 +3149,10 @@ async def import_knowledge_batch(request: dict):
                     iid = await knowledge_ingestion_service.import_from_text(req)
                 import_ids.append(iid)
             else:
-                import_ids.append(f"batch_{i}_{int(time.time()*1000)}")
+                import_ids.append(fallback_id)
         except Exception as exc:
             logger.warning(f"Batch item {i} failed: {exc}")
-            import_ids.append(f"batch_{i}_{int(time.time()*1000)}")
+            import_ids.append(fallback_id)
 
     return {"import_ids": import_ids, "batch_size": len(import_ids), "status": "queued"}
 

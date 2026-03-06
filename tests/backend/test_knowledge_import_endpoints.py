@@ -260,6 +260,7 @@ class TestKnowledgeImportBatch:
         assert resp.status_code == 200
         body = resp.json()
         assert body["batch_size"] == 0
+        assert body["status"] == "completed"
 
     @pytest.mark.asyncio
     async def test_batch_import_url_type(self, patched_app):
