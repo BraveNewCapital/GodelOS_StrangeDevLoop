@@ -203,8 +203,23 @@ class TestASTNodesEnhanced(unittest.TestCase):
         first_app = inner_and.operands[0]
         self.assertIsInstance(first_app, ApplicationNode)
 
-class TestASTNodesAdditional:
+class TestASTNodesAdditional(unittest.TestCase):
     """Additional AST tests — originally orphaned top-level functions."""
+
+    def setUp(self):
+        """Set up the test case with types and helper nodes."""
+        self.type_system = TypeSystemManager()
+        self.entity_type = self.type_system.get_type("Entity")
+        self.boolean_type = self.type_system.get_type("Boolean")
+        self.integer_type = self.type_system.get_type("Integer")
+        self.real_type = self.type_system.get_type("Real")
+
+        self.unary_pred_type = FunctionType([self.entity_type], self.boolean_type)
+        self.binary_pred_type = FunctionType([self.entity_type, self.entity_type], self.boolean_type)
+        self.ternary_pred_type = FunctionType([self.entity_type, self.entity_type, self.entity_type], self.boolean_type)
+        self.numeric_func_type = FunctionType([self.integer_type], self.integer_type)
+        self.binary_numeric_func_type = FunctionType([self.integer_type, self.integer_type], self.integer_type)
+
     def test_visitor_pattern_with_complex_transformations(self):
         """Test the visitor pattern with complex AST transformations.
         

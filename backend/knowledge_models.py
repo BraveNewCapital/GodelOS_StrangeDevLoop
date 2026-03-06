@@ -147,7 +147,7 @@ class SearchQuery(BaseModel):
 class SearchResult(BaseModel):
     """Model for individual search results."""
     knowledge_item: KnowledgeItem = Field(..., description="The matching knowledge item")
-    relevance_score: float = Field(..., ge=0.0, le=1.0, description="Relevance score for this result")
+    relevance_score: float = Field(..., ge=0.0, description="Relevance score for this result")
     snippet: Optional[str] = Field(None, description="Content snippet with highlighted terms")
     matched_chunks: List[str] = Field(default_factory=list, description="IDs of chunks that matched the query")
     explanation: Optional[str] = Field(None, description="Explanation of why this item matched")

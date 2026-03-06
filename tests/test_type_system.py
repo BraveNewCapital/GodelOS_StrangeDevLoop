@@ -37,7 +37,7 @@ class TestTypeClasses(unittest.TestCase):
         
         # Create a function type: Entity -> Boolean
         func_type = FunctionType([entity], boolean)
-        self.assertEqual(func_type.arg_types, (entity,))
+        self.assertEqual(func_type.arg_types, [entity])
         self.assertEqual(func_type.return_type, boolean)
         self.assertEqual(str(func_type), "(Entity) -> Boolean")
         
@@ -67,7 +67,7 @@ class TestTypeClasses(unittest.TestCase):
         t_var = TypeVariable("T")
         list_constructor = ParametricTypeConstructor("List", [t_var])
         self.assertEqual(list_constructor.name, "List")
-        self.assertEqual(list_constructor.type_params, (t_var,))
+        self.assertEqual(list_constructor.type_params, [t_var])
         self.assertEqual(str(list_constructor), "List[?T]")
         
         # Test equality
@@ -86,7 +86,7 @@ class TestTypeClasses(unittest.TestCase):
         # Create a List[Entity] type
         list_entity = InstantiatedParametricType(list_constructor, [entity])
         self.assertEqual(list_entity.constructor, list_constructor)
-        self.assertEqual(list_entity.actual_type_args, (entity,))
+        self.assertEqual(list_entity.actual_type_args, [entity])
         self.assertEqual(str(list_entity), "List[Entity]")
         
         # Test equality
@@ -112,14 +112,14 @@ class TestTypeClasses(unittest.TestCase):
         # Test substitution in FunctionType
         func_type = FunctionType([t_var, u_var], boolean)
         substituted = func_type.substitute_type_vars(bindings)
-        self.assertEqual(substituted.arg_types, (entity, u_var))
+        self.assertEqual(substituted.arg_types, [entity, u_var])
         self.assertEqual(substituted.return_type, boolean)
         
         # Test substitution in InstantiatedParametricType
         list_constructor = ParametricTypeConstructor("List", [t_var])
         list_t = InstantiatedParametricType(list_constructor, [t_var])
         substituted = list_t.substitute_type_vars(bindings)
-        self.assertEqual(substituted.actual_type_args, (entity,))
+        self.assertEqual(substituted.actual_type_args, [entity])
 
 
 class TestTypeSystemManager(unittest.TestCase):

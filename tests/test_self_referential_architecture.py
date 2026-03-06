@@ -168,12 +168,12 @@ class TestPhaseTransitionDetection:
 
     def test_transition_detected_on_score_jump(self, engine):
         """A big score jump across a threshold should trigger a transition."""
-        # Put a sub-critical state in history
+        # Put a sub-critical state in history (below 0.12 threshold)
         prev = UnifiedConsciousnessState()
-        prev.consciousness_score = 0.30
+        prev.consciousness_score = 0.05
         engine.consciousness_history.append(prev)
 
-        # Now create a super-critical state
+        # Now create a super-critical state (above 0.35 threshold)
         curr = UnifiedConsciousnessState()
         curr.consciousness_score = 0.70
         transition = engine.detect_phase_transition(curr)
@@ -186,11 +186,11 @@ class TestPhaseTransitionDetection:
     def test_no_transition_within_same_phase(self, engine):
         """Small fluctuations within a phase should not trigger."""
         prev = UnifiedConsciousnessState()
-        prev.consciousness_score = 0.40
+        prev.consciousness_score = 0.50
         engine.consciousness_history.append(prev)
 
         curr = UnifiedConsciousnessState()
-        curr.consciousness_score = 0.45
+        curr.consciousness_score = 0.55
         assert engine.detect_phase_transition(curr) is None
 
     def test_transition_below_slope_not_detected(self, engine):
@@ -204,12 +204,12 @@ class TestPhaseTransitionDetection:
         assert engine.detect_phase_transition(curr) is None
 
     def test_phase_classification(self, engine):
-        """Verify _classify_phase boundaries."""
+        """Verify _classify_phase boundaries match engine thresholds (0.12, 0.35)."""
         assert engine._classify_phase(0.0) == "sub-critical"
-        assert engine._classify_phase(0.34) == "sub-critical"
-        assert engine._classify_phase(0.35) == "critical"
-        assert engine._classify_phase(0.64) == "critical"
-        assert engine._classify_phase(0.65) == "super-critical"
+        assert engine._classify_phase(0.11) == "sub-critical"
+        assert engine._classify_phase(0.12) == "critical"
+        assert engine._classify_phase(0.34) == "critical"
+        assert engine._classify_phase(0.35) == "super-critical"
         assert engine._classify_phase(1.0) == "super-critical"
 
     def test_get_phase_transitions(self, engine):

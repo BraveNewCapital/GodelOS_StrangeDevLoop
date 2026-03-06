@@ -50,8 +50,8 @@ class AuthenticationManager(AuthenticationManagerInterface):
             True if authentication succeeds, False otherwise
         """
         async with self.lock:
-            # Check if the session is valid
-            if not await self.validate_session(operation.security_context.session_id):
+            # Check if the session is valid (lock-free internal call)
+            if not self._validate_session_unlocked(operation.security_context.session_id):
                 logger.warning(f"Invalid session for operation {operation.id}")
                 return False
             
@@ -68,6 +68,22 @@ class AuthenticationManager(AuthenticationManagerInterface):
             
             return True
     
+    def _validate_session_unlocked(self, session_id: str) -> bool:
+        """Internal lock-free helper for session validation."""
+        if session_id not in self.active_sessions:
+            return False
+        
+        session = self.active_sessions[session_id]
+        current_time = time.time()
+        
+        # Check if the session has expired
+        if current_time - session["last_activity"] > self.session_timeout:
+            # Remove expired session
+            del self.active_sessions[session_id]
+            return False
+        
+        return True
+
     async def validate_session(self, session_id: str) -> bool:
         """
         Validate a session.
@@ -79,19 +95,7 @@ class AuthenticationManager(AuthenticationManagerInterface):
             True if the session is valid, False otherwise
         """
         async with self.lock:
-            if session_id not in self.active_sessions:
-                return False
-            
-            session = self.active_sessions[session_id]
-            current_time = time.time()
-            
-            # Check if the session has expired
-            if current_time - session["last_activity"] > self.session_timeout:
-                # Remove expired session
-                del self.active_sessions[session_id]
-                return False
-            
-            return True
+            return self._validate_session_unlocked(session_id)
     
     async def create_session(self, user_id: str, roles: List[str]) -> str:
         """
@@ -215,8 +219,8 @@ class PermissionManager(PermissionManagerInterface):
             operation_type = operation.type
             target = operation.target
             
-            # Get the user's permissions
-            user_permissions = await self.get_user_permissions(user_id)
+            # Get the user's permissions (lock-free internal call)
+            user_permissions = self._get_user_permissions_unlocked(user_id)
             
             # Check if the user has the required permission for the target
             if target in user_permissions:
@@ -233,6 +237,25 @@ class PermissionManager(PermissionManagerInterface):
             logger.warning(f"Permission denied for operation {operation.id}: {operation_type} on {target}")
             return False
     
+    def _get_user_permissions_unlocked(self, user_id: str) -> Dict[str, List[str]]:
+        """Internal lock-free helper for computing user permissions."""
+        result: Dict[str, List[str]] = {}
+        
+        roles = self.user_roles.get(user_id, [])
+        
+        for role in roles:
+            if role in self.role_permissions:
+                role_perms = self.role_permissions[role]
+                for target, perms in role_perms.items():
+                    if target not in result:
+                        result[target] = []
+                    result[target].extend(list(perms))
+        
+        for target in result:
+            result[target] = list(set(result[target]))
+        
+        return result
+
     async def get_user_permissions(self, user_id: str) -> Dict[str, List[str]]:
         """
         Get the permissions for a user.
@@ -244,28 +267,7 @@ class PermissionManager(PermissionManagerInterface):
             Dictionary mapping targets to permission types
         """
         async with self.lock:
-            # In a real implementation, this would query a database
-            # For now, we'll use the role-based permissions
-            
-            result: Dict[str, List[str]] = {}
-            
-            # Get the user's roles
-            roles = self.user_roles.get(user_id, [])
-            
-            # Combine permissions from all roles
-            for role in roles:
-                if role in self.role_permissions:
-                    role_perms = self.role_permissions[role]
-                    for target, perms in role_perms.items():
-                        if target not in result:
-                            result[target] = []
-                        result[target].extend(list(perms))
-            
-            # Deduplicate
-            for target in result:
-                result[target] = list(set(result[target]))
-            
-            return result
+            return self._get_user_permissions_unlocked(user_id)
     
     async def add_role_permission(self, role: str, target: str, permission: str) -> bool:
         """

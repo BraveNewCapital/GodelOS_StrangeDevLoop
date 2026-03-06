@@ -359,7 +359,7 @@ class GradientDescentWeightLearning(WeightLearningAlgorithm):
         
         # Get all statements in the training database context
         query_result = self.module.ksi.query_statements_match_pattern(
-            AST_Node(self.module.ksi.type_system.get_type("Entity")),  # A generic pattern that matches anything
+            VariableNode("?_query", 0, self.module.ksi.type_system.get_type("Entity")),  # A generic pattern that matches anything
             [training_database_context_id]
         )
         
