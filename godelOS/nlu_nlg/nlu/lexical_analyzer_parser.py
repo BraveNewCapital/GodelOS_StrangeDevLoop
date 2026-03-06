@@ -14,8 +14,16 @@ downstream components.
 
 from typing import Dict, List, Optional, Tuple, Any, Set
 from dataclasses import dataclass, field
-import spacy
-from spacy.tokens import Doc, Token as SpacyToken
+
+try:
+    import spacy
+    from spacy.tokens import Doc, Token as SpacyToken
+    _SPACY_AVAILABLE = True
+except ImportError:
+    spacy = None  # type: ignore
+    Doc = None  # type: ignore
+    SpacyToken = None  # type: ignore
+    _SPACY_AVAILABLE = False
 
 # Dependency-label heuristic groups for head inference fallback.
 VERB_DEP_LABELS = {
@@ -69,7 +77,7 @@ class Token:
     head_i: Optional[int] = None
     
     @classmethod
-    def from_spacy_token(cls, token: SpacyToken, sent_idx: Optional[int] = None) -> 'Token':
+    def from_spacy_token(cls, token: Any, sent_idx: Optional[int] = None) -> 'Token':
         """
         Create a Token from a spaCy Token.
         
@@ -190,6 +198,11 @@ class LexicalAnalyzerParser:
         Args:
             model_name: The name of the spaCy model to use
         """
+        if not _SPACY_AVAILABLE:
+            raise ImportError(
+                "spaCy is required for LexicalAnalyzerParser. "
+                "Install it with: pip install spacy && python -m spacy download en_core_web_sm"
+            )
         try:
             self.nlp = spacy.load(model_name)
         except OSError:
