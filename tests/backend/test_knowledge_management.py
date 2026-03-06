@@ -570,7 +570,8 @@ class TestKnowledgeIngestion:
             priority=5
         )
         
-        assert str(url_request.url) == "https://example.com/" or str(url_request.url) == "https://example.com"
+        normalized_url = str(url_request.url).rstrip("/")
+        assert normalized_url == "https://example.com"
         assert url_request.source.source_type == "url"
         assert "web" in url_request.categorization_hints
         assert url_request.priority == 5

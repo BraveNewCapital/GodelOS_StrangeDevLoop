@@ -629,10 +629,11 @@ class AbstractionHierarchyModule:
             })
             return inconsistencies
 
-        # Check concept existence
+        # Check concept existence (cache once to avoid repeated copies)
+        all_concepts = self._ontology_manager.get_all_concepts()
         for level, concept_ids in self._abstraction_levels.get(hierarchy_id, {}).items():
             for cid in concept_ids:
-                if cid not in self._ontology_manager.get_all_concepts():
+                if cid not in all_concepts:
                     inconsistencies.append({
                         "type": "missing_concept",
                         "concept_id": cid,

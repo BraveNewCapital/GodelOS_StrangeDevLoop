@@ -157,7 +157,10 @@ class QueryReplayHarness:
             "version": "1.0"
         }
         if metadata:
-            rec_metadata.update(metadata)
+            reserved_keys = {"correlation_id", "created_at", "version"}
+            for key, value in metadata.items():
+                if key not in reserved_keys:
+                    rec_metadata[key] = value
         
         recording = QueryRecording(
             recording_id=recording_id,
@@ -198,6 +201,10 @@ class QueryReplayHarness:
         separate ``input_data`` / ``output_data`` dicts (internal interface).
         The first positional arg can be called ``recording_id`` or ``correlation_id``.
         """
+        if step_type is None:
+            logger.warning("record_step() called without step_type — ignoring")
+            return False
+
         key = recording_id or correlation_id
         if key not in self._active_recordings:
             logger.debug(f"No active recording for key: {key}")
@@ -209,6 +216,9 @@ class QueryReplayHarness:
         _input  = self._sanitize_data(data if data is not None else (input_data or {}))
         _output = self._sanitize_data(data if data is not None else (output_data or {}))
 
+        # Use the recording's actual correlation_id, not the lookup key
+        actual_correlation_id = recording.metadata.get("correlation_id", key)
+
         step = RecordedStep(
             step_type=step_type,
             timestamp=time.time(),
@@ -217,7 +227,7 @@ class QueryReplayHarness:
             output_data=_output,
             metadata=metadata or {},
             error=error,
-            correlation_id=key
+            correlation_id=actual_correlation_id
         )
         
         recording.steps.append(step)
