@@ -52,14 +52,26 @@ class KnowledgeGraphRelationship(BaseModel):
     strength: Optional[float] = 1.0
 
 class ProvenanceQuery(BaseModel):
-    """Provenance query model."""
-    query_type: str
-    target_id: str
+    """Provenance query model.
+
+    Accepts the full set of fields sent by the frontend (max_depth,
+    time_window_start, time_window_end) as well as the original backend
+    fields (include_derivation_chain).
+    """
+    query_type: str = "backward_trace"
+    target_id: str = "default"
+    max_depth: int = 5
+    time_window_start: Optional[float] = None
+    time_window_end: Optional[float] = None
     include_derivation_chain: bool = True
 
 class ProvenanceSnapshot(BaseModel):
-    """Provenance snapshot model."""
-    description: str
+    """Provenance snapshot model.
+
+    ``description`` defaults to empty string so the frontend can POST ``{}``
+    without triggering a 422 validation error.
+    """
+    description: str = ""
     include_quality_metrics: bool = True
 
 class DocumentProcessRequest(BaseModel):

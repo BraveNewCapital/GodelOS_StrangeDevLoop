@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { cognitiveState } from '../../stores/cognitive.js';
   import { enhancedCognitiveState } from '../../stores/enhanced-cognitive.js';
+  import { API_BASE_URL } from '../../config.js';
 
   // Component props
   export let mode = 'normal'; // normal, enhanced, diagnostic
@@ -73,7 +74,7 @@
     
     try {
       // Send to backend
-      const response = await fetch('http://localhost:8000/api/llm-chat/message', {
+      const response = await fetch(`${API_BASE_URL}/api/llm-chat/message`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

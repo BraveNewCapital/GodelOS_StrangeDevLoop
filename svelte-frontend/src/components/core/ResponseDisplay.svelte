@@ -1,6 +1,7 @@
 <script>
   import { createEventDispatcher, onMount } from 'svelte';
   import { cognitiveState } from '../../stores/cognitive.js';
+  import { transparencyMode } from '../../stores/transparency.js';
   import { fade, fly } from 'svelte/transition';
   
   const dispatch = createEventDispatcher();
@@ -165,8 +166,8 @@
             class="action-btn expand-btn"
             on:click={() => toggleExpanded(response.id)}
           >
-            <span class="action-icon">{expandedResponse === response.id ? '▼' : '▶'}</span>
-            {expandedResponse === response.id ? 'Collapse' : 'Details'}
+            <span class="action-icon">{expandedResponse === response.id || $transparencyMode ? '▼' : '▶'}</span>
+            {expandedResponse === response.id || $transparencyMode ? 'Collapse' : 'Details'}
           </button>
           
           <button
@@ -186,10 +187,14 @@
             <span class="action-icon">📤</span>
             Export
           </button>
+
+          {#if $transparencyMode}
+            <span class="transparency-badge">🔍 Transparency Mode</span>
+          {/if}
         </div>
         
-        <!-- Expanded details -->
-        {#if expandedResponse === response.id}
+        <!-- Expanded details (auto-expand when Transparency Mode is on) -->
+        {#if expandedResponse === response.id || $transparencyMode}
           <div class="response-details" in:fade>
             <!-- Reasoning process -->
             <div class="detail-section">
@@ -445,6 +450,16 @@
     background: rgba(255, 255, 255, 0.1);
     border-color: rgba(100, 120, 150, 0.2);
     color: #e1e5e9;
+  }
+
+  .transparency-badge {
+    margin-left: auto;
+    font-size: 0.75rem;
+    color: #64b5f6;
+    background: rgba(100, 181, 246, 0.1);
+    padding: 0.35rem 0.6rem;
+    border-radius: 6px;
+    font-weight: 500;
   }
   
   .action-icon {

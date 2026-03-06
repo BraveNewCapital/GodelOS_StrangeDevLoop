@@ -5,6 +5,16 @@ This module implements a production-grade vector database with persistent storag
 backup/recovery capabilities, and multiple embedding model support.
 
 Based on stable FAISS + sentence-transformers patterns for Intel macOS.
+
+.. deprecated::
+    The in-memory FAISS-based ``PersistentVectorDatabase`` in this module
+    overlaps with the new ChromaDB-backed knowledge store
+    (``godelOS.core_kr.knowledge_store.chroma_store.ChromaKnowledgeStore``).
+    ChromaDB handles both vector embeddings and structured metadata in a
+    single persistence layer.  New code should prefer
+    ``ChromaKnowledgeStore`` for unified knowledge + vector retrieval.
+    This module is retained for backward compatibility; it will be
+    removed in a future release once all consumers have migrated.
 """
 
 import os

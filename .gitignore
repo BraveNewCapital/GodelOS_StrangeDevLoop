@@ -1,3 +1,6 @@
+### Test artifacts ###
+query_*test*.json
+
 ### Environments ###
 # Virtual environments
 .env
@@ -311,3 +314,7 @@ data/
 # Diagnostic script output (plots)
 diagnostic_output/
 godelos_data/
+
+# Test output files
+query_*test*.json
+query_engine_test*.json

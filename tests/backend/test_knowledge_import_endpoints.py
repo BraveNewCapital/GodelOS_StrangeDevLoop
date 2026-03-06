@@ -6,7 +6,6 @@ server is required.  The KnowledgeIngestionService is mocked at the module
 level so that we test the HTTP layer in isolation.
 """
 
-import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -96,7 +95,8 @@ class TestKnowledgeImportURL:
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
             resp = await c.post("/api/knowledge/import/url", json={})
-        assert resp.status_code == 400
+        # URLImportSchema requires 'url'; Pydantic rejects with 422
+        assert resp.status_code == 422
 
     @pytest.mark.asyncio
     async def test_url_import_service_unavailable(self, patched_app_no_service):
@@ -136,7 +136,8 @@ class TestKnowledgeImportText:
             resp = await c.post("/api/knowledge/import/text", json={
                 "title": "No content",
             })
-        assert resp.status_code == 400
+        # TextImportSchema requires 'content'; Pydantic rejects with 422
+        assert resp.status_code == 422
 
     @pytest.mark.asyncio
     async def test_text_import_service_unavailable(self, patched_app_no_service):
