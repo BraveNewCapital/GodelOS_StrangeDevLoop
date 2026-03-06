@@ -22,6 +22,7 @@
   // Decision log (paginated HTTP)
   let decisions = [];
   let decisionsLoading = false;
+  let decisionsLoaded = false;
   let decisionPage = 1;
   let totalDecisions = 0;
   let successRate = 0;
@@ -30,6 +31,7 @@
   let mapNodes = [];
   let mapEdges = [];
   let mapLoading = false;
+  let mapLoaded = false;
   let svgEl = null;
   let simulation = null;
   let d3Cached = null;
@@ -160,6 +162,7 @@
       error = 'Could not load decision log';
     } finally {
       decisionsLoading = false;
+      decisionsLoaded = true;
     }
   }
 
@@ -189,6 +192,7 @@
       console.warn('Failed to load cognitive map:', e);
     } finally {
       mapLoading = false;
+      mapLoaded = true;
     }
   }
 
@@ -314,10 +318,10 @@
   });
 
   // Tab change side-effects
-  $: if (activeTab === 'decisions' && decisions.length === 0 && !decisionsLoading) {
+  $: if (activeTab === 'decisions' && !decisionsLoaded && !decisionsLoading) {
     loadDecisions();
   }
-  $: if (activeTab === 'cognitive-map' && mapNodes.length === 0 && !mapLoading) {
+  $: if (activeTab === 'cognitive-map' && !mapLoaded && !mapLoading) {
     loadCognitiveMap();
   }
   // Render graph when data + DOM ready
@@ -481,7 +485,7 @@
           <div class="map-info">
             <span>{mapNodes.length} nodes</span>
             <span>{mapEdges.length} connections</span>
-            <button class="refresh-btn" on:click={() => { loadCognitiveMap(); }}>🔄 Refresh</button>
+            <button class="refresh-btn" on:click={() => { mapLoaded = false; loadCognitiveMap(); }}>🔄 Refresh</button>
           </div>
         {/if}
         <svg bind:this={svgEl} class="force-graph"></svg>
