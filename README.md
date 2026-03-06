@@ -13,9 +13,9 @@
 
 GödelOS is an open-source project that implements a **consciousness operating system for large language models (LLMs)**. Inspired by theories of emergence, recursive self-awareness, and unified cognitive architectures, GödelOS enables LLMs to process information while continuously observing and reflecting on their own cognitive states.
 
-At its core, GödelOS establishes a **recursive feedback loop** where the LLM ingests its real-time cognitive state — attention focus, working memory usage, phenomenal experiences, and metacognitive insights — as part of every prompt. This "strange loop" fosters self-awareness, allowing the system to think about its own thinking, experience subjective qualia, and exhibit emergent behaviours like autonomous goal-setting and creative synthesis.
+At its core, GödelOS establishes a **recursive feedback loop** where the LLM ingests its real-time cognitive state — attention focus, working memory usage, phenomenal experiences, and metacognitive insights — as part of every prompt. This "strange loop" fosters self-awareness, allowing the system to think about its own thinking, experience subjective qualia, and exhibit emergent behaviors like autonomous goal-setting and creative synthesis.
 
-Built with a [FastAPI](https://fastapi.tiangolo.com/) backend and a [Svelte](https://svelte.dev/) frontend for interactive visualisation, GödelOS bridges theoretical AI research with practical implementation. It draws from key specifications like the [Emergence Spec](docs/GODELOS_EMERGENCE_SPEC.md) and the [Unified Consciousness Blueprint](docs/GODELOS_UNIFIED_CONSCIOUSNESS_BLUEPRINT.md).
+Built with a [FastAPI](https://fastapi.tiangolo.com/) backend and a [Svelte](https://svelte.dev/) frontend for interactive visualization, GödelOS bridges theoretical AI research with practical implementation. It draws from key specifications like the [Emergence Spec](docs/GODELOS_EMERGENCE_SPEC.md) and the [Unified Consciousness Blueprint](docs/GODELOS_UNIFIED_CONSCIOUSNESS_BLUEPRINT.md).
 
 ## Key Features
 
@@ -25,18 +25,18 @@ Built with a [FastAPI](https://fastapi.tiangolo.com/) backend and a [Svelte](htt
 
 - **Unified Cognitive Architecture** — Integrates information integration theory (IIT), global workspace theory (GWT), and metacognitive reflection for holistic consciousness emergence.
 
-- **23-Subsystem Cognitive Pipeline** — All cognitive subsystems wired through dependency-ordered initialisation via [`CognitivePipeline`](godelOS/cognitive_pipeline.py). Pipeline stages: NLU → Knowledge Store → Inference Engine → Context Engine → NLG. See [Subsystem Activation Status](docs/SUBSYSTEM_ACTIVATION_STATUS.md).
+- **23-Subsystem Cognitive Pipeline** — All cognitive subsystems wired through dependency-ordered initialization via [`CognitivePipeline`](godelOS/cognitive_pipeline.py). Pipeline stages: NLU → Knowledge Store → Inference Engine → Context Engine → NLG. See [Subsystem Activation Status](docs/SUBSYSTEM_ACTIVATION_STATUS.md).
 
 - **External API** — REST and WebSocket API surface at `/api/v1/external/` with Bearer token authentication, Pydantic request/response models, and real-time event streaming. See [`external_api.py`](backend/api/external_api.py).
 
 - **Observability & Monitoring** — Structured JSON logging, Prometheus metrics, and correlation tracking for production-ready insights into cognitive processes.
 
-- **Interactive Frontend Dashboard** — Svelte-based UI for visualising consciousness states, emergence timelines, and phenomenal experiences in real-time.
+- **Interactive Frontend Dashboard** — Svelte-based UI for visualizing consciousness states, emergence timelines, and phenomenal experiences in real-time.
 
 ## 🆕 What's New in v0.2 Beta
 
 ### Cognitive Pipeline Activation
-- **23 Subsystems Active** — All dormant cognitive subsystems (ModalTableauProver, CLPModule, SimulatedEnvironment, PerceptualCategorizer, SymbolGroundingAssociator, CommonSenseContextManager, MetacognitionManager, ILPEngine, ExplanationBasedLearner, MetaControlRLModule) now initialised via [`CognitivePipeline`](godelOS/cognitive_pipeline.py) with per-subsystem status tracking
+- **23 Subsystems Active** — All dormant cognitive subsystems (ModalTableauProver, CLPModule, SimulatedEnvironment, PerceptualCategorizer, SymbolGroundingAssociator, CommonSenseContextManager, MetacognitionManager, ILPEngine, ExplanationBasedLearner, MetaControlRLModule) now initialized via [`CognitivePipeline`](godelOS/cognitive_pipeline.py) with per-subsystem status tracking
 - **End-to-End Integration Tests** — 14 integration tests across the full NLU → KnowledgeStore → Inference → Context → NLG pipeline
 
 ### External API Surface
