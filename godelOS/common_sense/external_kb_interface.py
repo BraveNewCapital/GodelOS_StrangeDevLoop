@@ -12,10 +12,23 @@ import time
 import logging
 from typing import Dict, List, Optional, Any, Tuple, Set, Union
 from pathlib import Path
-import requests
 from urllib.parse import quote
-import nltk
-from nltk.corpus import wordnet as wn
+
+try:
+    import requests as _requests
+    _REQUESTS_AVAILABLE = True
+except ImportError:
+    _REQUESTS_AVAILABLE = False
+    _requests = None  # type: ignore
+
+try:
+    import nltk
+    from nltk.corpus import wordnet as wn
+    _NLTK_AVAILABLE = True
+except ImportError:
+    nltk = None  # type: ignore
+    wn = None  # type: ignore
+    _NLTK_AVAILABLE = False
 
 from godelOS.core_kr.knowledge_store.interface import KnowledgeStoreInterface
 from godelOS.scalability.caching import CachingSystem
@@ -67,7 +80,7 @@ class ExternalCommonSenseKB_Interface:
         os.makedirs(self.cache_dir, exist_ok=True)
         
         # Initialize WordNet if enabled
-        if self.wordnet_enabled:
+        if self.wordnet_enabled and _NLTK_AVAILABLE:
             try:
                 nltk.data.find('corpora/wordnet')
             except LookupError:
@@ -78,6 +91,9 @@ class ExternalCommonSenseKB_Interface:
                 except Exception as e:
                     logger.warning(f"Failed to download WordNet: {e}")
                     logger.warning("Some WordNet functionality may be unavailable")
+        elif self.wordnet_enabled and not _NLTK_AVAILABLE:
+            logger.warning("WordNet requested but nltk is not installed — disabling.")
+            self.wordnet_enabled = False
     
     def query_concept(self, concept: str, relation_types: Optional[List[str]] = None) -> Dict[str, Any]:
         """Query information about a concept from external knowledge bases.
@@ -184,7 +200,10 @@ class ExternalCommonSenseKB_Interface:
         if not relations and self.conceptnet_enabled and not self.offline_mode:
             try:
                 url = f"{self.conceptnet_api_url}{quote(source_concept)}/r?other={quote(target_concept)}"
-                response = requests.get(url)
+                if not _REQUESTS_AVAILABLE:
+                logger.warning("requests not installed — ConceptNet unavailable")
+                return None
+            response = _requests.get(url)
                 if response.status_code == 200:
                     data = response.json()
                     for edge in data.get("edges", []):
@@ -234,6 +253,8 @@ class ExternalCommonSenseKB_Interface:
         Returns:
             Dictionary with WordNet information or None if not found
         """
+        if not _NLTK_AVAILABLE or wn is None:
+            return None
         try:
             # Replace underscores with spaces for WordNet lookup
             concept_for_lookup = concept.replace('_', ' ')
@@ -314,7 +335,10 @@ class ExternalCommonSenseKB_Interface:
         """
         try:
             url = f"{self.conceptnet_api_url}{quote(concept)}"
-            response = requests.get(url)
+            if not _REQUESTS_AVAILABLE:
+                logger.warning("requests not installed — ConceptNet unavailable")
+                return None
+            response = _requests.get(url)
             
             if response.status_code != 200:
                 logger.warning(f"ConceptNet API returned status {response.status_code}")
