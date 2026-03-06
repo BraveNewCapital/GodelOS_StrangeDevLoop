@@ -295,6 +295,7 @@ enhanced_websocket_manager = None
 unified_consciousness_engine = None
 tool_based_llm = None
 cognitive_manager = None
+self_modification_engine = None
 # Removed cognitive_streaming_task - no longer using synthetic streaming
 
 # Observability instances
@@ -607,11 +608,19 @@ async def initialize_optional_services():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
-    global startup_time
+    global startup_time, self_modification_engine
     
     # Startup
     startup_time = time.time()
     logger.info("🚀 Starting GödelOS Unified Server...")
+    
+    # Initialize SelfModificationEngine
+    try:
+        from backend.core.self_modification_engine import SelfModificationEngine
+        self_modification_engine = SelfModificationEngine()
+        logger.info("✅ SelfModificationEngine initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize SelfModificationEngine: {e}")
     
     # Initialize core services first
     await initialize_core_services()
@@ -3905,17 +3914,25 @@ async def graph_test():
 @app.get("/api/knowledge")
 async def get_knowledge(context_id: str = None, knowledge_type: str = None, limit: int = 100):
     """Retrieve knowledge items (compatibility endpoint)."""
+    base: Dict[str, Any] = {"facts": [], "rules": [], "concepts": [], "total_count": 0}
     if godelos_integration:
         try:
-            result = await godelos_integration.get_knowledge(
+            base = await godelos_integration.get_knowledge(
                 context_id=context_id,
                 knowledge_type=knowledge_type,
                 limit=limit,
             )
-            return result
         except Exception as e:
             logger.error(f"Error getting knowledge: {e}")
-    return {"facts": [], "rules": [], "concepts": [], "total_count": 0}
+    # Merge in items that were added via the SelfModificationEngine
+    if self_modification_engine:
+        engine_items = self_modification_engine.get_knowledge_items()
+        if engine_items:
+            existing_concepts = list(base.get("concepts", []))
+            existing_concepts.extend(engine_items)
+            result = {**base, "concepts": existing_concepts, "total_count": int(base.get("total_count", 0)) + len(engine_items)}
+            return result
+    return base
 
 
 @app.get("/api/knowledge/categories")
@@ -3955,6 +3972,96 @@ async def cancel_import(import_id: str):
         "import_id": import_id,
         "status": "cancelled" if cancelled else "not_found",
     }
+
+
+# ---------------------------------------------------------------------------
+# Self-Modification API
+# ---------------------------------------------------------------------------
+
+@app.post("/api/self-modification/propose")
+async def propose_modification(payload: Dict[str, Any]):
+    """Submit a modification proposal.
+
+    Returns ``{ proposal_id, target, operation, parameters, status: "pending" }``
+    """
+    if self_modification_engine is None:
+        raise HTTPException(status_code=503, detail="SelfModificationEngine not initialized")
+    target = payload.get("target", "")
+    operation = payload.get("operation", "")
+    parameters = payload.get("parameters", {})
+    try:
+        proposal = await self_modification_engine.propose_modification(
+            target=target, operation=operation, parameters=parameters
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "proposal_id": proposal.proposal_id,
+        "target": proposal.target,
+        "operation": proposal.operation,
+        "parameters": proposal.parameters,
+        "status": proposal.status,
+        "created_at": proposal.created_at,
+    }
+
+
+@app.post("/api/self-modification/apply/{proposal_id}")
+async def apply_modification(proposal_id: str):
+    """Apply a pending modification proposal.
+
+    Returns ``{ proposal_id, status: "applied", changes_summary }``
+    """
+    if self_modification_engine is None:
+        raise HTTPException(status_code=503, detail="SelfModificationEngine not initialized")
+    try:
+        result = await self_modification_engine.apply_modification(proposal_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return {
+        "proposal_id": result.proposal_id,
+        "status": result.status,
+        "changes_summary": result.changes_summary,
+    }
+
+
+@app.post("/api/self-modification/rollback/{proposal_id}")
+async def rollback_modification(proposal_id: str):
+    """Roll back an applied modification.
+
+    Returns ``{ proposal_id, status: "rolled_back" }``
+    """
+    if self_modification_engine is None:
+        raise HTTPException(status_code=503, detail="SelfModificationEngine not initialized")
+    try:
+        result = await self_modification_engine.rollback_modification(proposal_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return {
+        "proposal_id": result.proposal_id,
+        "status": result.status,
+    }
+
+
+@app.get("/api/self-modification/history")
+async def get_modification_history():
+    """Return ordered list of all modification records."""
+    if self_modification_engine is None:
+        raise HTTPException(status_code=503, detail="SelfModificationEngine not initialized")
+    records = await self_modification_engine.get_history()
+    return {"history": [r.to_dict() for r in records]}
+
+
+# ---------------------------------------------------------------------------
+# System modules status endpoint
+# ---------------------------------------------------------------------------
+
+@app.get("/api/system/modules")
+async def get_system_modules():
+    """Return the current active-modules registry managed by SelfModificationEngine."""
+    if self_modification_engine is None:
+        return {"modules": {}, "status": "engine_not_initialized"}
+    modules = self_modification_engine.get_modules_status()
+    return {"modules": modules, "total": len(modules)}
 
 
 if __name__ == "__main__":
