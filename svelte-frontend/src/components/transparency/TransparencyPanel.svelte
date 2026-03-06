@@ -485,7 +485,7 @@
           <div class="map-info">
             <span>{mapNodes.length} nodes</span>
             <span>{mapEdges.length} connections</span>
-            <button class="refresh-btn" on:click={() => { mapLoaded = false; loadCognitiveMap(); }}>🔄 Refresh</button>
+            <button class="refresh-btn" on:click={() => { mapLoaded = false; mapNodes = []; mapEdges = []; loadCognitiveMap(); }}>🔄 Refresh</button>
           </div>
         {/if}
         <svg bind:this={svgEl} class="force-graph"></svg>
