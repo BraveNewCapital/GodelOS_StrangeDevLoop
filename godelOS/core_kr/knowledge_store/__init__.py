@@ -12,11 +12,15 @@ from godelOS.core_kr.knowledge_store.interface import (
     DynamicContextModel,
     CachingMemoizationLayer
 )
+from godelOS.core_kr.knowledge_store.chroma_store import ChromaKnowledgeStore
+from godelOS.core_kr.knowledge_store.hot_reloader import OntologyHotReloader
 
 __all__ = [
     "KnowledgeStoreInterface",
     "KnowledgeStoreBackend",
     "InMemoryKnowledgeStore",
+    "ChromaKnowledgeStore",
+    "OntologyHotReloader",
     "DynamicContextModel",
     "CachingMemoizationLayer"
 ]

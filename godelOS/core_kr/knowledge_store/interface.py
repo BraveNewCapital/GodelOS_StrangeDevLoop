@@ -7,6 +7,7 @@ knowledge base backend(s).
 """
 
 from typing import Dict, List, Optional, Set, Tuple, Any, DefaultDict
+import os
 import uuid
 import threading
 from collections import defaultdict
@@ -152,6 +153,19 @@ class KnowledgeStoreBackend(ABC):
             A list of context IDs
         """
         pass
+    
+    def get_context_info(self, context_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get metadata for a context.
+        
+        Args:
+            context_id: The ID of the context
+            
+        Returns:
+            A dict with keys ``parent`` and ``type``, or ``None``
+            if the context does not exist.
+        """
+        return None  # default; concrete backends should override
 
 
 class InMemoryKnowledgeStore(KnowledgeStoreBackend):
@@ -396,6 +410,14 @@ class InMemoryKnowledgeStore(KnowledgeStoreBackend):
         with self._lock:
             return list(self._contexts.keys())
     
+    def get_context_info(self, context_id: str) -> Optional[Dict[str, Any]]:
+        """Return metadata for *context_id*, or ``None`` if missing."""
+        with self._lock:
+            info = self._contexts.get(context_id)
+            if info is None:
+                return None
+            return {"parent": info.get("parent"), "type": info.get("type", "generic")}
+    
     def get_all_statements_in_context(self, context_id: str) -> Set[AST_Node]:
         """Return every statement stored in *context_id* without pattern matching."""
         with self._lock:
@@ -638,25 +660,64 @@ class KnowledgeStoreInterface:
     unification_engine: "UnificationEngine" = None  # type: ignore[assignment]
     
     def __init__(self, type_system: TypeSystemManager, 
-                 cache_manager: Optional[CachingMemoizationLayer] = None):
+                 cache_manager: Optional[CachingMemoizationLayer] = None,
+                 backend: Optional[str] = None,
+                 db_path: Optional[str] = None):
         """
         Initialize the knowledge store interface.
         
         Args:
             type_system: The type system manager
             cache_manager: Optional caching and memoization layer
+            backend: Backend type (``"memory"`` or ``"chroma"``).  Defaults
+                     to the ``KNOWLEDGE_STORE_BACKEND`` env-var, falling back
+                     to ``"memory"``.
+            db_path: Path for the persistent backend.  Only used when
+                     *backend* is ``"chroma"``.  Defaults to the
+                     ``KNOWLEDGE_STORE_PATH`` env-var, falling back to
+                     ``"./data/chroma"``.
         """
         self.type_system = type_system
         self.cache_manager = cache_manager or CachingMemoizationLayer()
         self.unification_engine = UnificationEngine(type_system)
         
-        # Initialize the backend
-        self._backend = InMemoryKnowledgeStore(self.unification_engine)
+        # Resolve backend choice from explicit arg → env-var → default
+        _valid_backends = {"memory", "chroma"}
+        chosen_backend = (
+            backend
+            or os.environ.get("KNOWLEDGE_STORE_BACKEND", "memory")
+        ).lower()
+
+        if chosen_backend not in _valid_backends:
+            import logging as _logging
+
+            _logging.getLogger(__name__).warning(
+                "Unknown KNOWLEDGE_STORE_BACKEND=%r; falling back to 'memory'",
+                chosen_backend,
+            )
+            chosen_backend = "memory"
+
+        if chosen_backend == "chroma":
+            from godelOS.core_kr.knowledge_store.chroma_store import ChromaKnowledgeStore
+
+            resolved_path = db_path or os.environ.get(
+                "KNOWLEDGE_STORE_PATH", "./data/chroma"
+            )
+            self._backend: KnowledgeStoreBackend = ChromaKnowledgeStore(
+                self.unification_engine, persist_directory=resolved_path
+            )
+        else:
+            self._backend = InMemoryKnowledgeStore(self.unification_engine)
         
-        # Initialize default contexts
-        self._backend.create_context("TRUTHS", None, "truths")
-        self._backend.create_context("BELIEFS", None, "beliefs")
-        self._backend.create_context("HYPOTHETICAL", None, "hypothetical")
+        # Initialize default contexts (only if they don't already exist,
+        # which matters for a persisted ChromaDB backend across restarts).
+        existing = set(self._backend.list_contexts())
+        if "TRUTHS" not in existing:
+            self._backend.create_context("TRUTHS", None, "truths")
+        if "BELIEFS" not in existing:
+            self._backend.create_context("BELIEFS", None, "beliefs")
+        if "HYPOTHETICAL" not in existing:
+            self._backend.create_context("HYPOTHETICAL", None, "hypothetical")
     
     def add_statement(self, statement_ast: AST_Node, context_id: str = "TRUTHS", 
                      metadata: Optional[Dict[str, Any]] = None) -> bool:
