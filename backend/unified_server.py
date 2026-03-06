@@ -614,6 +614,16 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Failed to connect consciousness engine to endpoints: {e}")
     
+    # Initialize consciousness emergence detector
+    try:
+        from backend.core.consciousness_emergence_detector import ConsciousnessEmergenceDetector
+        from backend.api.consciousness_endpoints import set_emergence_detector
+        _detector = ConsciousnessEmergenceDetector(websocket_manager=websocket_manager)
+        set_emergence_detector(_detector)
+        logger.info("✅ Consciousness emergence detector initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize consciousness emergence detector: {e}")
+    
     # Eagerly initialize the agentic daemon system so the singleton is created
     # with all available dependencies (especially consciousness_engine).
     try:

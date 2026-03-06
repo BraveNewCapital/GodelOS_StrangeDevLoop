@@ -1,3 +1,6 @@
+### Test artifacts ###
+query_*test*.json
+
 ### Environments ###
 # Virtual environments
 .env
