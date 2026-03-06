@@ -526,9 +526,11 @@ class GödelOSIntegration:
                 "management_service": hasattr(self, 'mgmt_service') and self.mgmt_service is not None
             }
         }
-        # Include cognitive subsystem status when the pipeline is available
+        # Always include cognitive_subsystems key (empty dict when pipeline unavailable)
         if self.cognitive_pipeline is not None:
             result["cognitive_subsystems"] = self.cognitive_pipeline.get_subsystem_status()
+        else:
+            result["cognitive_subsystems"] = {}
         return result
 
     async def get_cognitive_subsystem_status(self) -> Dict[str, Any]:
@@ -967,3 +969,4 @@ class GödelOSIntegration:
         logger.info("Shutting down GödelOS integration...")
         self.initialized = False
         logger.info("✅ Shutdown complete")
+
