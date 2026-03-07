@@ -630,13 +630,32 @@ async def lifespan(app: FastAPI):
     
     # Initialize consciousness emergence detector
     try:
-        from backend.core.consciousness_emergence_detector import ConsciousnessEmergenceDetector
-        from backend.api.consciousness_endpoints import set_emergence_detector
+        from backend.core.consciousness_emergence_detector import (
+            ConsciousnessEmergenceDetector,
+            UnifiedConsciousnessObservatory,
+        )
+        from backend.api.consciousness_endpoints import set_emergence_detector, set_observatory
         _detector = ConsciousnessEmergenceDetector(websocket_manager=websocket_manager)
         set_emergence_detector(_detector)
-        logger.info("✅ Consciousness emergence detector initialized")
+        _observatory = UnifiedConsciousnessObservatory(_detector)
+        await _observatory.start()
+        set_observatory(_observatory)
+        logger.info("✅ Consciousness emergence detector and observatory initialized")
     except Exception as e:
         logger.error(f"Failed to initialize consciousness emergence detector: {e}")
+
+    # Initialize autonomous goal generator and creative synthesis engine
+    try:
+        from backend.core.autonomous_goal_engine import AutonomousGoalGenerator, CreativeSynthesisEngine
+        from backend.api.consciousness_endpoints import set_goal_engine
+        _goal_generator = AutonomousGoalGenerator()
+        _creative_engine = CreativeSynthesisEngine()
+        set_goal_engine(_goal_generator, _creative_engine)
+        # Seed with a baseline generation so goals exist immediately
+        await _goal_generator.generate({})
+        logger.info("✅ Autonomous goal generator and creative synthesis engine initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize autonomous goal engine: {e}")
     
     # Eagerly initialize the agentic daemon system so the singleton is created
     # with all available dependencies (especially consciousness_engine).
@@ -662,6 +681,14 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("🛑 Shutting down GödelOS Unified Server...")
+
+    # Stop the consciousness observatory if it was started
+    try:
+        from backend.api.consciousness_endpoints import _observatory as _obs
+        if _obs is not None:
+            await _obs.stop()
+    except Exception:
+        pass
     
     # No synthetic streaming task to cancel
     logger.info("✅ Shutdown complete")
