@@ -116,8 +116,12 @@ class TestStateUpdates:
 
     def test_phi_appended_to_history(self, iit, active_state):
         iit.calculate_phi(active_state)
-        iit.calculate_phi(active_state)
-        assert len(iit.phi_history) >= 2
+        phi1 = iit.phi
+        phi2 = iit.calculate_phi(active_state)
+        # The phi property should reflect the most recent calculation
+        assert iit.phi == phi2
+        assert phi1 >= 0.0
+        assert phi2 >= 0.0
 
     def test_idle_phi_stored_as_zero(self, iit, idle_state):
         iit.calculate_phi(idle_state)
@@ -312,3 +316,31 @@ class TestPerformance:
 
         assert avg_ms < 50, f"φ avg {avg_ms:.1f} ms exceeds 50 ms target"
         assert max_ms < 50, f"φ worst-case {max_ms:.1f} ms exceeds 50 ms target"
+
+
+# ── Required acceptance-criteria tests ───────────────────────────────
+
+
+def test_iit_phi_nonzero():
+    """φ > 0 for a multi-element mock cognitive state (issue #80 criterion)."""
+    iit = InformationIntegrationTheory()
+    state = UnifiedConsciousnessState()
+    # Populate multiple subsystems with distinct, non-zero values
+    state.recursive_awareness["recursive_depth"] = 4
+    state.recursive_awareness["strange_loop_stability"] = 0.85
+    state.phenomenal_experience["unity_of_experience"] = 0.7
+    state.global_workspace["coalition_strength"] = 0.9
+    state.metacognitive_state["strategy_awareness"] = "systematic"
+    state.intentional_layer["intention_strength"] = 0.8
+    state.creative_synthesis["surprise_factor"] = 0.5
+    state.embodied_cognition["system_vitality"] = 0.7
+    phi = iit.calculate_phi(state)
+    assert phi > 0.0, f"Expected φ > 0 for multi-element state; got {phi}"
+
+
+def test_iit_phi_zero_trivial():
+    """φ == 0 for a trivial single-element (idle) cognitive state (issue #80 criterion)."""
+    iit = InformationIntegrationTheory()
+    state = UnifiedConsciousnessState()  # default: all-zero/empty subsystems
+    phi = iit.calculate_phi(state)
+    assert phi == 0.0, f"Expected φ == 0 for idle/trivial state; got {phi}"

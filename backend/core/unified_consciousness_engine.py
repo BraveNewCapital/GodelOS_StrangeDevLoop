@@ -16,6 +16,7 @@ import math
 import time
 import uuid
 import logging
+from collections import deque
 from dataclasses import dataclass, asdict
 from itertools import combinations
 from typing import Dict, List, Optional, Any, Tuple, AsyncGenerator
@@ -317,8 +318,13 @@ class InformationIntegrationTheory:
     #                             0.05 cleanly separates idle from active.
 
     def __init__(self):
-        self.phi_history: List[float] = []
+        self._last_phi: float = 0.0
         self.integration_threshold: float = 5.0
+
+    @property
+    def phi(self) -> float:
+        """Last computed φ value, or 0.0 if no calculation has been performed."""
+        return self._last_phi
 
     # ------------------------------------------------------------------
     # Public API
@@ -353,7 +359,7 @@ class InformationIntegrationTheory:
         if full_vec.size == 0 or np.ptp(full_vec) == 0:
             consciousness_state.information_integration["phi"] = 0.0
             consciousness_state.information_integration["complexity"] = 0.0
-            self.phi_history.append(0.0)
+            self._last_phi = 0.0
             return 0.0
 
         # Enumerate non-trivial bipartitions at the subsystem level.
@@ -388,7 +394,7 @@ class InformationIntegrationTheory:
         consciousness_state.information_integration["phi"] = phi
         consciousness_state.information_integration["complexity"] = complexity
 
-        self.phi_history.append(phi)
+        self._last_phi = phi
         return phi
 
     # ------------------------------------------------------------------
@@ -514,6 +520,8 @@ class GlobalWorkspace:
         self._attention_focus: str = ""
         # Softmax temperature – lower = sharper competition
         self._temperature: float = 0.5
+        # Rolling window for broadcast success rate tracking
+        self._success_window: deque = deque(maxlen=20)
 
     # ------------------------------------------------------------------
     # Public API
@@ -594,14 +602,32 @@ class GlobalWorkspace:
 
         self.coalitions = list(winning_coalition)
 
+        # Track broadcast success in rolling window
+        self._success_window.append(is_conscious)
+
         logger.debug(
-            "GWT broadcast: φ=%.3f coalition_strength=%.3f winners=%s",
+            "GWT broadcast: φ=%.3f coalition_strength=%.3f winners=%s success_rate=%.2f",
             phi_measure,
             coalition_strength,
             winning_coalition,
+            self.broadcast_success_rate,
         )
 
         return broadcast_result
+
+    @property
+    def broadcast_success_rate(self) -> float:
+        """Rolling average broadcast success rate over last N broadcasts.
+
+        A broadcast is considered successful when the resulting coalition
+        strength exceeds the conscious-access threshold (coalition_strength > 0.3).
+
+        Returns:
+            Float in [0.0, 1.0]; 0.0 when no broadcasts have occurred yet.
+        """
+        if not self._success_window:
+            return 0.0
+        return sum(1 for s in self._success_window if s) / len(self._success_window)
 
     def get_broadcast_event(self) -> Optional[Dict[str, Any]]:
         """Return the most recent ``global_broadcast`` event, or *None*."""
@@ -784,6 +810,11 @@ class UnifiedConsciousnessEngine:
         self.feedback_injector = ValidationFeedbackInjector()
 
         logger.info("UnifiedConsciousnessEngine initialized")
+
+    @property
+    def phi(self) -> float:
+        """Latest φ (integrated information) value from the IIT component."""
+        return self.information_integration_theory.phi
 
     # ── Knowledge-store shim wiring ───────────────────────────────────
 
@@ -1034,6 +1065,7 @@ class UnifiedConsciousnessEngine:
                         'consciousness_score': current_state.consciousness_score,
                         'phi': phi_measure,
                         'phi_measure': phi_measure,
+                        'coalition_strength': broadcast_content.get('coalition_strength', 0.0),
                         'emergence_score': emergence_score,
                         'timestamp': time.time(),
                         'recursive_depth': current_state.recursive_awareness.get('recursive_depth', 1),
