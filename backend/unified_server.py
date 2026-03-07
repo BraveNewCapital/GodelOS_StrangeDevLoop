@@ -656,6 +656,31 @@ async def lifespan(app: FastAPI):
         logger.info("✅ Autonomous goal generator and creative synthesis engine initialized")
     except Exception as e:
         logger.error(f"Failed to initialize autonomous goal engine: {e}")
+
+    # Initialize ontology hot-reloader for knowledge graph persistence (Issue #97)
+    try:
+        import os as _os
+        ontology_dir = _os.environ.get("GODELOS_ONTOLOGY_DIR", "")
+        if ontology_dir:
+            from godelOS.core_kr.knowledge_store.hot_reloader import OntologyHotReloader
+
+            def _on_triple_add(subject, predicate, obj):
+                logger.debug("Hot-reload: +triple (%s, %s, %s)", subject, predicate, obj)
+
+            def _on_triple_remove(subject, predicate, obj):
+                logger.debug("Hot-reload: -triple (%s, %s, %s)", subject, predicate, obj)
+
+            _hot_reloader = OntologyHotReloader(
+                watch_dir=ontology_dir,
+                on_add=_on_triple_add,
+                on_remove=_on_triple_remove,
+            )
+            _hot_reloader.start()
+            logger.info("✅ Ontology hot-reloader watching %s", ontology_dir)
+        else:
+            logger.info("ℹ  Ontology hot-reloader inactive (set GODELOS_ONTOLOGY_DIR to enable)")
+    except Exception as e:
+        logger.error(f"Failed to initialize ontology hot-reloader: {e}")
     
     # Eagerly initialize the agentic daemon system so the singleton is created
     # with all available dependencies (especially consciousness_engine).
@@ -684,17 +709,28 @@ async def lifespan(app: FastAPI):
 
     # Stop the consciousness observatory if it was started
     try:
-        from backend.api.consciousness_endpoints import _observatory as _obs
+        from backend.api.consciousness_endpoints import get_observatory
+        _obs = get_observatory()
         if _obs is not None:
             await _obs.stop()
     except Exception:
         pass
-    
+
+    # Stop the ontology hot-reloader if active
+    try:
+        if _hot_reloader is not None:
+            _hot_reloader.stop()
+    except Exception:
+        pass
+
     # No synthetic streaming task to cancel
     logger.info("✅ Shutdown complete")
 
 # Server start time for metrics
 server_start_time = time.time()
+
+# Hot-reloader for ontology files (Issue #97)
+_hot_reloader = None
 
 # Create FastAPI app
 app = FastAPI(
@@ -2442,6 +2478,68 @@ async def cognitive_subsystem_status():
     except Exception as e:
         logger.error(f"Error getting subsystem status: {e}")
         raise HTTPException(status_code=500, detail=f"Subsystem status error: {str(e)}")
+
+
+@app.get("/api/system/knowledge-persistence")
+async def get_knowledge_persistence_status():
+    """Return the current knowledge store backend configuration and hot-reload status.
+
+    The knowledge store backend is configured via the ``KNOWLEDGE_STORE_BACKEND``
+    env var (``memory`` | ``chroma``).  ``KNOWLEDGE_STORE_PATH`` sets the
+    ChromaDB/SQLite data directory.  ``GODELOS_ONTOLOGY_DIR`` sets the
+    directory watched by the hot-reloader.
+    """
+    try:
+        import os
+        backend = os.environ.get("KNOWLEDGE_STORE_BACKEND", "memory")
+        store_path = os.environ.get("KNOWLEDGE_STORE_PATH", "./data/chroma")
+        ontology_dir = os.environ.get("GODELOS_ONTOLOGY_DIR", "./ontologies")
+        reloader_active = _hot_reloader is not None
+
+        return {
+            "backend": backend,
+            "store_path": store_path,
+            "persistent": backend != "memory",
+            "ontology_watch_dir": ontology_dir,
+            "hot_reload_active": reloader_active,
+            "env_vars": {
+                "KNOWLEDGE_STORE_BACKEND": "Set to 'chroma' to enable ChromaDB persistence",
+                "KNOWLEDGE_STORE_PATH": "ChromaDB data directory (default: ./data/chroma)",
+                "GODELOS_ONTOLOGY_DIR": "Directory watched for .ttl/.json-ld ontology files",
+            },
+        }
+    except Exception as e:
+        logger.error(f"Error getting knowledge persistence status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/system/knowledge-persistence/reload")
+async def trigger_ontology_reload():
+    """Trigger an immediate ontology hot-reload from the watched directory.
+
+    Reads all ``.ttl`` and ``.json-ld`` files in ``GODELOS_ONTOLOGY_DIR``,
+    computes the delta against the last snapshot, and applies it to the
+    running knowledge graph.  Returns the number of triples added/removed.
+    """
+    try:
+        if _hot_reloader is None:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Hot-reloader is not active. "
+                    "Set GODELOS_ONTOLOGY_DIR and restart the server to enable it."
+                ),
+            )
+        # OntologyHotReloader.reload() is synchronous — run in executor
+        import asyncio
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _hot_reloader.reload)
+        return {"status": "reload_triggered", "watch_dir": _hot_reloader.watch_dir}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ontology reload failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/tools/available")
 async def get_available_tools():

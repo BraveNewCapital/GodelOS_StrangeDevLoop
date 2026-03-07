@@ -369,9 +369,10 @@ class CreativeSynthesisEngine:
 
     def get_metrics(self) -> Dict[str, Any]:
         """Return engine health metrics."""
+        recent = self._output_history[-20:]
         avg_novelty = (
-            sum(o["novelty_score"] for o in self._output_history[-20:]) / min(len(self._output_history), 20)
-            if self._output_history else 0.0
+            sum(o["novelty_score"] for o in recent) / len(recent)
+            if recent else 0.0
         )
         return {
             "concept_buffer_size": len(self._concept_buffer),

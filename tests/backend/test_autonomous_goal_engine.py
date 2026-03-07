@@ -205,8 +205,8 @@ class TestCreativeSynthesisEngine:
         engine.ingest_concepts(["alpha", "beta"])
         r1 = engine.synthesise(n=1)
         r2 = engine.synthesise(n=1)
-        if r1 and r2:
-            assert r2[0]["novelty_score"] <= r1[0]["novelty_score"]
+        assert len(r1) == 1 and len(r2) == 1, "Expected one result per synthesis call"
+        assert r2[0]["novelty_score"] <= r1[0]["novelty_score"]
 
     def test_synthesise_respects_n_limit(self):
         engine = self._make_engine()

@@ -296,6 +296,11 @@ def set_observatory(observatory) -> None:
     _observatory = observatory
 
 
+def get_observatory():
+    """Return the active UnifiedConsciousnessObservatory instance (may be None)."""
+    return _observatory
+
+
 @router.get("/observatory")
 async def get_observatory_report():
     """Return the full UnifiedConsciousnessObservatory report.
@@ -586,5 +591,6 @@ __all__ = [
     'set_consciousness_engine',
     'set_emergence_detector',
     'set_observatory',
+    'get_observatory',
     'set_goal_engine',
 ]
