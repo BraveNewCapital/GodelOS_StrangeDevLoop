@@ -20,7 +20,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any, Union
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, File, UploadFile, Form, Query
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, File, UploadFile, Form, Query, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse, Response
 from pydantic import BaseModel
@@ -305,6 +305,7 @@ unified_consciousness_engine = None
 tool_based_llm = None
 cognitive_manager = None
 dormant_module_manager = None
+self_modification_engine = None
 # Removed cognitive_streaming_task - no longer using synthetic streaming
 
 # Observability instances
@@ -628,11 +629,20 @@ async def initialize_optional_services():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
-    global startup_time
+    global startup_time, self_modification_engine
     
     # Startup
     startup_time = time.time()
     logger.info("🚀 Starting GödelOS Unified Server...")
+    
+    # Initialize SelfModificationEngine
+    try:
+        from backend.core.self_modification_engine import SelfModificationEngine
+        self_modification_engine = SelfModificationEngine()
+        logger.info("✅ SelfModificationEngine initialized")
+    except Exception as e:
+        logger.exception("Failed to initialize SelfModificationEngine: %s", e)
+        self_modification_engine = None
     
     # Initialize core services first
     await initialize_core_services()
@@ -3999,17 +4009,44 @@ async def graph_test():
 @app.get("/api/knowledge")
 async def get_knowledge(context_id: str = None, knowledge_type: str = None, limit: int = 100):
     """Retrieve knowledge items (compatibility endpoint)."""
+    base: Dict[str, Any] = {"facts": [], "rules": [], "concepts": [], "total_count": 0}
     if godelos_integration:
         try:
-            result = await godelos_integration.get_knowledge(
+            base = await godelos_integration.get_knowledge(
                 context_id=context_id,
                 knowledge_type=knowledge_type,
                 limit=limit,
             )
-            return result
         except Exception as e:
             logger.error(f"Error getting knowledge: {e}")
-    return {"facts": [], "rules": [], "concepts": [], "total_count": 0}
+    # Merge in items that were added via the SelfModificationEngine — only
+    # when concepts are requested (or no specific type filter is given).
+    if self_modification_engine and (
+        knowledge_type is None or str(knowledge_type).lower() in {"concept", "concepts"}
+    ):
+        engine_items = self_modification_engine.get_knowledge_items()
+        if engine_items:
+            existing_concepts = list(base.get("concepts", []))
+            added_items = 0
+            if isinstance(limit, int) and limit > 0:
+                remaining_slots = max(limit - len(existing_concepts), 0)
+                if remaining_slots > 0:
+                    to_add = list(engine_items)[:remaining_slots]
+                    merged_concepts = existing_concepts + to_add
+                    added_items = len(to_add)
+                else:
+                    merged_concepts = existing_concepts
+            else:
+                merged_concepts = existing_concepts + list(engine_items)
+                added_items = len(engine_items)
+
+            result = {
+                **base,
+                "concepts": merged_concepts,
+                "total_count": int(base.get("total_count", 0)) + added_items,
+            }
+            return result
+    return base
 
 
 @app.get("/api/knowledge/categories")
@@ -4049,6 +4086,124 @@ async def cancel_import(import_id: str):
         "import_id": import_id,
         "status": "cancelled" if cancelled else "not_found",
     }
+
+
+# ---------------------------------------------------------------------------
+# Self-Modification API
+# ---------------------------------------------------------------------------
+
+# Session-token authentication for self-modification endpoints.
+# Reads the expected token from the GODELOS_API_TOKEN env var.  When the var
+# is unset or empty the auth check is skipped (development mode).
+_SELFMOD_TOKEN: Optional[str] = os.getenv("GODELOS_API_TOKEN") or None
+
+
+async def _require_selfmod_auth(
+    x_api_token: Optional[str] = Header(None, alias="X-API-Token"),
+) -> None:
+    """FastAPI dependency that enforces session-token auth when configured."""
+    if _SELFMOD_TOKEN and x_api_token != _SELFMOD_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid or missing X-API-Token")
+
+
+@app.post("/api/self-modification/propose", dependencies=[Depends(_require_selfmod_auth)])
+async def propose_modification(payload: Dict[str, Any]):
+    """Submit a modification proposal.
+
+    Returns ``{ proposal_id, target, operation, parameters, status: "pending" }``
+    """
+    if self_modification_engine is None:
+        raise HTTPException(status_code=503, detail="SelfModificationEngine not initialized")
+    target = payload.get("target", "")
+    operation = payload.get("operation", "")
+    parameters = payload.get("parameters")
+    if parameters is None:
+        parameters = {}
+    elif not isinstance(parameters, dict):
+        raise HTTPException(status_code=400, detail="'parameters' must be a JSON object")
+    try:
+        proposal = await self_modification_engine.propose_modification(
+            target=target, operation=operation, parameters=parameters
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "proposal_id": proposal.proposal_id,
+        "target": proposal.target,
+        "operation": proposal.operation,
+        "parameters": proposal.parameters,
+        "status": proposal.status,
+        "created_at": proposal.created_at,
+    }
+
+
+@app.post("/api/self-modification/apply/{proposal_id}", dependencies=[Depends(_require_selfmod_auth)])
+async def apply_modification(proposal_id: str):
+    """Apply a pending modification proposal.
+
+    Returns ``{ proposal_id, status: "applied", changes_summary }``
+    """
+    from backend.core.self_modification_engine import ProposalNotFoundError, ProposalStateError
+    if self_modification_engine is None:
+        raise HTTPException(status_code=503, detail="SelfModificationEngine not initialized")
+    try:
+        result = await self_modification_engine.apply_modification(proposal_id)
+    except ProposalNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ProposalStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "proposal_id": result.proposal_id,
+        "status": result.status,
+        "changes_summary": result.changes_summary,
+    }
+
+
+@app.post("/api/self-modification/rollback/{proposal_id}", dependencies=[Depends(_require_selfmod_auth)])
+async def rollback_modification(proposal_id: str):
+    """Roll back an applied modification.
+
+    Returns ``{ proposal_id, status: "rolled_back" }``
+    """
+    from backend.core.self_modification_engine import ProposalNotFoundError, ProposalStateError
+    if self_modification_engine is None:
+        raise HTTPException(status_code=503, detail="SelfModificationEngine not initialized")
+    try:
+        result = await self_modification_engine.rollback_modification(proposal_id)
+    except ProposalNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ProposalStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "proposal_id": result.proposal_id,
+        "status": result.status,
+    }
+
+
+@app.get("/api/self-modification/history", dependencies=[Depends(_require_selfmod_auth)])
+async def get_modification_history():
+    """Return ordered list of all modification records."""
+    if self_modification_engine is None:
+        raise HTTPException(status_code=503, detail="SelfModificationEngine not initialized")
+    records = await self_modification_engine.get_history()
+    return {"history": [r.to_dict() for r in records]}
+
+
+# ---------------------------------------------------------------------------
+# System modules status endpoint
+# ---------------------------------------------------------------------------
+
+@app.get("/api/system/modules")
+async def get_system_modules():
+    """Return the current active-modules registry managed by SelfModificationEngine."""
+    if self_modification_engine is None:
+        return {"modules": {}, "status": "engine_not_initialized"}
+    modules = self_modification_engine.get_modules_status()
+    return {"modules": modules, "total": len(modules)}
 
 
 if __name__ == "__main__":
