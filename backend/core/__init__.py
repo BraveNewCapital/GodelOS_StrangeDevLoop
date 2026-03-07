@@ -6,6 +6,8 @@ This package contains the core components of the modernized GodelOS architecture
 - AgenticDaemonSystem: Autonomous background processing and system evolution
 """
 
+import logging as _logging
+
 try:
     from .cognitive_manager import CognitiveManager, get_cognitive_manager
     from .agentic_daemon_system import AgenticDaemonSystem, get_agentic_daemon_system
@@ -16,5 +18,8 @@ try:
         "AgenticDaemonSystem",
         "get_agentic_daemon_system",
     ]
-except ImportError:
+except ImportError as _exc:
+    _logging.getLogger(__name__).warning(
+        "Core architecture imports unavailable (optional dependency missing): %s", _exc
+    )
     __all__ = []

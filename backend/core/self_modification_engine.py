@@ -13,11 +13,30 @@ timestamped before/after snapshots so that rollback is fully deterministic.
 
 from __future__ import annotations
 
+import asyncio
 import copy
+import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
+
+# Maximum number of history records kept in memory.
+MAX_HISTORY_RECORDS = 1000
+
+
+# ---------------------------------------------------------------------------
+# Custom exceptions for distinguishing error semantics
+# ---------------------------------------------------------------------------
+
+class ProposalNotFoundError(ValueError):
+    """Raised when a proposal_id does not exist."""
+
+
+class ProposalStateError(ValueError):
+    """Raised when an operation is invalid for the current proposal state."""
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +109,7 @@ class SelfModificationEngine:
         "metacognition": {"enabled": True, "description": "Meta-cognitive awareness module"},
     }
 
-    def __init__(self) -> None:
+    def __init__(self, max_history: int = MAX_HISTORY_RECORDS) -> None:
         # Per-target in-memory stores
         self._knowledge_graph: Dict[str, Dict[str, Any]] = {}
         self._inference_rules: Dict[str, Dict[str, Any]] = {}
@@ -101,6 +120,12 @@ class SelfModificationEngine:
         self._proposals: Dict[str, ModificationProposal] = {}
         self._records: Dict[str, ModificationRecord] = {}
         self._history_order: List[str] = []  # ordered proposal IDs
+
+        # Concurrency guard
+        self._lock = asyncio.Lock()
+
+        # Retention cap
+        self._max_history = max_history
 
     # ------------------------------------------------------------------
     # Public API
@@ -113,53 +138,60 @@ class SelfModificationEngine:
         parameters: Dict[str, Any],
     ) -> ModificationProposal:
         """Create and store a new pending modification proposal."""
+        if not isinstance(parameters, dict):
+            raise ValueError("'parameters' must be a JSON object (dict)")
+
         self._validate_target(target)
         self._validate_operation(target, operation)
 
-        proposal_id = str(uuid.uuid4())
-        proposal = ModificationProposal(
-            proposal_id=proposal_id,
-            target=target,
-            operation=operation,
-            parameters=parameters,
-        )
-        self._proposals[proposal_id] = proposal
+        async with self._lock:
+            proposal_id = str(uuid.uuid4())
+            proposal = ModificationProposal(
+                proposal_id=proposal_id,
+                target=target,
+                operation=operation,
+                parameters=parameters,
+            )
+            self._proposals[proposal_id] = proposal
         return proposal
 
     async def apply_modification(self, proposal_id: str) -> ModificationResult:
         """Apply a pending proposal, snapshotting before/after state."""
-        proposal = self._proposals.get(proposal_id)
-        if proposal is None:
-            raise ValueError(f"Proposal '{proposal_id}' not found")
-        if proposal.status != "pending":
-            raise ValueError(
-                f"Proposal '{proposal_id}' cannot be applied (status: {proposal.status})"
+        async with self._lock:
+            proposal = self._proposals.get(proposal_id)
+            if proposal is None:
+                raise ProposalNotFoundError(f"Proposal '{proposal_id}' not found")
+            if proposal.status != "pending":
+                raise ProposalStateError(
+                    f"Proposal '{proposal_id}' cannot be applied (status: {proposal.status})"
+                )
+
+            before_snapshot = self._capture_snapshot(proposal.target)
+            changes_summary = self._apply_to_target(
+                proposal.target, proposal.operation, proposal.parameters
             )
+            after_snapshot = self._capture_snapshot(proposal.target)
 
-        before_snapshot = self._capture_snapshot(proposal.target)
-        changes_summary = self._apply_to_target(
-            proposal.target, proposal.operation, proposal.parameters
-        )
-        after_snapshot = self._capture_snapshot(proposal.target)
+            applied_at = datetime.now(timezone.utc).isoformat()
+            proposal.status = "applied"
 
-        applied_at = datetime.now(timezone.utc).isoformat()
-        proposal.status = "applied"
+            record = ModificationRecord(
+                proposal_id=proposal_id,
+                target=proposal.target,
+                operation=proposal.operation,
+                parameters=proposal.parameters,
+                status="applied",
+                created_at=proposal.created_at,
+                applied_at=applied_at,
+                before_snapshot=before_snapshot,
+                after_snapshot=after_snapshot,
+                changes_summary=changes_summary,
+            )
+            self._records[proposal_id] = record
+            if proposal_id not in self._history_order:
+                self._history_order.append(proposal_id)
 
-        record = ModificationRecord(
-            proposal_id=proposal_id,
-            target=proposal.target,
-            operation=proposal.operation,
-            parameters=proposal.parameters,
-            status="applied",
-            created_at=proposal.created_at,
-            applied_at=applied_at,
-            before_snapshot=before_snapshot,
-            after_snapshot=after_snapshot,
-            changes_summary=changes_summary,
-        )
-        self._records[proposal_id] = record
-        if proposal_id not in self._history_order:
-            self._history_order.append(proposal_id)
+            self._enforce_history_limit()
 
         return ModificationResult(
             proposal_id=proposal_id,
@@ -169,35 +201,40 @@ class SelfModificationEngine:
 
     async def rollback_modification(self, proposal_id: str) -> RollbackResult:
         """Restore the before-snapshot for an applied modification."""
-        record = self._records.get(proposal_id)
-        if record is None:
-            raise ValueError(f"No applied modification found for proposal '{proposal_id}'")
-        if record.status != "applied":
-            raise ValueError(
-                f"Modification '{proposal_id}' cannot be rolled back (status: {record.status})"
-            )
+        async with self._lock:
+            record = self._records.get(proposal_id)
+            if record is None:
+                raise ProposalNotFoundError(
+                    f"No applied modification found for proposal '{proposal_id}'"
+                )
+            if record.status != "applied":
+                raise ProposalStateError(
+                    f"Modification '{proposal_id}' cannot be rolled back "
+                    f"(status: {record.status})"
+                )
 
-        self._restore_snapshot(record.target, record.before_snapshot or {})
+            self._restore_snapshot(record.target, record.before_snapshot or {})
 
-        record.status = "rolled_back"
-        record.rolled_back_at = datetime.now(timezone.utc).isoformat()
+            record.status = "rolled_back"
+            record.rolled_back_at = datetime.now(timezone.utc).isoformat()
 
-        proposal = self._proposals.get(proposal_id)
-        if proposal:
-            proposal.status = "rolled_back"
+            proposal = self._proposals.get(proposal_id)
+            if proposal:
+                proposal.status = "rolled_back"
 
-        if proposal_id not in self._history_order:
-            self._history_order.append(proposal_id)
+            if proposal_id not in self._history_order:
+                self._history_order.append(proposal_id)
 
         return RollbackResult(proposal_id=proposal_id, status="rolled_back")
 
     async def get_history(self) -> List[ModificationRecord]:
         """Return all modification records in application order."""
-        return [
-            self._records[pid]
-            for pid in self._history_order
-            if pid in self._records
-        ]
+        async with self._lock:
+            return [
+                self._records[pid]
+                for pid in self._history_order
+                if pid in self._records
+            ]
 
     # ------------------------------------------------------------------
     # Read helpers for integration with server endpoints
@@ -274,6 +311,13 @@ class SelfModificationEngine:
             return self._modify_active_modules(operation, parameters)
         raise ValueError(f"Unknown target: {target}")
 
+    def _enforce_history_limit(self) -> None:
+        """Evict oldest records when history exceeds the retention cap."""
+        while len(self._history_order) > self._max_history:
+            oldest_pid = self._history_order.pop(0)
+            self._records.pop(oldest_pid, None)
+            self._proposals.pop(oldest_pid, None)
+
     # ---- target-specific handlers ----
 
     def _modify_knowledge_graph(
@@ -344,8 +388,18 @@ class SelfModificationEngine:
         self, operation: str, parameters: Dict[str, Any]
     ) -> str:
         component = parameters.get("component", "")
+        if not component:
+            raise ValueError(
+                "Parameter 'component' is required for attention_weights operations"
+            )
         if operation in ("add", "modify"):
-            weight = float(parameters.get("weight", 0.5))
+            raw_weight = parameters.get("weight", 0.5)
+            try:
+                weight = float(raw_weight)
+            except (TypeError, ValueError):
+                raise ValueError(
+                    f"Invalid 'weight' value for attention_weights: {raw_weight!r}"
+                )
             self._attention_weights[component] = weight
             return f"Set attention weight for '{component}' to {weight}"
         if operation == "remove":
@@ -362,6 +416,10 @@ class SelfModificationEngine:
     ) -> str:
         # Accept either "module" or "id" as the module identifier
         module_name = parameters.get("module") or parameters.get("id") or ""
+        if operation in ("enable", "disable", "remove") and not module_name:
+            raise ValueError(
+                f"A non-empty module identifier is required for '{operation}' operation"
+            )
         if operation == "enable":
             if module_name not in self._active_modules:
                 self._active_modules[module_name] = {
