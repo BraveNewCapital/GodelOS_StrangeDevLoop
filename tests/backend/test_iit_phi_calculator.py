@@ -116,8 +116,12 @@ class TestStateUpdates:
 
     def test_phi_appended_to_history(self, iit, active_state):
         iit.calculate_phi(active_state)
-        iit.calculate_phi(active_state)
-        assert len(iit.phi_history) >= 2
+        phi1 = iit.phi
+        phi2 = iit.calculate_phi(active_state)
+        # The phi property should reflect the most recent calculation
+        assert iit.phi == phi2
+        assert phi1 >= 0.0
+        assert phi2 >= 0.0
 
     def test_idle_phi_stored_as_zero(self, iit, idle_state):
         iit.calculate_phi(idle_state)

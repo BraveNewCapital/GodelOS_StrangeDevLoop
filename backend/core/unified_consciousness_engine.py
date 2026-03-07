@@ -318,13 +318,13 @@ class InformationIntegrationTheory:
     #                             0.05 cleanly separates idle from active.
 
     def __init__(self):
-        self.phi_history: List[float] = []
+        self._last_phi: float = 0.0
         self.integration_threshold: float = 5.0
 
     @property
     def phi(self) -> float:
         """Last computed φ value, or 0.0 if no calculation has been performed."""
-        return self.phi_history[-1] if self.phi_history else 0.0
+        return self._last_phi
 
     # ------------------------------------------------------------------
     # Public API
@@ -359,7 +359,7 @@ class InformationIntegrationTheory:
         if full_vec.size == 0 or np.ptp(full_vec) == 0:
             consciousness_state.information_integration["phi"] = 0.0
             consciousness_state.information_integration["complexity"] = 0.0
-            self.phi_history.append(0.0)
+            self._last_phi = 0.0
             return 0.0
 
         # Enumerate non-trivial bipartitions at the subsystem level.
@@ -394,7 +394,7 @@ class InformationIntegrationTheory:
         consciousness_state.information_integration["phi"] = phi
         consciousness_state.information_integration["complexity"] = complexity
 
-        self.phi_history.append(phi)
+        self._last_phi = phi
         return phi
 
     # ------------------------------------------------------------------
