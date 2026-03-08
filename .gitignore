@@ -154,6 +154,7 @@ svelte-frontend/node_modules/.package-lock.json
 svelte-frontend/node_modules/.vite/deps/_metadata.json
 svelte-frontend/test-results/
 svelte-frontend/playwright-report/
+svelte-frontend/playwright-report-output/
 svelte-frontend/screenshots/
 
 # Build artifacts
