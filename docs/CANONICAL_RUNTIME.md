@@ -59,8 +59,8 @@ All outbound WebSocket messages conform to one of these event schemas:
 | `UnifiedConsciousnessEngine` | `backend/core/unified_consciousness_engine.py` | **CANONICAL** — recursive self-awareness loop, IIT φ, global workspace, phenomenal experience, metacognition. |
 | `ConsciousnessEngine` | `backend/core/consciousness_engine.py` | **DEPRECATED class**. The `ConsciousnessState` and `ConsciousnessLevel` data types remain canonical. |
 | `ConsciousnessEmergenceDetector` | `backend/core/consciousness_emergence_detector.py` | Active — rolling-window breakthrough scorer. |
-| `PhenomenalExperienceGenerator` | `backend/core/phenomenal_experience.py` | Active — used internally by `UnifiedConsciousnessEngine`. |
-| `PhenomenalExperienceGenerator` | `backend/phenomenal_experience_generator.py` | **DEPRECATED**. Emits `DeprecationWarning` on import. |
+| `PhenomenalExperienceGenerator` (core) | `backend/core/phenomenal_experience.py` | **Active** — qualia & subjective-experience simulation used internally by `UnifiedConsciousnessEngine`. |
+| `PhenomenalExperienceGenerator` (legacy) | `backend/phenomenal_experience_generator.py` | **DEPRECATED** — emits `DeprecationWarning` on import. Superseded by the core module above. |
 
 All dashboard and API reads for consciousness metrics (φ, workspace, emergence)
 MUST go through `UnifiedConsciousnessEngine` or the REST/WS endpoints in

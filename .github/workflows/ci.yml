@@ -40,7 +40,9 @@ jobs:
           echo "--- Verifying no duplicate FastAPI app definitions ---"
           # Only backend/unified_server.py may define the production FastAPI app.
           # backend/minimal_server.py is deprecated and backend/main.py is a shim.
-          VIOLATIONS=$(grep -rnE '^\s*app\s*=\s*FastAPI\(' backend/ \
+          # Pattern: lines starting with 'app = FastAPI(' (ignoring leading whitespace)
+          # — this anchored regex avoids false positives in comments/docstrings.
+          VIOLATIONS=$(grep -rnP '^(?!\s*#)\s*app\s*=\s*FastAPI\(' backend/ \
             --include='*.py' \
             | grep -v unified_server.py \
             | grep -v minimal_server.py \

@@ -18,7 +18,7 @@ from dataclasses import asdict
 from datetime import datetime
 
 # Import the canonical base WebSocket manager
-from backend.websocket_manager import WebSocketManager
+from backend.websocket_manager import WebSocketManager  # noqa: E402 — absolute import avoids edge-case relative import failures in test runners
 
 logger = logging.getLogger(__name__)
 

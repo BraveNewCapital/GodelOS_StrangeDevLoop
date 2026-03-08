@@ -48,7 +48,9 @@ class WebSocketManager:
             try:
                 await connection.send_text(message)
             except Exception:
-                pass  # Connection closed
+                # Connection closed or broken — silently skip.
+                # Disconnected clients are cleaned up in disconnect().
+                pass
 
     async def broadcast_cognitive_update(self, event: dict):
         """Broadcast cognitive update event to all connected clients."""
