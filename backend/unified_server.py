@@ -1071,16 +1071,37 @@ async def api_health_check():
 # Cognitive state endpoints
 @app.get("/cognitive/state")
 async def get_cognitive_state_endpoint():
-    """Get current cognitive state."""
+    """Get current cognitive state.
+
+    Resolution order (canonical → fallback):
+    1. ``unified_consciousness_engine`` — the authoritative consciousness state
+    2. ``godelos_integration.get_cognitive_state()`` — pipeline-backed cognitive state
+    3. Static ``cognitive_state`` dict — test-only stub (logs warning)
+    """
+    # 1. Prefer the canonical unified consciousness engine
+    if unified_consciousness_engine and hasattr(unified_consciousness_engine, 'consciousness_state'):
+        try:
+            from dataclasses import asdict
+            cs = unified_consciousness_engine.consciousness_state
+            return {
+                "source": "unified_consciousness_engine",
+                "consciousness_state": asdict(cs),
+                "consciousness_score": cs.consciousness_score,
+                "emergence_level": cs.emergence_level,
+                "timestamp": cs.timestamp,
+            }
+        except Exception as e:
+            logger.warning(f"unified_consciousness_engine state read failed, trying next source: {e}")
+
+    # 2. Fall back to GödelOS integration (pipeline-backed)
     if godelos_integration:
         try:
             return await godelos_integration.get_cognitive_state()
         except Exception as e:
             logger.error(f"Error getting cognitive state from GödelOS: {e}")
     
-    # Return fallback state
-    import random
-    cognitive_state["processing_load"] = max(0, min(1, cognitive_state["processing_load"] + random.uniform(-0.1, 0.1)))
+    # 3. Last resort — static stub (test/dev only)
+    logger.warning("Serving synthetic cognitive_state fallback — no canonical engine available")
     return cognitive_state
 
 @app.get("/api/cognitive/state") 
@@ -1090,34 +1111,50 @@ async def api_get_cognitive_state():
 
 @app.get("/api/cognitive-state") 
 async def api_get_cognitive_state_alias():
-    """API cognitive state endpoint with canonical data contract."""
+    """API cognitive state endpoint with canonical data contract.
+
+    Prefers ``unified_consciousness_engine`` for real consciousness metrics
+    when available, falling back to the GödelOS integration data otherwise.
+    """
     try:
-        # Get data from GödelOS integration if available
-        godelos_data = None
-        if godelos_integration:
-            try:
-                godelos_data = await godelos_integration.get_cognitive_state()
-            except Exception as e:
-                logger.error(f"Error getting cognitive state from GödelOS: {e}")
-        
         # Build canonical response with both camelCase and snake_case
         manifest_consciousness = get_manifest_consciousness_canonical()
-        
-        # If we have GödelOS data, merge it with manifest consciousness
-        if godelos_data and "manifest_consciousness" in godelos_data:
-            legacy_manifest = godelos_data["manifest_consciousness"]
-            # Extract relevant data but keep canonical structure
-            if "attention_focus" in legacy_manifest:
-                focus = legacy_manifest["attention_focus"]
-                if isinstance(focus, dict) and "primary" in focus:
-                    manifest_consciousness["attention"]["focus"] = [focus["primary"]]
-                    manifest_consciousness["attention"]["intensity"] = focus.get("intensity", 0.7)
-            
-            if "metacognitive_status" in godelos_data:
-                meta = godelos_data["metacognitive_status"]
-                if isinstance(meta, dict):
-                    manifest_consciousness["metaReflection"]["depth"] = meta.get("self_awareness", 0.6)
-                    manifest_consciousness["metaReflection"]["coherence"] = meta.get("confidence", 0.85)
+
+        # Enrich manifest from unified consciousness engine (canonical source)
+        if unified_consciousness_engine and hasattr(unified_consciousness_engine, 'consciousness_state'):
+            try:
+                cs = unified_consciousness_engine.consciousness_state
+                manifest_consciousness["awareness"]["level"] = getattr(cs, 'consciousness_score', manifest_consciousness["awareness"]["level"])
+                if hasattr(cs, 'global_workspace'):
+                    gw = cs.global_workspace
+                    if isinstance(gw, dict):
+                        manifest_consciousness["attention"]["intensity"] = gw.get("coalition_strength", manifest_consciousness["attention"]["intensity"])
+                if hasattr(cs, 'metacognitive_state'):
+                    meta = cs.metacognitive_state
+                    if isinstance(meta, dict):
+                        obs = meta.get("meta_observations", [])
+                        manifest_consciousness["metaReflection"]["depth"] = min(1.0, len(obs) / 10.0) if obs else manifest_consciousness["metaReflection"]["depth"]
+            except Exception as e:
+                logger.warning(f"Could not enrich manifest from unified consciousness engine: {e}")
+
+        # Fall back to GödelOS integration data if engine not available
+        elif godelos_integration:
+            try:
+                godelos_data = await godelos_integration.get_cognitive_state()
+                if godelos_data and "manifest_consciousness" in godelos_data:
+                    legacy_manifest = godelos_data["manifest_consciousness"]
+                    if "attention_focus" in legacy_manifest:
+                        focus = legacy_manifest["attention_focus"]
+                        if isinstance(focus, dict) and "primary" in focus:
+                            manifest_consciousness["attention"]["focus"] = [focus["primary"]]
+                            manifest_consciousness["attention"]["intensity"] = focus.get("intensity", 0.7)
+                    if "metacognitive_status" in godelos_data:
+                        meta = godelos_data["metacognitive_status"]
+                        if isinstance(meta, dict):
+                            manifest_consciousness["metaReflection"]["depth"] = meta.get("self_awareness", 0.6)
+                            manifest_consciousness["metaReflection"]["coherence"] = meta.get("confidence", 0.85)
+            except Exception as e:
+                logger.error(f"Error getting cognitive state from GödelOS: {e}")
         
         # Build canonical response
         canonical_response = {

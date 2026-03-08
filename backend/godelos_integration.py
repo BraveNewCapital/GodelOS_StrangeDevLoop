@@ -24,10 +24,16 @@ class GödelOSIntegration:
     GödelOS integration layer.
 
     All cognitive processing MUST flow through ``godelOS.cognitive_pipeline.CognitivePipeline``
-    when available.  The inline ``simple_knowledge_store`` below is a **test-only
+    when available.  The inline ``_fallback_knowledge_store`` below is a **test-only
     stub** — it exists solely so that unit tests can run without the full pipeline
     and should never be treated as production data.
+
+    Accessing ``simple_knowledge_store`` when the canonical pipeline is active
+    will emit a runtime warning to catch accidental fallback-path usage.
     """
+
+    # Track whether we have already warned for fallback usage in this process.
+    _fallback_warned: bool = False
     
     def __init__(self):
         self.initialized = False
@@ -38,7 +44,7 @@ class GödelOSIntegration:
         # TEST-ONLY STUB — static seed data used when CognitivePipeline is
         # unavailable (e.g. in unit tests).  Production reads MUST go through
         # self.cognitive_pipeline.
-        self.simple_knowledge_store = {
+        self._fallback_knowledge_store = {
             "system_status": {
                 "title": "System Status", 
                 "content": "The system is currently operational.", 
@@ -76,6 +82,26 @@ class GödelOSIntegration:
                 "source": "internal"
             }
         }
+
+    @property
+    def simple_knowledge_store(self):
+        """Accessor for the fallback knowledge store.
+
+        Emits a one-time warning when the canonical ``CognitivePipeline`` is
+        available, signaling that production code is falling through to the
+        test-only stub.
+        """
+        if self.cognitive_pipeline is not None and not GödelOSIntegration._fallback_warned:
+            GödelOSIntegration._fallback_warned = True
+            logger.warning(
+                "⚠️ simple_knowledge_store accessed while CognitivePipeline is "
+                "active — production reads should go through the pipeline."
+            )
+        return self._fallback_knowledge_store
+
+    @simple_knowledge_store.setter
+    def simple_knowledge_store(self, value):
+        self._fallback_knowledge_store = value
 
     async def initialize(self, pipeline_service=None, mgmt_service=None):
         """Initialize the integration."""
