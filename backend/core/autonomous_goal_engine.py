@@ -409,13 +409,16 @@ class CreativeSynthesisEngine:
             ["time", "temporal", "history", "evolution", "change"],
         ]
         a_lower, b_lower = a.lower(), b.lower()
+        any_partial = False
         for domain in _DOMAIN_TAGS:
             a_match = any(t in a_lower for t in domain)
             b_match = any(t in b_lower for t in domain)
             if a_match and b_match:
                 return 0.8  # same domain → coherent
             if a_match or b_match:
-                return 0.5  # partial domain overlap
+                any_partial = True  # remember partial domain overlap
+        if any_partial:
+            return 0.5  # at least one partial domain overlap
         return 0.4  # no domain overlap → cross-domain (coherence lower, novelty higher)
 
     @staticmethod

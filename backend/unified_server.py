@@ -2598,7 +2598,7 @@ async def get_knowledge_persistence_status():
         import os
         backend = os.environ.get("KNOWLEDGE_STORE_BACKEND", "memory")
         store_path = os.environ.get("KNOWLEDGE_STORE_PATH", "./data/chroma")
-        ontology_dir = os.environ.get("GODELOS_ONTOLOGY_DIR", "./ontologies")
+        ontology_dir = os.environ.get("GODELOS_ONTOLOGY_DIR", "")
         reloader_active = _hot_reloader is not None
 
         return {
@@ -2622,9 +2622,11 @@ async def get_knowledge_persistence_status():
 async def trigger_ontology_reload():
     """Trigger an immediate ontology hot-reload from the watched directory.
 
-    Reads all ``.ttl`` and ``.json-ld`` files in ``GODELOS_ONTOLOGY_DIR``,
-    computes the delta against the last snapshot, and applies it to the
-    running knowledge graph.  Returns the number of triples added/removed.
+    Reads all ``.ttl`` and ``.json-ld`` files in ``GODELOS_ONTOLOGY_DIR`` and
+    applies any changes to the running knowledge graph.  Returns a status
+    object with the watch directory path.  The hot-reloader must be active
+    (i.e. ``GODELOS_ONTOLOGY_DIR`` must be set at startup); otherwise a
+    503 is returned.
     """
     try:
         if _hot_reloader is None:

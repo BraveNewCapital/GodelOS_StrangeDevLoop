@@ -284,22 +284,34 @@ class ConsciousnessEmergenceDetector:
     def get_breakthroughs(self, limit: int = 50) -> List[Dict[str, Any]]:
         """Return the most recent breakthrough events from the persistent log.
 
-        Reads ``breakthroughs.jsonl`` and returns up to *limit* entries in
-        reverse-chronological order (newest first).
+        Reads the tail of ``breakthroughs.jsonl`` and returns up to *limit*
+        entries in reverse-chronological order (newest first).  Only the last
+        ``limit * 2048`` bytes of the file are read so that memory usage stays
+        bounded even when the log grows large.
         """
         if not self._log_path.exists():
             return []
+        events: List[Dict[str, Any]] = []
         try:
-            lines = self._log_path.read_text(encoding="utf-8").splitlines()
+            with self._log_path.open("rb") as fh:
+                fh.seek(0, 2)
+                file_size = fh.tell()
+                # Read at most limit * 2 KiB from the end of the file.
+                read_bytes = min(limit * 2048, file_size)
+                fh.seek(file_size - read_bytes)
+                tail = fh.read().decode("utf-8", errors="replace")
         except OSError:
             return []
-        events: List[Dict[str, Any]] = []
-        for line in reversed(lines):
-            line = line.strip()
-            if not line:
+        lines = tail.splitlines()
+        # If we didn't start at the beginning, the first line may be incomplete.
+        if file_size > limit * 2048 and lines:
+            lines = lines[1:]
+        for raw in reversed(lines):
+            raw = raw.strip()
+            if not raw:
                 continue
             try:
-                events.append(json.loads(line))
+                events.append(json.loads(raw))
             except json.JSONDecodeError:
                 continue
             if len(events) >= limit:
