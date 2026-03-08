@@ -19,6 +19,6 @@ _warnings.warn(
 )
 
 # Re-export the canonical app so ``backend.minimal_server:app`` resolves.
-from backend.unified_server import app  # noqa: F401
+from backend.unified_server import app  # noqa: F401 — intentional re-export
 
 __all__ = ["app"]

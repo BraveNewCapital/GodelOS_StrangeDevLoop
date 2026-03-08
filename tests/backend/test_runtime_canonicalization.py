@@ -108,8 +108,8 @@ class TestWebSocketManagerIdentity:
             us.enhanced_websocket_manager = None
             await us.initialize_core_services()
 
-            assert us.websocket_manager is not None, "websocket_manager should be initialised"
-            assert us.enhanced_websocket_manager is not None, "enhanced_websocket_manager should be initialised"
+            assert us.websocket_manager is not None, "websocket_manager should be initialized"
+            assert us.enhanced_websocket_manager is not None, "enhanced_websocket_manager should be initialized"
             assert us.websocket_manager is us.enhanced_websocket_manager, (
                 "Both WS globals must reference the SAME runtime object"
             )
@@ -236,7 +236,6 @@ class TestPipelineIntegrationGating:
     def test_fallback_warns_when_pipeline_active(self):
         """Accessing simple_knowledge_store with an active pipeline logs a warning."""
         from backend.godelos_integration import GödelOSIntegration
-        import logging
 
         gi = GödelOSIntegration()
         # Reset class-level warning flag for this test
@@ -244,10 +243,9 @@ class TestPipelineIntegrationGating:
         # Simulate an active pipeline
         gi.cognitive_pipeline = object()  # truthy sentinel
 
-        with pytest.raises(Exception) if False else _no_raise():
-            # Access should succeed but log a warning
-            _ = gi.simple_knowledge_store
-            assert GödelOSIntegration._fallback_warned is True
+        # Access should succeed but set the warned flag
+        _ = gi.simple_knowledge_store
+        assert GödelOSIntegration._fallback_warned is True
 
         # Clean up
         GödelOSIntegration._fallback_warned = False
@@ -261,11 +259,3 @@ class TestPipelineIntegrationGating:
         _ = gi.simple_knowledge_store
         assert GödelOSIntegration._fallback_warned is False
         GödelOSIntegration._fallback_warned = False
-
-
-# Utility context manager (no-op)
-from contextlib import contextmanager
-
-@contextmanager
-def _no_raise():
-    yield
