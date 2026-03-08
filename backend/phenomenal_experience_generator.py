@@ -1,9 +1,20 @@
 """
-Phenomenal Experience Generator for GödelOS
+DEPRECATED — Phenomenal Experience Generator for GödelOS.
 
-Generates subjective experience descriptions and first-person perspective responses
-to simulate aspects of phenomenal consciousness.
+This module is superseded by ``backend.core.phenomenal_experience``, which
+provides the canonical qualia and subjective-experience simulation used by
+``UnifiedConsciousnessEngine``.
+
+Do NOT use this module for new code.  It is retained only for backward
+compatibility and will be removed in a future release.
 """
+import warnings as _warnings
+_warnings.warn(
+    "backend.phenomenal_experience_generator is deprecated. Use "
+    "backend.core.phenomenal_experience instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import time
 import re

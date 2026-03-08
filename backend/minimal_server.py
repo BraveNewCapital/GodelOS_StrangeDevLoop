@@ -1,10 +1,22 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Minimal GödelOS Backend Server
-A streamlined version of the backend that provides essential API endpoints
-for the frontend without complex dependencies.
+DEPRECATED — Minimal GödelOS Backend Server.
+
+This module is superseded by ``backend.unified_server``, which is the single
+canonical runtime entrypoint for all GödelOS server startup paths.
+
+Do NOT use this module for new code.  It is retained only to avoid breaking
+any external tooling that may reference it.  It will be removed in a future
+release.
 """
+import warnings as _warnings
+_warnings.warn(
+    "backend.minimal_server is deprecated. Use backend.unified_server as the "
+    "canonical server entrypoint.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import asyncio
 import json

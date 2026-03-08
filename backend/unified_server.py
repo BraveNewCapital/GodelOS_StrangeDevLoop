@@ -105,67 +105,10 @@ except ImportError as e:
     GödelOSIntegration = None
     GODELOS_AVAILABLE = False
 
-# Use unified WebSocket manager (no external dependency)
-class WebSocketManager:
-    def __init__(self):
-        self.active_connections: List[WebSocket] = []
-    
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.append(websocket)
-    
-    def disconnect(self, websocket: WebSocket):
-        if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
-    
-    async def send_personal_message(self, message: str, websocket: WebSocket):
-        await websocket.send_text(message)
-    
-    async def broadcast(self, message: Union[str, dict]):
-        if isinstance(message, dict):
-            message = json.dumps(message)
-        for connection in self.active_connections:
-            try:
-                await connection.send_text(message)
-            except:
-                pass  # Connection closed
-    
-    async def broadcast_cognitive_update(self, event: dict):
-        """Broadcast cognitive update event to all connected clients"""
-        # Allow callers to send either a raw event dict or an already-wrapped
-        # { type: 'cognitive_event', data: {...} } message. Normalize to raw event.
-        try:
-            inner_event = event
-            if isinstance(event, dict) and event.get("type") == "cognitive_event" and isinstance(event.get("data"), dict):
-                inner_event = event.get("data")
-            message = {
-                "type": "cognitive_event",
-                "timestamp": inner_event.get("timestamp", ""),
-                "data": inner_event
-            }
-        except Exception:
-            # Fallback if anything unexpected
-            message = {
-                "type": "cognitive_event",
-                "timestamp": event.get("timestamp", ""),
-                "data": event
-            }
-        await self.broadcast(message)
-    
-    async def broadcast_consciousness_update(self, consciousness_data: dict):
-        """Broadcast consciousness update to all connected clients"""
-        try:
-            message = {
-                "type": "consciousness_update",
-                "timestamp": consciousness_data.get("timestamp", time.time()),
-                "data": consciousness_data
-            }
-            await self.broadcast(message)
-        except Exception as e:
-            logger.error(f"Error broadcasting consciousness update: {e}")
-    
-    def has_connections(self) -> bool:
-        return len(self.active_connections) > 0
+# Canonical WebSocket manager — imported from backend.websocket_manager (base)
+# and backend.core.enhanced_websocket_manager (consciousness-aware extension).
+# The runtime always uses EnhancedWebSocketManager as the single manager instance.
+from backend.websocket_manager import WebSocketManager  # noqa: E402 — base class
 
 WEBSOCKET_MANAGER_AVAILABLE = True
 
@@ -298,9 +241,13 @@ except ImportError as e:
     DORMANT_MODULE_MANAGER_AVAILABLE = False
 
 # Global service instances - using Any to avoid type annotation issues
+# NOTE: After runtime canonicalization, ``websocket_manager`` and
+# ``enhanced_websocket_manager`` always reference the SAME
+# ``EnhancedWebSocketManager`` instance.  Two names are kept only for
+# backward-compat with existing code that references either.
 godelos_integration = None
 websocket_manager = None
-enhanced_websocket_manager = None
+enhanced_websocket_manager = None  # alias — same object as websocket_manager at runtime
 unified_consciousness_engine = None
 tool_based_llm = None
 cognitive_manager = None
@@ -399,20 +346,22 @@ async def initialize_core_services():
     """Initialize core services with proper error handling."""
     global godelos_integration, websocket_manager, enhanced_websocket_manager, unified_consciousness_engine, tool_based_llm, cognitive_manager, transparency_engine
     
-    # Initialize WebSocket manager
-    websocket_manager = WebSocketManager()
-    logger.info("✅ WebSocket manager initialized")
-    
-    # Initialize enhanced WebSocket manager for consciousness streaming
+    # Initialize the SINGLE canonical WebSocket manager.
+    # EnhancedWebSocketManager inherits WebSocketManager and adds consciousness
+    # streaming.  Both globals point to the same instance.
     if UNIFIED_CONSCIOUSNESS_AVAILABLE:
         try:
             enhanced_websocket_manager = EnhancedWebSocketManager()
-            logger.info("✅ Enhanced WebSocket manager initialized for consciousness streaming")
+            websocket_manager = enhanced_websocket_manager
+            logger.info("✅ Canonical WebSocket manager initialized (EnhancedWebSocketManager)")
         except Exception as e:
-            logger.error(f"❌ Failed to initialize enhanced WebSocket manager: {e}")
-            enhanced_websocket_manager = websocket_manager  # Fallback to basic manager
+            logger.error(f"❌ Failed to initialize EnhancedWebSocketManager, falling back to base: {e}")
+            websocket_manager = WebSocketManager()
+            enhanced_websocket_manager = websocket_manager
     else:
+        websocket_manager = WebSocketManager()
         enhanced_websocket_manager = websocket_manager
+        logger.info("✅ WebSocket manager initialized (base — unified consciousness not available)")
     
     # Initialize transparency engine with websocket manager
     transparency_engine = initialize_transparency_engine(enhanced_websocket_manager)

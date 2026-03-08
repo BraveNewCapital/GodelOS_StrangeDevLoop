@@ -21,7 +21,12 @@ except Exception:  # noqa: BLE001
 
 class GödelOSIntegration:
     """
-    A simplified working integration class for GödelOS API.
+    GödelOS integration layer.
+
+    All cognitive processing MUST flow through ``godelOS.cognitive_pipeline.CognitivePipeline``
+    when available.  The inline ``simple_knowledge_store`` below is a **test-only
+    stub** — it exists solely so that unit tests can run without the full pipeline
+    and should never be treated as production data.
     """
     
     def __init__(self):
@@ -30,7 +35,9 @@ class GödelOSIntegration:
         self.error_count = 0
         self.cognitive_pipeline: Optional["CognitivePipeline"] = None
         
-        # Enhanced knowledge store for better search
+        # TEST-ONLY STUB — static seed data used when CognitivePipeline is
+        # unavailable (e.g. in unit tests).  Production reads MUST go through
+        # self.cognitive_pipeline.
         self.simple_knowledge_store = {
             "system_status": {
                 "title": "System Status", 
