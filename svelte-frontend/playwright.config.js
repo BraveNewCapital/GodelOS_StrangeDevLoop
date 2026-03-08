@@ -9,7 +9,7 @@ module.exports = defineConfig({
   workers: process.env.CI ? 1 : 1,
   outputDir: './test-results',
   reporter: [
-    ['html', { outputFolder: './playwright-report' }],
+    ['html', { outputFolder: './playwright-report-output' }],
     ['json', { outputFile: './test-results/test-results.json' }],
     ['list']
   ],
