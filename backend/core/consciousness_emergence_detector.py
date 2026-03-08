@@ -280,3 +280,129 @@ class ConsciousnessEmergenceDetector:
 
         self._current_dimensions = normalised
         return score
+
+    def get_breakthroughs(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Return the most recent breakthrough events from the persistent log.
+
+        Reads the tail of ``breakthroughs.jsonl`` and returns up to *limit*
+        entries in reverse-chronological order (newest first).  Only the last
+        ``limit * 2048`` bytes of the file are read so that memory usage stays
+        bounded even when the log grows large.
+        """
+        if not self._log_path.exists():
+            return []
+        events: List[Dict[str, Any]] = []
+        try:
+            with self._log_path.open("rb") as fh:
+                fh.seek(0, 2)
+                file_size = fh.tell()
+                # Read at most limit * 2 KiB from the end of the file.
+                read_bytes = min(limit * 2048, file_size)
+                fh.seek(file_size - read_bytes)
+                tail = fh.read().decode("utf-8", errors="replace")
+        except OSError:
+            return []
+        lines = tail.splitlines()
+        # If we didn't start at the beginning, the first line may be incomplete.
+        if file_size > limit * 2048 and lines:
+            lines = lines[1:]
+        for raw in reversed(lines):
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                events.append(json.loads(raw))
+            except json.JSONDecodeError:
+                continue
+            if len(events) >= limit:
+                break
+        return events
+
+
+# ---------------------------------------------------------------------------
+# UnifiedConsciousnessObservatory
+# ---------------------------------------------------------------------------
+
+class UnifiedConsciousnessObservatory:
+    """Persistent background task that feeds cognitive states into the
+    :class:`ConsciousnessEmergenceDetector` and exposes aggregated reports.
+
+    Intended to run as a long-lived asyncio task.  Callers push states via
+    :meth:`record_state`; the observatory keeps cumulative statistics and
+    exposes them via :meth:`get_report`.
+    """
+
+    def __init__(
+        self,
+        detector: ConsciousnessEmergenceDetector,
+        poll_interval: float = 2.0,
+    ) -> None:
+        self.detector = detector
+        self.poll_interval = poll_interval
+        self._running: bool = False
+        self._task: Optional[asyncio.Task] = None
+        self._total_states: int = 0
+        self._total_breakthroughs: int = 0
+        self._peak_score: float = 0.0
+        self._started_at: Optional[float] = None
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    async def start(self) -> None:
+        """Start the observatory background loop."""
+        if self._running:
+            return
+        self._running = True
+        self._started_at = time.time()
+        self._task = asyncio.create_task(self._run())
+        logger.info("UnifiedConsciousnessObservatory started.")
+
+    async def stop(self) -> None:
+        """Stop the observatory background loop."""
+        self._running = False
+        if self._task is not None:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+        logger.info("UnifiedConsciousnessObservatory stopped.")
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def record_state(self, state: Dict[str, Any]) -> float:
+        """Push a cognitive-state snapshot and return the current score."""
+        score = self.detector.record_state(state)
+        self._total_states += 1
+        if score > self._peak_score:
+            self._peak_score = score
+        if score >= self.detector.threshold:
+            self._total_breakthroughs += 1
+        return score
+
+    def get_report(self) -> Dict[str, Any]:
+        """Return a full observatory report suitable for the REST endpoint."""
+        uptime = time.time() - self._started_at if self._started_at else 0.0
+        status = self.detector.get_emergence_status()
+        recent_breakthroughs = self.detector.get_breakthroughs(limit=10)
+        return {
+            "running": self._running,
+            "uptime_seconds": uptime,
+            "total_states_observed": self._total_states,
+            "total_breakthroughs": self._total_breakthroughs,
+            "peak_score": self._peak_score,
+            "current_emergence": status,
+            "recent_breakthroughs": recent_breakthroughs,
+        }
+
+    # ------------------------------------------------------------------
+    # Background loop
+    # ------------------------------------------------------------------
+
+    async def _run(self) -> None:
+        while self._running:
+            await asyncio.sleep(self.poll_interval)

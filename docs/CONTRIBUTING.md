@@ -113,6 +113,70 @@ When contributing to the Inference Engine, please ensure:
 - Resource limits are respected in all inference algorithms
 - Changes to the inference coordinator maintain backward compatibility
 
+## Secrets Management & GitHub PAT Setup
+
+### Personal Access Token (PAT) Requirements
+
+Copilot coding agents and automated CI workflows require a GitHub Personal Access Token with specific scopes.
+
+#### Required Scopes
+
+| Scope | Purpose |
+|-------|---------|
+| `repo` | Full repository access (read/write code, pull requests, issues) |
+| `project` | Projects V2 read/write access (required for GitHub Projects board automation) |
+| `workflow` | Manage GitHub Actions workflows |
+| `read:org` | Read organisation membership (required for org-level Projects) |
+
+> **Important:** The `project` scope is mandatory for Copilot agent tasks that interact with GitHub Projects V2. Without it, project board operations will fail with a 403 error.
+
+#### Creating the PAT
+
+1. Go to **GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens** (recommended) or **Tokens (classic)**.
+2. For a **classic PAT**: check `repo`, `project`, `workflow`, and `read:org`.
+3. Set an expiry of **90 days maximum** (rotate before expiry — see schedule below).
+4. Give it a descriptive name: `godelos-copilot-agent` or similar.
+
+#### Storage Location
+
+- Store the PAT as a **repository secret**: `Settings → Secrets and variables → Actions → New repository secret`.
+- Secret name: `COPILOT_PAT` (or `GITHUB_TOKEN` override where applicable).
+- **Never** commit the raw token to source code or include it in log output.
+
+#### Rotation Schedule
+
+| Event | Action |
+|-------|--------|
+| Every 90 days | Revoke old token, generate new one, update repository secret |
+| Suspected compromise | Revoke immediately, generate new token, audit recent Actions logs |
+| Team member offboarding | Revoke tokens associated with the departing member |
+
+#### Verifying Token Scopes
+
+```bash
+curl -s -H "Authorization: token <YOUR_TOKEN>" https://api.github.com/rate_limit \
+  -I | grep -i x-oauth-scopes
+```
+
+The response header `X-OAuth-Scopes` must include `project` for Projects V2 operations.
+
+#### Environment Variables for Local Development
+
+For local development where Copilot agents or scripts need the PAT, set it in your shell session (never in `.env` files committed to the repo):
+
+```bash
+export GITHUB_PAT="ghp_..."
+```
+
+Add to your local `.gitignore` any files that might inadvertently capture secrets:
+```
+.env.local
+.secrets
+*.token
+```
+
+---
+
 ## Thank you for contributing to GödelOS!
 
 Your contributions help make this project better for everyone.

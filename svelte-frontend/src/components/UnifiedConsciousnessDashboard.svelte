@@ -26,10 +26,28 @@
     let alertsEnabled = true;
     let autoScroll = true;
     let bootstrapBusy = false;
-    
+
+    // Autonomous Goals state
+    let autonomousGoals = [];
+    let goalsLoading = false;
+    let goalsError = null;
+
+    // Breakthrough Log state
+    let breakthroughLog = [];
+    let breakthroughsLoading = false;
+    let breakthroughsError = null;
+
+    // Subsystem Health state
+    let subsystems = [];
+    let subsystemsLoading = false;
+    let subsystemsError = null;
+
     onMount(() => {
         connectToConsciousnessStream();
         connectToEmergenceStream();
+        loadAutonomousGoals();
+        loadBreakthroughLog();
+        loadSubsystemHealth();
     });
     
     onDestroy(() => {
@@ -206,6 +224,76 @@
         try { return new Date(ms).toLocaleTimeString(); } catch { return '' }
     }
 
+    async function loadAutonomousGoals() {
+        goalsLoading = true;
+        goalsError = null;
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/consciousness/goals`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            autonomousGoals = data.goals || [];
+        } catch (e) {
+            goalsError = e.message;
+        } finally {
+            goalsLoading = false;
+        }
+    }
+
+    async function triggerGoalGeneration() {
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/consciousness/goals/generate`, { method: 'POST' });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            await loadAutonomousGoals();
+        } catch (e) {
+            goalsError = e.message;
+        }
+    }
+
+    async function loadBreakthroughLog() {
+        breakthroughsLoading = true;
+        breakthroughsError = null;
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/consciousness/breakthroughs?limit=50`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            breakthroughLog = data.breakthroughs || [];
+        } catch (e) {
+            breakthroughsError = e.message;
+        } finally {
+            breakthroughsLoading = false;
+        }
+    }
+
+    async function loadSubsystemHealth() {
+        subsystemsLoading = true;
+        subsystemsError = null;
+        try {
+            // Prefer dormant-modules endpoint; fall back to system status
+            const res = await fetch(`${API_BASE_URL}/api/system/dormant-modules`);
+            if (res.ok) {
+                const data = await res.json();
+                subsystems = data.modules || [];
+            } else {
+                // Fallback: derive from consciousness health
+                const healthRes = await fetch(`${API_BASE_URL}/api/consciousness/health`);
+                if (healthRes.ok) {
+                    const health = await healthRes.json();
+                    subsystems = Object.entries(health).map(([k, v]) => ({
+                        module_name: k,
+                        active: v === true || v === 'ok' || v === 'available',
+                        last_tick: null,
+                        tick_count: null,
+                        last_output: typeof v === 'object' ? v : { status: v },
+                    }));
+                }
+            }
+        } catch (e) {
+            subsystemsError = e.message;
+        } finally {
+            subsystemsLoading = false;
+        }
+    }
+
     async function triggerBootstrap(force = false) {
         if (bootstrapBusy) return;
         bootstrapBusy = true;
@@ -290,6 +378,27 @@
             on:click={() => selectedTab = 'emergence'}
         >
             Emergence Timeline
+        </button>
+        <button
+            class="tab-button"
+            class:active={selectedTab === 'goals'}
+            on:click={() => { selectedTab = 'goals'; loadAutonomousGoals(); }}
+        >
+            Autonomous Goals
+        </button>
+        <button
+            class="tab-button"
+            class:active={selectedTab === 'breakthroughs'}
+            on:click={() => { selectedTab = 'breakthroughs'; loadBreakthroughLog(); }}
+        >
+            Breakthrough Log
+        </button>
+        <button
+            class="tab-button"
+            class:active={selectedTab === 'subsystems'}
+            on:click={() => { selectedTab = 'subsystems'; loadSubsystemHealth(); }}
+        >
+            Subsystem Health
         </button>
     </div>
     
@@ -579,6 +688,108 @@
                     {/if}
                 </div>
             </div>
+        </div>
+    {/if}
+
+    <!-- Autonomous Goals Tab -->
+    {#if selectedTab === 'goals'}
+        <div class="tab-content">
+            <div class="section-header">
+                <h3>🎯 Autonomous Goals</h3>
+                <button class="btn small" on:click={triggerGoalGeneration}>Generate Goals</button>
+            </div>
+            {#if goalsLoading}
+                <p class="loading-msg">Loading goals…</p>
+            {:else if goalsError}
+                <p class="error-msg">⚠ {goalsError}</p>
+            {:else if autonomousGoals.length === 0}
+                <p class="no-events">No autonomous goals active. Click "Generate Goals" to seed.</p>
+            {:else}
+                <div class="goals-grid">
+                    {#each autonomousGoals as goal}
+                        <div class="goal-card priority-{goal.priority}">
+                            <div class="goal-header">
+                                <span class="goal-type">{goal.type}</span>
+                                <span class="goal-priority badge-{goal.priority}">{goal.priority}</span>
+                            </div>
+                            <p class="goal-target">{goal.target}</p>
+                            <div class="goal-meta">
+                                <span>Source: {goal.source}</span>
+                                <span>Confidence: {(goal.confidence * 100).toFixed(0)}%</span>
+                                {#if goal.novelty_score != null}
+                                    <span>Novelty: {(goal.novelty_score * 100).toFixed(0)}%</span>
+                                {/if}
+                            </div>
+                            <div class="goal-status status-{goal.status}">{goal.status}</div>
+                        </div>
+                    {/each}
+                </div>
+            {/if}
+        </div>
+    {/if}
+
+    <!-- Breakthrough Log Tab -->
+    {#if selectedTab === 'breakthroughs'}
+        <div class="tab-content">
+            <div class="section-header">
+                <h3>🚨 Breakthrough Log</h3>
+                <button class="btn small" on:click={loadBreakthroughLog}>Refresh</button>
+            </div>
+            {#if breakthroughsLoading}
+                <p class="loading-msg">Loading breakthrough log…</p>
+            {:else if breakthroughsError}
+                <p class="error-msg">⚠ {breakthroughsError}</p>
+            {:else if breakthroughLog.length === 0}
+                <p class="no-events">No breakthroughs recorded yet — system is monitoring.</p>
+            {:else}
+                <div class="breakthrough-log">
+                    {#each breakthroughLog as entry}
+                        <div class="breakthrough-entry">
+                            <div class="bt-time">{fmtTs(entry.timestamp)}</div>
+                            <div class="bt-score">
+                                Score: <strong>{entry.score?.toFixed(3) ?? '—'}</strong>
+                            </div>
+                            <div class="bt-dims">
+                                {#each Object.entries(entry.dimensions || {}) as [dim, val]}
+                                    <span class="dim-chip">{dim}: {typeof val === 'number' ? val.toFixed(2) : val}</span>
+                                {/each}
+                            </div>
+                        </div>
+                    {/each}
+                </div>
+            {/if}
+        </div>
+    {/if}
+
+    <!-- Subsystem Health Grid Tab -->
+    {#if selectedTab === 'subsystems'}
+        <div class="tab-content">
+            <div class="section-header">
+                <h3>🔬 Subsystem Health Grid</h3>
+                <button class="btn small" on:click={loadSubsystemHealth}>Refresh</button>
+            </div>
+            {#if subsystemsLoading}
+                <p class="loading-msg">Loading subsystem status…</p>
+            {:else if subsystemsError}
+                <p class="error-msg">⚠ {subsystemsError}</p>
+            {:else if subsystems.length === 0}
+                <p class="no-events">No subsystem data available.</p>
+            {:else}
+                <div class="subsystem-grid">
+                    {#each subsystems as sub}
+                        <div class="subsystem-card" class:active={sub.active} class:inactive={!sub.active}>
+                            <div class="sub-name">{sub.module_name}</div>
+                            <div class="sub-status">{sub.active ? '✅ Active' : '❌ Inactive'}</div>
+                            {#if sub.tick_count != null}
+                                <div class="sub-meta">Ticks: {sub.tick_count}</div>
+                            {/if}
+                            {#if sub.last_tick}
+                                <div class="sub-meta">Last tick: {fmtTs(Date.parse(sub.last_tick) / 1000)}</div>
+                            {/if}
+                        </div>
+                    {/each}
+                </div>
+            {/if}
         </div>
     {/if}
 </div>
@@ -1229,4 +1440,141 @@
             min-width: auto;
         }
     }
+
+    /* -----------------------------------------------------------------------
+       New panels: Goals, Breakthrough Log, Subsystem Health Grid
+    ----------------------------------------------------------------------- */
+
+    .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+    }
+
+    .section-header h3 {
+        margin: 0;
+        font-size: 1.25rem;
+        color: #00d4ff;
+    }
+
+    .loading-msg { color: #aaa; }
+    .error-msg   { color: #ff4d4d; }
+    .no-events   { color: #888; font-style: italic; }
+
+    /* Goals */
+    .goals-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 16px;
+    }
+
+    .goal-card {
+        background: rgba(255,255,255,0.06);
+        border-radius: 8px;
+        padding: 14px;
+        border-left: 4px solid #555;
+    }
+
+    .goal-card.priority-critical { border-left-color: #ff4d4d; }
+    .goal-card.priority-high     { border-left-color: #ff9800; }
+    .goal-card.priority-medium   { border-left-color: #00d4ff; }
+    .goal-card.priority-low      { border-left-color: #4caf50; }
+
+    .goal-header {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 8px;
+    }
+
+    .goal-type {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #aaa;
+    }
+
+    .goal-priority {
+        font-size: 0.7rem;
+        padding: 2px 8px;
+        border-radius: 999px;
+    }
+
+    .badge-critical { background: #ff4d4d33; color: #ff4d4d; }
+    .badge-high     { background: #ff980033; color: #ff9800; }
+    .badge-medium   { background: #00d4ff33; color: #00d4ff; }
+    .badge-low      { background: #4caf5033; color: #4caf50; }
+
+    .goal-target { margin: 6px 0; font-size: 0.95rem; }
+
+    .goal-meta {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        font-size: 0.75rem;
+        color: #aaa;
+        margin-bottom: 6px;
+    }
+
+    .goal-status {
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    .status-pending  { color: #00d4ff; }
+    .status-active   { color: #4caf50; }
+    .status-completed { color: #aaa; }
+
+    /* Breakthrough Log */
+    .breakthrough-log {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .breakthrough-entry {
+        background: rgba(255,0,110,0.08);
+        border: 1px solid rgba(255,0,110,0.25);
+        border-radius: 6px;
+        padding: 10px 14px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+    }
+
+    .bt-time  { color: #aaa; font-size: 0.8rem; min-width: 90px; }
+    .bt-score { font-size: 0.95rem; }
+
+    .bt-dims { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    .dim-chip {
+        background: rgba(255,255,255,0.08);
+        border-radius: 4px;
+        padding: 2px 7px;
+        font-size: 0.72rem;
+        color: #ccc;
+    }
+
+    /* Subsystem Health Grid */
+    .subsystem-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 14px;
+    }
+
+    .subsystem-card {
+        background: rgba(255,255,255,0.05);
+        border-radius: 8px;
+        padding: 12px 14px;
+        border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .subsystem-card.active   { border-color: rgba(76,175,80,0.5); }
+    .subsystem-card.inactive { border-color: rgba(255,77,77,0.3); opacity: 0.7; }
+
+    .sub-name   { font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; word-break: break-all; }
+    .sub-status { font-size: 0.8rem; margin-bottom: 4px; }
+    .sub-meta   { font-size: 0.72rem; color: #aaa; }
 </style>
