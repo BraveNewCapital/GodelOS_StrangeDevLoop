@@ -12,10 +12,11 @@ on:
           - analyze
           - report
           - mutate
+          - campaign
       github_model:
-        description: 'GitHub Models model id'
-        required: true
-        default: 'openai/gpt-4.1'
+        description: 'GitHub Models model id (overrides preferred model)'
+        required: false
+        default: ''
         type: string
       report_path:
         description: 'Primary report path'
@@ -31,6 +32,16 @@ on:
           - '1'
           - '2'
           - '3'
+      max_slices:
+        description: 'Campaign max slices (campaign mode only)'
+        required: false
+        default: '3'
+        type: string
+      lanes:
+        description: 'Comma-separated lane order (campaign mode only)'
+        required: false
+        default: 'parse_errors,import_cycles,hygiene,report'
+        type: string
   schedule:
     - cron: '17 * * * *'
 
@@ -62,23 +73,36 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+      - name: Ensure artifact directories exist
+        run: |
+          mkdir -p .agent docs/repo_architect
+
       - name: Run repo architect
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPO: ${{ github.repository }}
           GITHUB_BASE_BRANCH: ${{ github.event.repository.default_branch }}
           REPO_ARCHITECT_BRANCH_SUFFIX: ${{ github.run_id }}-${{ github.run_attempt }}
+          REPO_ARCHITECT_PREFERRED_MODEL: openai/gpt-5.4
+          REPO_ARCHITECT_FALLBACK_MODEL: openai/gpt-4.1
         run: |
           MODE="${{ github.event.inputs.mode }}"
           MODEL="${{ github.event.inputs.github_model }}"
           REPORT_PATH="${{ github.event.inputs.report_path }}"
           MUTATION_BUDGET="${{ github.event.inputs.mutation_budget }}"
+          MAX_SLICES="${{ github.event.inputs.max_slices }}"
+          LANES="${{ github.event.inputs.lanes }}"
           if [ -z "$MODE" ]; then MODE="report"; fi
-          if [ -z "$MODEL" ]; then MODEL="openai/gpt-4.1"; fi
           if [ -z "$REPORT_PATH" ]; then REPORT_PATH="docs/repo_architect/runtime_inventory.md"; fi
           if [ -z "$MUTATION_BUDGET" ]; then MUTATION_BUDGET="1"; fi
-          export GITHUB_MODEL="$MODEL"
-          python repo_architect.py --allow-dirty --mode "$MODE" --report-path "$REPORT_PATH" --mutation-budget "$MUTATION_BUDGET"
+          if [ -z "$MAX_SLICES" ]; then MAX_SLICES="3"; fi
+          if [ -z "$LANES" ]; then LANES="parse_errors,import_cycles,hygiene,report"; fi
+          EXTRA_ARGS=""
+          if [ -n "$MODEL" ]; then EXTRA_ARGS="$EXTRA_ARGS --github-model $MODEL"; fi
+          if [ "$MODE" = "campaign" ]; then
+            EXTRA_ARGS="$EXTRA_ARGS --max-slices $MAX_SLICES --lanes $LANES"
+          fi
+          python repo_architect.py --allow-dirty --mode "$MODE" --report-path "$REPORT_PATH" --mutation-budget "$MUTATION_BUDGET" $EXTRA_ARGS
 
       - name: Upload repo architect artifacts
         if: always()
