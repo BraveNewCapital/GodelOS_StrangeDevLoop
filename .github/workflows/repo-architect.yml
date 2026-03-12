@@ -29,5 +29,6 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPO: ${{ github.repository }}
           GITHUB_BASE_BRANCH: ${{ github.event.repository.default_branch }}
+          GITHUB_MODEL: openai/gpt-4.1
         run: |
           python repo_architect.py
