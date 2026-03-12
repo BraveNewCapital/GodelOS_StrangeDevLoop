@@ -71,7 +71,7 @@ jobs:
           if [ -z "$REPORT_PATH" ]; then REPORT_PATH="docs/repo_architect/runtime_inventory.md"; fi
           if [ -z "$MUTATION_BUDGET" ]; then MUTATION_BUDGET="1"; fi
           export GITHUB_MODEL="$MODEL"
-          python repo_architect.py --mode "$MODE" --report-path "$REPORT_PATH" --mutation-budget "$MUTATION_BUDGET"
+          python repo_architect.py --allow-dirty --mode "$MODE" --report-path "$REPORT_PATH" --mutation-budget "$MUTATION_BUDGET"
 
       - name: Upload repo architect artifacts
         if: always()
