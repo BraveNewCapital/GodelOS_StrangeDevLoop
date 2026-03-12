@@ -67,6 +67,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPO: ${{ github.repository }}
           GITHUB_BASE_BRANCH: ${{ github.event.repository.default_branch }}
+          REPO_ARCHITECT_BRANCH_SUFFIX: ${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           MODE="${{ github.event.inputs.mode }}"
           MODEL="${{ github.event.inputs.github_model }}"

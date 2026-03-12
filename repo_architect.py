@@ -207,6 +207,29 @@ def safe_branch_name(stable_hint: str) -> str:
     return slug[:100]
 
 
+def with_unique_branch_suffix(branch: str) -> str:
+    """Append a per-run unique suffix to *branch* so repeated workflow runs
+    never collide on the same remote branch name.
+
+    Suffix precedence:
+      1. REPO_ARCHITECT_BRANCH_SUFFIX env var (if set and non-empty)
+      2. GITHUB_RUN_ID-GITHUB_RUN_ATTEMPT (both env vars must be non-empty)
+      3. UTC timestamp fallback (YYYYmmddHHMMSS)
+
+    The suffix is sanitised to contain only: A-Z a-z 0-9 . _ -
+    """
+    raw = os.environ.get("REPO_ARCHITECT_BRANCH_SUFFIX", "").strip()
+    if not raw:
+        run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
+        run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "").strip()
+        if run_id and run_attempt:
+            raw = f"{run_id}-{run_attempt}"
+    if not raw:
+        raw = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d%H%M%S")
+    suffix = re.sub(r"[^a-zA-Z0-9._-]", "-", raw).strip("-")
+    return f"{branch}-{suffix}"
+
+
 def git_identity_present(root: pathlib.Path) -> bool:
     a = subprocess.run(["git", "config", "user.email"], cwd=str(root), capture_output=True, text=True)
     b = subprocess.run(["git", "config", "user.name"], cwd=str(root), capture_output=True, text=True)
@@ -845,7 +868,7 @@ def apply_patch_plan(config: Config, plan: PatchPlan, state: Dict[str, Any]) -> 
         raise RepoArchitectError('Git identity is not configured. Set git user.name and user.email before mutation.')
 
     start_branch = git_current_branch(config.git_root)
-    branch = safe_branch_name(plan.stable_branch_hint)
+    branch = with_unique_branch_suffix(safe_branch_name(plan.stable_branch_hint))
     backups: Dict[str, str] = {}
     changed_files = list(plan.file_changes.keys())
     git_checkout_branch(config.git_root, branch)
