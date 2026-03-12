@@ -12,6 +12,16 @@ on:
           - analyze
           - report
           - mutate
+      lane:
+        description: 'Slice lane name (e.g. report_packet, parse_repair:test_pipeline)'
+        required: false
+        default: ''
+        type: string
+      targets:
+        description: 'Comma-separated list of files/modules for this slice'
+        required: false
+        default: ''
+        type: string
       github_model:
         description: 'GitHub Models model id'
         required: true
@@ -31,6 +41,14 @@ on:
           - '1'
           - '2'
           - '3'
+      allow_dirty:
+        description: 'Allow dirty working tree'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
   schedule:
     - cron: '17 * * * *'
 
@@ -67,17 +85,42 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPO: ${{ github.repository }}
           GITHUB_BASE_BRANCH: ${{ github.event.repository.default_branch }}
+          GITHUB_MODEL: ${{ github.event.inputs.github_model || 'openai/gpt-4.1' }}
+          REPO_ARCHITECT_LANE: ${{ github.event.inputs.lane || '' }}
+          REPO_ARCHITECT_TARGETS: ${{ github.event.inputs.targets || '' }}
         run: |
           MODE="${{ github.event.inputs.mode }}"
-          MODEL="${{ github.event.inputs.github_model }}"
           REPORT_PATH="${{ github.event.inputs.report_path }}"
           MUTATION_BUDGET="${{ github.event.inputs.mutation_budget }}"
+          ALLOW_DIRTY="${{ github.event.inputs.allow_dirty }}"
           if [ -z "$MODE" ]; then MODE="report"; fi
-          if [ -z "$MODEL" ]; then MODEL="openai/gpt-4.1"; fi
           if [ -z "$REPORT_PATH" ]; then REPORT_PATH="docs/repo_architect/runtime_inventory.md"; fi
           if [ -z "$MUTATION_BUDGET" ]; then MUTATION_BUDGET="1"; fi
-          export GITHUB_MODEL="$MODEL"
-          python repo_architect.py --allow-dirty --mode "$MODE" --report-path "$REPORT_PATH" --mutation-budget "$MUTATION_BUDGET"
+          if [ -z "$ALLOW_DIRTY" ]; then ALLOW_DIRTY="true"; fi
+
+          # Detect optional --lane / --targets CLI support; fall back to env vars if absent
+          HELP_TEXT="$(python repo_architect.py --help 2>&1)"
+          EXTRA_ARGS=()
+          if echo "$HELP_TEXT" | grep -q -- '--lane'; then
+            if [ -n "$REPO_ARCHITECT_LANE" ]; then
+              EXTRA_ARGS+=(--lane "$REPO_ARCHITECT_LANE")
+            fi
+          fi
+          if echo "$HELP_TEXT" | grep -q -- '--targets'; then
+            if [ -n "$REPO_ARCHITECT_TARGETS" ]; then
+              EXTRA_ARGS+=(--targets "$REPO_ARCHITECT_TARGETS")
+            fi
+          fi
+
+          if [ "$ALLOW_DIRTY" = "true" ]; then
+            EXTRA_ARGS+=(--allow-dirty)
+          fi
+
+          python repo_architect.py \
+            --mode "$MODE" \
+            --report-path "$REPORT_PATH" \
+            --mutation-budget "$MUTATION_BUDGET" \
+            "${EXTRA_ARGS[@]}"
 
       - name: Upload repo architect artifacts
         if: always()
@@ -87,5 +130,6 @@ jobs:
           path: |
             .agent
             docs/repo_architect
+          include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
