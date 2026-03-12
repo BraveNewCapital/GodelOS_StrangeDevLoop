@@ -11,10 +11,10 @@ Architecture score: **39**
 ## Model-assisted summary
 
 - Architecture score is low (39), indicating elevated structural risk.
-- 3 local import cycles detected; review modules for dependency refactoring: agentic_daemon_system, chroma_store, type_system.manager.
-- 2 files with syntax/parse errors: tests/nlu_nlg/nlu/test_pipeline.py, tests/nlu_nlg/nlu/test_lexical_analyzer_parser.py.
-- 193 Python entrypoints found; assess for duplication and streamline runtime scripts.
-- Actionable: Update docs/repo_architect/runtime_inventory.md to reflect current architecture inventory.
+- 3 local import cycles detected; review modules for refactoring: agentic_daemon_system, chroma_store, type_system.manager.
+- 2 files have syntax/parse errors: tests/nlu_nlg/nlu/test_pipeline.py, tests/nlu_nlg/nlu/test_lexical_analyzer_parser.py.
+- 193 Python entrypoints present; assess for duplication and runtime complexity.
+- Update runtime inventory documentation (docs/repo_architect/runtime_inventory.md) to reflect current architecture state.
 
 
 ## Entrypoint overview
