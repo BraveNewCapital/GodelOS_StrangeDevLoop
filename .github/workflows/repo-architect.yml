@@ -2,8 +2,40 @@ name: repo-architect
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Execution mode'
+        required: true
+        default: 'report'
+        type: choice
+        options:
+          - analyze
+          - report
+          - mutate
+      github_model:
+        description: 'GitHub Models model id'
+        required: true
+        default: 'openai/gpt-4.1'
+        type: string
+      report_path:
+        description: 'Path for generated report documentation'
+        required: true
+        default: 'docs/repo_architect/runtime_inventory.md'
+        type: string
+      mutation_budget:
+        description: 'Maximum automatic mutations in a single run'
+        required: true
+        default: '1'
+        type: choice
+        options:
+          - '1'
+
   schedule:
     - cron: '17 * * * *'
+
+concurrency:
+  group: repo-architect-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -29,6 +61,25 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPO: ${{ github.repository }}
           GITHUB_BASE_BRANCH: ${{ github.event.repository.default_branch }}
-          GITHUB_MODEL: openai/gpt-4.1
         run: |
-          python repo_architect.py
+          MODE="${{ github.event.inputs.mode }}"
+          MODEL="${{ github.event.inputs.github_model }}"
+          REPORT_PATH="${{ github.event.inputs.report_path }}"
+          MUTATION_BUDGET="${{ github.event.inputs.mutation_budget }}"
+          if [ -z "$MODE" ]; then MODE="report"; fi
+          if [ -z "$MODEL" ]; then MODEL="openai/gpt-4.1"; fi
+          if [ -z "$REPORT_PATH" ]; then REPORT_PATH="docs/repo_architect/runtime_inventory.md"; fi
+          if [ -z "$MUTATION_BUDGET" ]; then MUTATION_BUDGET="1"; fi
+          export GITHUB_MODEL="$MODEL"
+          python repo_architect.py --mode "$MODE" --report-path "$REPORT_PATH" --mutation-budget "$MUTATION_BUDGET"
+
+      - name: Upload repo architect artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: repo-architect-${{ github.run_id }}
+          path: |
+            .agent
+            docs/repo_architect/runtime_inventory.md
+          if-no-files-found: warn
+          retention-days: 7
