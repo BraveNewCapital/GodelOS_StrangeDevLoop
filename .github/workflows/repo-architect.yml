@@ -18,7 +18,7 @@ on:
         default: 'openai/gpt-4.1'
         type: string
       report_path:
-        description: 'Path for generated report documentation'
+        description: 'Primary report path'
         required: true
         default: 'docs/repo_architect/runtime_inventory.md'
         type: string
@@ -29,7 +29,8 @@ on:
         type: choice
         options:
           - '1'
-
+          - '2'
+          - '3'
   schedule:
     - cron: '17 * * * *'
 
@@ -85,6 +86,6 @@ jobs:
           name: repo-architect-${{ github.run_id }}
           path: |
             .agent
-            docs/repo_architect/runtime_inventory.md
+            docs/repo_architect
           if-no-files-found: warn
           retention-days: 7
