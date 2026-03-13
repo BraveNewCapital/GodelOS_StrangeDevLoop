@@ -8,7 +8,7 @@
 - `backend/start_server.py`
 - `backend/unified_server.py`
 
-## tests (162)
+## tests (163)
 
 - `tests/api/test_external_api.py`
 - `tests/backend/test_api_endpoints.py`
@@ -121,6 +121,7 @@
 - `tests/test_proof_object.py`
 - `tests/test_query_replay_harness.py`
 - `tests/test_replay_api.py`
+- `tests/test_repo_architect.py`
 - `tests/test_resolution_prover.py`
 - `tests/test_resolution_prover_enhanced.py`
 - `tests/test_smt_interface.py`
