@@ -1276,13 +1276,42 @@ def build_patch_plan(
 # Validation / execution
 # -----------------------------
 
-def validate_change(config: Config, changed_files: Sequence[str]) -> Tuple[bool, str]:
+def validate_change(config: Config, changed_files: Sequence[str], lane: Optional[str] = None) -> Tuple[bool, str]:
+    """Validate changed files.  py_compile is always run for Python files.
+    If *lane* is ``import_cycles``, an additional import smoke test is attempted."""
     py_files = [p for p in changed_files if p.endswith('.py')]
     if not py_files:
         return True, 'No Python files changed.'
+    # Syntax check (fast; catches typos and broken edits)
     proc = run_cmd([sys.executable, '-m', 'py_compile', *py_files], cwd=config.git_root, check=False)
-    out = (proc.stdout or '') + (proc.stderr or '')
-    return proc.returncode == 0, out.strip() or 'py_compile passed'
+    syntax_out = (proc.stdout or '') + (proc.stderr or '')
+    if proc.returncode != 0:
+        return False, syntax_out.strip() or 'py_compile failed'
+
+    # Extended validation for import-cycle lane: attempt "import <module>" for changed files.
+    # This is a best-effort smoke test — import failures are common in partial repos so
+    # results are warnings only (they never block the mutation).
+    if lane == "import_cycles":
+        smoke_results: List[str] = []
+        for pf in py_files:
+            mod = pf.replace("/", ".").replace("\\", ".").removesuffix(".py")
+            # Skip hidden files / relative-path artefacts (e.g. ".tmp/foo.py" → ".tmp.foo")
+            if mod.startswith("."):
+                continue
+            smoke = run_cmd(
+                [sys.executable, "-c", f"import importlib; importlib.import_module({mod!r})"],
+                cwd=config.git_root, check=False,
+            )
+            if smoke.returncode != 0:
+                err = (smoke.stdout or '') + (smoke.stderr or '')
+                truncated = err.strip()[:200]
+                if len(err.strip()) > 200:
+                    truncated += " [truncated]"
+                smoke_results.append(f"import {mod}: warning: {truncated}")
+        if smoke_results:
+            return True, "py_compile passed; import smoke warnings: " + "; ".join(smoke_results)
+
+    return True, syntax_out.strip() or 'py_compile passed'
 
 
 def apply_patch_plan(config: Config, plan: PatchPlan, state: Dict[str, Any]) -> Dict[str, Any]:
@@ -1307,7 +1336,7 @@ def apply_patch_plan(config: Config, plan: PatchPlan, state: Dict[str, Any]) -> 
             git_checkout(config.git_root, start_branch)
             return {"status": "no_meaningful_delta", "branch": branch, "changed_files": []}
 
-        ok, validation = validate_change(config, changed_files)
+        ok, validation = validate_change(config, changed_files, lane=plan.metadata.get("lane"))
         if not ok:
             raise RepoArchitectError(f'Validation failed.\n{validation}')
 
@@ -1477,6 +1506,8 @@ jobs:
           if [ -n "$MODEL" ]; then EXTRA_ARGS="$EXTRA_ARGS --github-model $MODEL"; fi
           if [ "$MODE" = "campaign" ]; then
             EXTRA_ARGS="$EXTRA_ARGS --max-slices $MAX_SLICES --lanes $LANES"
+          elif [ "$MODE" = "mutate" ]; then
+            EXTRA_ARGS="$EXTRA_ARGS --lanes $LANES"
           fi
           python repo_architect.py --allow-dirty --mode "$MODE" --report-path "$REPORT_PATH" --mutation-budget "$MUTATION_BUDGET" $EXTRA_ARGS
 
@@ -1524,6 +1555,7 @@ def run_cycle(config: Config) -> Dict[str, Any]:
         "status": "analyzed",
         "mode": config.mode,
         "lane": "none",
+        "lanes_active": list(config.campaign_lanes) if config.campaign_lanes else list(MUTATION_LANE_ORDER),
         "architecture_score": analysis["architecture_score"],
         "requested_model": model_meta.get("requested_model"),
         "actual_model": model_meta.get("actual_model"),
@@ -1790,6 +1822,18 @@ def build_config(args: argparse.Namespace) -> Config:
         or os.environ.get("REPO_ARCHITECT_FALLBACK_MODEL")
         or DEFAULT_FALLBACK_MODEL
     )
+    # Resolve lane order from --lane / --lanes / REPO_ARCHITECT_LANE / REPO_ARCHITECT_LANES env vars.
+    # --lane (singular) is a convenience shortcut; --lanes takes comma-separated list.
+    # Works for both mutate and campaign modes.
+    lanes_raw = (
+        args.lanes
+        or (args.lane if getattr(args, "lane", None) else None)
+        or os.environ.get("REPO_ARCHITECT_LANES")
+        or os.environ.get("REPO_ARCHITECT_LANE")
+    )
+    campaign_lanes: Optional[Tuple[str, ...]] = None
+    if lanes_raw:
+        campaign_lanes = tuple(l.strip() for l in lanes_raw.split(",") if l.strip())
     return Config(
         git_root=git_root,
         agent_dir=agent_dir,
@@ -1814,6 +1858,7 @@ def build_config(args: argparse.Namespace) -> Config:
         configure_branch_protection=args.configure_branch_protection,
         preferred_model=preferred,
         fallback_model=fallback,
+        campaign_lanes=campaign_lanes,
     )
 
 
@@ -1834,9 +1879,10 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     p.add_argument("--preferred-model", default=None, help="Preferred GitHub Models model id")
     p.add_argument("--fallback-model", default=None, help="Fallback model if preferred is unavailable")
     p.add_argument("--log-json", action="store_true")
-    # Campaign-mode args
+    # Lane / campaign args
+    p.add_argument("--lane", default=None, help="Single lane to run in mutate mode (convenience alias for --lanes)")
     p.add_argument("--max-slices", type=int, default=3, help="Campaign: max mutation slices to attempt")
-    p.add_argument("--lanes", default=None, help="Campaign: comma-separated lane order")
+    p.add_argument("--lanes", default=None, help="Comma-separated lane order for mutate/campaign modes")
     p.add_argument("--stop-on-failure", action="store_true", help="Campaign: stop on first slice failure")
     return p.parse_args(argv)
 
@@ -1880,7 +1926,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return 0
 
         if config.mode == "campaign":
-            lanes_arg = [l.strip() for l in (args.lanes or ",".join(MUTATION_LANE_ORDER)).split(",") if l.strip()]
+            lanes_arg = list(config.campaign_lanes) if config.campaign_lanes else list(MUTATION_LANE_ORDER)
             result = run_campaign(config, lanes_arg, args.max_slices, args.stop_on_failure)
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0

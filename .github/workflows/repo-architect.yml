@@ -101,6 +101,8 @@ jobs:
           if [ -n "$MODEL" ]; then EXTRA_ARGS="$EXTRA_ARGS --github-model $MODEL"; fi
           if [ "$MODE" = "campaign" ]; then
             EXTRA_ARGS="$EXTRA_ARGS --max-slices $MAX_SLICES --lanes $LANES"
+          elif [ "$MODE" = "mutate" ]; then
+            EXTRA_ARGS="$EXTRA_ARGS --lanes $LANES"
           fi
           python repo_architect.py --allow-dirty --mode "$MODE" --report-path "$REPORT_PATH" --mutation-budget "$MUTATION_BUDGET" $EXTRA_ARGS
 

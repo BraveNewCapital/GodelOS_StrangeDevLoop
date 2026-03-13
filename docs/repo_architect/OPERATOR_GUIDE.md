@@ -70,6 +70,22 @@ In `mutate` and `campaign` modes the agent selects exactly one lane per slice, i
 
 A **report-only mutation is never produced when parse errors exist** unless all code-lane attempts fail (in which case `no_safe_code_mutation_reason` is populated in the JSON output).
 
+### Scoping lanes in mutate mode
+
+You can restrict which lanes a mutate run considers via `--lanes` or `--lane`:
+
+```bash
+# Only try hygiene lane
+python repo_architect.py --mode mutate --lane hygiene --allow-dirty
+
+# Only try parse_errors and import_cycles
+python repo_architect.py --mode mutate --lanes parse_errors,import_cycles --allow-dirty
+```
+
+This also works via environment variables: `REPO_ARCHITECT_LANES` or `REPO_ARCHITECT_LANE`.
+
+The workflow passes `--lanes` to both mutate and campaign modes, so the `lanes` workflow_dispatch input controls lane selection in every mutation-capable mode.
+
 ---
 
 ## Campaign Mode
@@ -90,7 +106,7 @@ python repo_architect.py \
 | Flag | Default | Description |
 |---|---|---|
 | `--max-slices` | `3` | Maximum slices to attempt |
-| `--lanes` | `parse_errors,import_cycles,hygiene,report` | Comma-separated lane order |
+| `--lanes` | all 5 lanes | Comma-separated lane order (also works in mutate mode) |
 | `--stop-on-failure` | `false` | Abort remaining slices on first failure |
 | `--preferred-model` | (env / default) | Override preferred model for this run |
 | `--fallback-model` | (env / default) | Override fallback model for this run |
@@ -108,6 +124,7 @@ Every run emits a JSON object on stdout. Key fields:
 | `status` | `analyzed`, `analysis_only`, `mutated`, `no_meaningful_delta`, `no_safe_mutation_available`, `campaign_complete` |
 | `mode` | Active mode |
 | `lane` | Selected mutation lane (`none` if no mutation) |
+| `lanes_active` | List of lanes considered (from `--lanes` / env or default lane order) |
 | `architecture_score` | 1–100 composite health score |
 | `requested_model` | Model that was requested |
 | `actual_model` | Model that actually responded (may differ if fallback occurred) |
@@ -140,7 +157,7 @@ Each mutation lane runs the following validation before pushing:
 | Lane | Validation |
 |---|---|
 | `parse_errors` | `ast.parse` on model-generated content; file must parse cleanly or it is rejected |
-| `import_cycles` | `ast.parse` on model-generated content; unchanged files are not validated |
+| `import_cycles` | `ast.parse` on model-generated content; import smoke test attempted (warn-only) |
 | `entrypoint_consolidation` | `ast.parse` on model-generated content |
 | `hygiene` | `python -m py_compile` on all touched Python files |
 | `report` | Verify report files were written; hash included in output |
@@ -155,4 +172,4 @@ Validation failures abort the mutation and **never push a broken branch**.
 python -m unittest tests.test_repo_architect -v
 ```
 
-The test suite covers: branch suffix generation, model fallback, `ast.parse` gate, campaign aggregation, output schema stability, lane priority selection, and `entrypoint_consolidation` threshold/validation logic.
+The test suite covers: branch suffix generation, model fallback, `ast.parse` gate, campaign aggregation, output schema stability, lane priority selection, `entrypoint_consolidation` threshold/validation, lane scoping in mutate mode (`--lane`, `--lanes`, env vars), and enhanced validation (import smoke for import_cycles lane).

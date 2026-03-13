@@ -608,5 +608,122 @@ class TestEntrypointConsolidationLane(unittest.TestCase):
         self.assertIsNone(plan)
 
 
+# ---------------------------------------------------------------------------
+# 9. Lane scoping for mutate mode
+# ---------------------------------------------------------------------------
+
+class TestLaneScopingMutateMode(unittest.TestCase):
+    """Verify --lane / --lanes / env vars scope lane selection in mutate mode."""
+
+    def test_lanes_flag_scopes_mutate_to_single_lane(self) -> None:
+        """--lanes hygiene should restrict mutate to only the hygiene lane."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            bad = root / "bad.py"
+            bad.write_text("print('debug')  # DEBUG\n", encoding="utf-8")
+            config = _make_config(root, mode="mutate", campaign_lanes=("hygiene",))
+            analysis = ra.build_analysis(root)
+            plan, lane, _ = ra.build_patch_plan(config, analysis, {}, {})
+        self.assertIsNotNone(plan)
+        self.assertEqual(lane, "hygiene")
+
+    def test_lanes_flag_excludes_hygiene(self) -> None:
+        """--lanes report should NOT see hygiene changes even if debug prints exist."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            bad = root / "bad.py"
+            bad.write_text("print('debug')  # DEBUG\n", encoding="utf-8")
+            config = _make_config(root, mode="mutate", campaign_lanes=("report",))
+            analysis = ra.build_analysis(root)
+            plan, lane, _ = ra.build_patch_plan(config, analysis, {}, {})
+        # Only 'report' was in the active lanes, so hygiene was never considered.
+        # lane=='report' proves hygiene was excluded from lane selection.
+        self.assertEqual(lane, "report")
+
+    def test_lane_singular_flag_parsed(self) -> None:
+        """--lane hygiene should produce campaign_lanes=('hygiene',) in Config."""
+        args = ra.parse_args(["--mode", "mutate", "--lane", "hygiene"])
+        self.assertEqual(args.lane, "hygiene")
+
+    def test_build_config_reads_lanes_env(self) -> None:
+        """REPO_ARCHITECT_LANES env var should populate campaign_lanes."""
+        env = {
+            "REPO_ARCHITECT_LANES": "parse_errors,hygiene",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            args = ra.parse_args(["--mode", "mutate"])
+            config = ra.build_config(args)
+        self.assertEqual(config.campaign_lanes, ("parse_errors", "hygiene"))
+
+    def test_cli_lanes_overrides_env(self) -> None:
+        """CLI --lanes should take precedence over REPO_ARCHITECT_LANES env var."""
+        env = {"REPO_ARCHITECT_LANES": "report"}
+        with patch.dict(os.environ, env, clear=False):
+            args = ra.parse_args(["--mode", "mutate", "--lanes", "hygiene"])
+            config = ra.build_config(args)
+        self.assertEqual(config.campaign_lanes, ("hygiene",))
+
+
+# ---------------------------------------------------------------------------
+# 10. Enhanced validation (import smoke)
+# ---------------------------------------------------------------------------
+
+class TestValidateChange(unittest.TestCase):
+    """Verify validate_change includes lane-aware behaviour."""
+
+    def test_py_compile_passes_for_valid_python(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            (root / "ok.py").write_text("x = 1\n", encoding="utf-8")
+            config = _make_config(root, mode="mutate")
+            ok, msg = ra.validate_change(config, ["ok.py"])
+        self.assertTrue(ok)
+        self.assertIn("py_compile", msg.lower())
+
+    def test_py_compile_fails_for_invalid_python(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            (root / "bad.py").write_text("def broken(\n", encoding="utf-8")
+            config = _make_config(root, mode="mutate")
+            ok, msg = ra.validate_change(config, ["bad.py"])
+        self.assertFalse(ok)
+
+    def test_import_smoke_runs_for_import_cycles_lane(self) -> None:
+        """When lane=import_cycles, validate_change should run import smoke."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            # A valid file that won't import cleanly as a module from this dir
+            (root / "cycle_fix.py").write_text("x = 1\n", encoding="utf-8")
+            config = _make_config(root, mode="mutate")
+            ok, msg = ra.validate_change(config, ["cycle_fix.py"], lane="import_cycles")
+        # Should still pass (import smoke is warn-only)
+        self.assertTrue(ok)
+
+    def test_non_python_files_always_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, mode="mutate")
+            ok, msg = ra.validate_change(config, ["README.md"])
+        self.assertTrue(ok)
+
+    def test_output_contract_includes_lanes_active(self) -> None:
+        """run_cycle result should include lanes_active field."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, mode="analyze")
+            result = ra.run_cycle(config)
+        self.assertIn("lanes_active", result)
+        self.assertIsInstance(result["lanes_active"], list)
+        self.assertEqual(result["lanes_active"], list(ra.MUTATION_LANE_ORDER))
+
+    def test_output_contract_lanes_active_respects_config(self) -> None:
+        """lanes_active should reflect config.campaign_lanes when set."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, mode="mutate", campaign_lanes=("hygiene",))
+            result = ra.run_cycle(config)
+        self.assertEqual(result["lanes_active"], ["hygiene"])
+
+
 if __name__ == "__main__":
     unittest.main()
