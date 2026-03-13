@@ -14,9 +14,9 @@ on:
           - mutate
           - campaign
       github_model:
-        description: 'GitHub Models model id (overrides preferred model)'
+        description: 'GitHub Models model id (overrides preferred model; leave blank to use catalog resolution)'
         required: false
-        default: 'anthropic/claude-sonnet-4.5'
+        default: ''
         type: string
       github_fallback_model:
         description: 'GitHub Models fallback model id (used if primary model fails)'
