@@ -77,14 +77,84 @@ jobs:
         run: |
           mkdir -p .agent docs/repo_architect
 
+      - name: Resolve GitHub Models configuration
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          order = [
+              "anthropic/claude-sonnet-4.6",
+              "anthropic/claude-sonnet-4.5",
+              "openai/gpt-4.1",
+          ]
+          secondary = "google/gemini-3-pro"
+          available = set()
+          try:
+              req = urllib.request.Request(
+                  "https://models.github.ai/catalog/models",
+                  headers={
+                      "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+                      "Accept": "application/json",
+                      "User-Agent": "repo-architect-workflow",
+                  },
+              )
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  payload = json.loads(resp.read().decode("utf-8"))
+              models = payload.get("data", payload) if isinstance(payload, dict) else payload
+              if isinstance(models, list):
+                  for item in models:
+                      if isinstance(item, dict):
+                          model_id = item.get("id") or item.get("name") or item.get("model")
+                          if isinstance(model_id, str) and model_id:
+                              available.add(model_id)
+          except Exception as exc:
+              print(f"warning: GitHub Models catalog lookup failed; using defaults ({exc})")
+
+          def first_available(candidates):
+              for candidate in candidates:
+                  if candidate in available:
+                      return candidate
+              return None
+
+          if available:
+              preferred = first_available(order)
+              if preferred is None:
+                  preferred = secondary if secondary in available else order[0]
+          else:
+              preferred = order[0]
+
+          if secondary in available and secondary != preferred:
+              fallback = secondary
+          else:
+              fallback = (
+                  first_available([c for c in order if c != preferred])
+                  or (secondary if secondary in available else order[-1])
+              )
+
+          if not isinstance(preferred, str) or not preferred:
+              preferred = order[0]
+          if not isinstance(fallback, str) or not fallback:
+              fallback = secondary if secondary != preferred else order[-1]
+
+          env_file = os.environ.get("GITHUB_ENV")
+          if not env_file:
+              raise RuntimeError("GITHUB_ENV is not set; this internal workflow step must run inside GitHub Actions with environment-file support.")
+          with open(env_file, "a", encoding="utf-8") as fh:
+              fh.write(f"REPO_ARCHITECT_PREFERRED_MODEL={preferred}\n")
+              fh.write(f"REPO_ARCHITECT_FALLBACK_MODEL={fallback}\n")
+          print(f"selected preferred={preferred} fallback={fallback}")
+          PY
+
       - name: Run repo architect
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPO: ${{ github.repository }}
           GITHUB_BASE_BRANCH: ${{ github.event.repository.default_branch }}
           REPO_ARCHITECT_BRANCH_SUFFIX: ${{ github.run_id }}-${{ github.run_attempt }}
-          REPO_ARCHITECT_PREFERRED_MODEL: anthropic/claude-sonnet-4.6
-          REPO_ARCHITECT_FALLBACK_MODEL: google/gemini-3-pro
         run: |
           MODE="${{ github.event.inputs.mode }}"
           MODEL="${{ github.event.inputs.github_model }}"

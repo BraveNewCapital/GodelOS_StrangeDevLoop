@@ -295,10 +295,16 @@ class TestModelConfiguration(unittest.TestCase):
         self.assertEqual(meta["requested_model"], "openai/manual-override")
         self.assertEqual(meta["actual_model"], "openai/manual-override")
 
-    def test_workflow_yaml_uses_new_model_defaults_and_blank_override_logic(self) -> None:
+    def test_workflow_yaml_resolves_models_via_catalog_and_keeps_blank_override_logic(self) -> None:
         workflow = ra.workflow_yaml([], "17 * * * *", None)
-        self.assertIn("REPO_ARCHITECT_PREFERRED_MODEL: anthropic/claude-sonnet-4.6", workflow)
-        self.assertIn("REPO_ARCHITECT_FALLBACK_MODEL: google/gemini-3-pro", workflow)
+        self.assertIn("Resolve GitHub Models configuration", workflow)
+        self.assertIn("https://models.github.ai/catalog/models", workflow)
+        self.assertIn('"anthropic/claude-sonnet-4.6"', workflow)
+        self.assertIn('"anthropic/claude-sonnet-4.5"', workflow)
+        self.assertIn('"openai/gpt-4.1"', workflow)
+        self.assertIn('secondary = "google/gemini-3-pro"', workflow)
+        self.assertIn("REPO_ARCHITECT_PREFERRED_MODEL={preferred}", workflow)
+        self.assertIn("REPO_ARCHITECT_FALLBACK_MODEL={fallback}", workflow)
         self.assertIn('if [ -n "$MODEL" ]; then EXTRA_ARGS="$EXTRA_ARGS --github-model $MODEL"; fi', workflow)
         self.assertIn("models: read", workflow)
 
