@@ -87,6 +87,8 @@ class Config:
     report_path: pathlib.Path
     mutation_budget: int
     configure_branch_protection: bool
+    lane: Optional[str] = None
+    targets: List[str] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
@@ -814,10 +816,48 @@ def build_report_plan(config: Config, analysis: Dict[str, Any], model_meta: Dict
     )
 
 
+def _apply_lane_filter(config: Config, analysis: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a (shallow-copied) analysis dict with parse_error_files and cycles
+    filtered to *config.targets* when targets are specified.  Other keys are
+    passed through unchanged."""
+    if not config.targets:
+        return analysis
+    target_set = set(config.targets)
+    filtered = dict(analysis)
+    filtered["parse_error_files"] = [
+        f for f in analysis["parse_error_files"] if f in target_set
+    ]
+    filtered["cycles"] = [
+        cycle for cycle in analysis["cycles"]
+        if any(node in target_set for node in cycle)
+    ]
+    filtered["python_files"] = [
+        fi for fi in analysis["python_files"] if fi["path"] in target_set
+    ]
+    return filtered
+
+
 def build_patch_plan(config: Config, analysis: Dict[str, Any], model_meta: Dict[str, Any], state: Dict[str, Any]) -> Optional[PatchPlan]:
     if config.mode == "analyze":
         return None
-    # self-tuning bias: after repeated no-op or report success, widen one notch in mutate mode.
+
+    # When a lane is active, filter the analysis to the declared targets and
+    # route to the appropriate plan builder rather than running the full
+    # default cascade.  This makes REPO_ARCHITECT_LANE / REPO_ARCHITECT_TARGETS
+    # semantically meaningful even before dedicated mutation strategies are added.
+    lane = config.lane or ""
+    scoped = _apply_lane_filter(config, analysis)
+
+    if lane.startswith("report"):
+        # report_packet and any future report/* lanes: always produce a report plan
+        return build_report_plan(config, scoped, model_meta, state)
+
+    if lane.startswith("parse_repair") or lane.startswith("import_cycle"):
+        # Targeted structural lanes: skip hygiene, build a report scoped to the
+        # targeted files so the agent captures current state for those paths.
+        return build_report_plan(config, scoped, model_meta, state)
+
+    # Default cascade (no lane set, or unrecognised lane)
     if config.mode == "mutate":
         plan = remove_marked_debug_prints(config.git_root, analysis, config.mutation_budget)
         if plan is not None:
@@ -1168,6 +1208,8 @@ def build_config(args: argparse.Namespace) -> Config:
         report_path=git_root / args.report_path,
         mutation_budget=args.mutation_budget,
         configure_branch_protection=args.configure_branch_protection,
+        lane=os.environ.get("REPO_ARCHITECT_LANE") or None,
+        targets=[t.strip() for t in os.environ.get("REPO_ARCHITECT_TARGETS", "").split(",") if t.strip()],
     )
 
 

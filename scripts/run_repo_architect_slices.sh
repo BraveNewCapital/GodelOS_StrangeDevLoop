@@ -8,7 +8,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Dependency checks
 # ---------------------------------------------------------------------------
-for cmd in gh python3 jq; do
+for cmd in gh jq; do
   if ! command -v "$cmd" &>/dev/null; then
     echo "ERROR: required command '$cmd' not found." >&2
     exit 1
@@ -40,7 +40,7 @@ GH_API_DELAY="${GH_API_DELAY:-5}"
 # ---------------------------------------------------------------------------
 if [ -n "${MERGE_BASELINE_PR:-}" ]; then
   echo "Merging baseline PR #$MERGE_BASELINE_PR …"
-  gh pr merge "$MERGE_BASELINE_PR" --repo "$REPO" --squash --auto || true
+  gh pr merge "$MERGE_BASELINE_PR" --repo "$REPO" --squash
 fi
 
 # ---------------------------------------------------------------------------
@@ -65,6 +65,7 @@ wait_for_new_run_id() {
     run_id="$(gh run list \
       --repo "$REPO" \
       --workflow "$WORKFLOW_FILE" \
+      --branch "$BRANCH" \
       --limit 1 \
       --json databaseId \
       -q '.[0].databaseId' 2>/dev/null || true)"
@@ -98,6 +99,7 @@ run_slice() {
   BEFORE_RUN_ID="$(gh run list \
     --repo "$REPO" \
     --workflow "$WORKFLOW_FILE" \
+    --branch "$BRANCH" \
     --limit 1 \
     --json databaseId \
     -q '.[0].databaseId' 2>/dev/null || echo '')"
@@ -127,25 +129,27 @@ run_slice() {
   # Wait for completion; exits non-zero if the run fails
   gh run watch "$RUN_ID" --repo "$REPO" --exit-status
 
-  # Download artifacts
+  # Download artifacts — fail hard if download fails
   SLICE_DIR="$ARTIFACT_DIR/$slice_name"
   mkdir -p "$SLICE_DIR"
-  gh run download "$RUN_ID" \
+  if ! gh run download "$RUN_ID" \
     --repo "$REPO" \
     --dir "$SLICE_DIR" \
-    --pattern "repo-architect-$RUN_ID" 2>/dev/null || \
-  gh run download "$RUN_ID" \
-    --repo "$REPO" \
-    --dir "$SLICE_DIR" || true
+    --pattern "repo-architect-$RUN_ID" 2>/dev/null; then
+    gh run download "$RUN_ID" \
+      --repo "$REPO" \
+      --dir "$SLICE_DIR"
+  fi
 
-  # Locate the analysis JSON (may be nested under artifact folder)
-  ANALYSIS_FILE="$(find "$SLICE_DIR" -name "latest_analysis.json" -type f | head -1 || true)"
+  # Locate the analysis JSON — fail hard if absent
+  ANALYSIS_FILE="$(find "$SLICE_DIR" -name "latest_analysis.json" -type f 2>/dev/null | head -1)"
 
   echo ""
   echo "--- Validation for slice: $slice_name ---"
 
   if [ -z "$ANALYSIS_FILE" ]; then
-    echo "WARNING: latest_analysis.json not found in downloaded artifacts."
+    echo "ERROR: latest_analysis.json not found in downloaded artifacts for slice '$slice_name'." >&2
+    return 1
   else
     ACTUAL_MODE="$(jq -r '.mode // .analysis.mode // "unknown"' "$ANALYSIS_FILE" 2>/dev/null || echo unknown)"
     ACTUAL_STATUS="$(jq -r '.status // .analysis.status // "unknown"' "$ANALYSIS_FILE" 2>/dev/null || echo unknown)"
@@ -161,9 +165,10 @@ run_slice() {
       echo "  PR URL:             $PR_URL"
     fi
 
-    # Best-effort mode assertion (field may be absent for some modes)
+    # Hard-fail on unexpected mode (field may be absent for some run types — allow unknown)
     if [ "$ACTUAL_MODE" != "unknown" ] && [ "$ACTUAL_MODE" != "$mode" ]; then
-      echo "WARNING: expected mode '$mode' but analysis reports '$ACTUAL_MODE'."
+      echo "ERROR: expected mode '$mode' but analysis reports '$ACTUAL_MODE' for slice '$slice_name'." >&2
+      return 1
     fi
   fi
 
