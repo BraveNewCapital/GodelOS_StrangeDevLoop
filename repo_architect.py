@@ -68,10 +68,17 @@ _MODEL_UNAVAILABLE_SIGNALS = frozenset({
     "not found", "does not exist", "invalid model", "no such model",
 })
 # Canonical lane execution order for mutate / campaign modes
-MUTATION_LANE_ORDER: Tuple[str, ...] = ("parse_errors", "import_cycles", "hygiene", "report")
+MUTATION_LANE_ORDER: Tuple[str, ...] = ("parse_errors", "import_cycles", "entrypoint_consolidation", "hygiene", "report")
 # Maximum characters of source code sent to the model per file snippet
 _MAX_SOURCE_SNIPPET_CHARS = 4000
 _MAX_CYCLE_SNIPPET_CHARS = 3000
+# Maximum total branch-name length (git max ref is 255; leave margin for remote path prefix)
+_MAX_BRANCH_NAME_LEN = 220
+# Minimum backend server entrypoints before entrypoint_consolidation lane activates
+_ENTRYPOINT_CONSOLIDATION_THRESHOLD = 4
+# When building entrypoint snippets: consider this many candidates, send at most this many to model
+_ENTRYPOINT_CONSOLIDATION_CANDIDATES = 8
+_ENTRYPOINT_CONSOLIDATION_SNIPPETS = 5
 
 
 class RepoArchitectError(Exception):
@@ -245,7 +252,11 @@ def with_unique_branch_suffix(branch: str) -> str:
       3. UTC timestamp fallback (YYYYmmddHHMMSS)
 
     The suffix is sanitised to contain only: A-Z a-z 0-9 . _ -
+    If sanitisation produces an empty string the timestamp fallback is used.
+    The total branch name is capped at _MAX_BRANCH_NAME_LEN characters.
     """
+    # Compute a stable timestamp once so both fallback paths use the same value.
+    ts_fallback = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d%H%M%S")
     raw = os.environ.get("REPO_ARCHITECT_BRANCH_SUFFIX", "").strip()
     if not raw:
         run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
@@ -253,9 +264,13 @@ def with_unique_branch_suffix(branch: str) -> str:
         if run_id and run_attempt:
             raw = f"{run_id}-{run_attempt}"
     if not raw:
-        raw = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d%H%M%S")
+        raw = ts_fallback
     suffix = re.sub(r"[^a-zA-Z0-9._-]", "-", raw).strip("-")
-    return f"{branch}-{suffix}"
+    # Guard: if all chars were invalid, use the pre-computed timestamp fallback
+    if not suffix:
+        suffix = ts_fallback
+    full = f"{branch}-{suffix}"
+    return full[:_MAX_BRANCH_NAME_LEN]
 
 
 def git_identity_present(root: pathlib.Path) -> bool:
@@ -828,11 +843,22 @@ def write_step_summary(config: Config, result: Dict[str, Any]) -> None:
         "",
         f"- mode: `{result.get('mode', config.mode)}`",
         f"- status: `{result.get('status')}`",
+        f"- lane: `{result.get('lane', 'none')}`",
         f"- architecture score: **{result.get('architecture_score')}**",
         f"- changed files: `{len(result.get('changed_files', []))}`",
     ]
     if result.get("pull_request_url"):
         summary.append(f"- pull request: {result['pull_request_url']}")
+    if result.get("branch"):
+        summary.append(f"- branch: `{result['branch']}`")
+    if result.get("requested_model"):
+        summary.append(f"- model requested: `{result['requested_model']}`")
+    if result.get("actual_model"):
+        summary.append(f"- model used: `{result['actual_model']}`")
+    if result.get("fallback_occurred"):
+        summary.append(f"- ⚠️ fallback occurred: {result.get('fallback_reason', '')}")
+    if result.get("no_safe_code_mutation_reason"):
+        summary.append(f"- no safe mutation: {result['no_safe_code_mutation_reason']}")
     if result.get("github_models", {}).get("used"):
         summary += ["", "## Model summary", "", result["github_models"]["summary"]]
     config.step_summary_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1089,16 +1115,114 @@ def build_import_cycles_plan(config: Config, analysis: Dict[str, Any]) -> Option
     )
 
 
+def build_entrypoint_consolidation_plan(config: Config, analysis: Dict[str, Any]) -> Optional[PatchPlan]:
+    """Use the preferred/fallback model to consolidate redundant backend server entrypoints.
+
+    Only activates when the number of backend_servers entrypoints exceeds
+    _ENTRYPOINT_CONSOLIDATION_THRESHOLD.  The model is asked to add a single
+    ``# DEPRECATED: prefer <canonical>`` comment to the least-canonical duplicate
+    so the runtime intent is preserved while the codebase signals what to migrate
+    toward.  All generated changes are validated with ast.parse before use.
+    """
+    clusters = analysis.get("entrypoint_clusters", {})
+    backend_eps = clusters.get("backend_servers", [])
+    if len(backend_eps) < _ENTRYPOINT_CONSOLIDATION_THRESHOLD:
+        return None
+    preferred = config.preferred_model or config.github_model
+    if not config.github_token or not preferred:
+        return None
+    fallback = config.fallback_model
+    # Collect up to _ENTRYPOINT_CONSOLIDATION_CANDIDATES by path length (shortest = likely wrappers)
+    # then send at most _ENTRYPOINT_CONSOLIDATION_SNIPPETS to the model
+    snippets: List[str] = []
+    candidate_paths: List[str] = []
+    for rel in sorted(backend_eps[:_ENTRYPOINT_CONSOLIDATION_CANDIDATES], key=lambda p: len(p)):
+        abs_path = config.git_root / rel
+        if not abs_path.exists():
+            continue
+        source = abs_path.read_text(encoding="utf-8", errors="replace")[:_MAX_SOURCE_SNIPPET_CHARS]
+        snippets.append(f"File: {rel}\n```python\n{source}\n```")
+        candidate_paths.append(rel)
+        if len(snippets) >= _ENTRYPOINT_CONSOLIDATION_SNIPPETS:
+            break
+    if len(candidate_paths) < 2:
+        return None
+    prompt = textwrap.dedent(f"""
+    This repository has {len(backend_eps)} backend server entrypoints, suggesting runtime duplication.
+    Identify exactly ONE file that is clearly a redundant wrapper or legacy entrypoint.
+    Add ONLY a single comment line at the top of that file:
+      # DEPRECATED: prefer <canonical_entrypoint_path> - this file may be removed in a future cleanup
+
+    Do NOT make any other changes.
+    Return ONLY a JSON object (no markdown, no explanation):
+    {{"files": {{"<relative_path>": "<full_file_content_with_deprecation_comment>"}}}}
+
+    Entrypoints to consider:
+    {chr(10).join(snippets)}
+    """).strip()
+    resp, _req, fallback_reason, _fell = call_models_with_fallback_or_none(
+        config.github_token, preferred, fallback,
+        [
+            {"role": "system", "content": "You annotate redundant Python entrypoints with deprecation comments. Return only valid JSON."},
+            {"role": "user", "content": prompt},
+        ],
+    )
+    if resp is None:
+        return None
+    try:
+        text = parse_model_text(resp)
+        data = extract_json_from_model_text(text)
+        raw_files: Dict[str, str] = data.get("files", {})
+    except (RepoArchitectError, KeyError, TypeError):
+        return None
+    all_ep_paths = set(candidate_paths)
+    valid_changes: Dict[str, str] = {}
+    for rel, content in raw_files.items():
+        rel_norm = rel.lstrip("/")
+        if rel_norm not in all_ep_paths:
+            continue
+        try:
+            ast.parse(content)
+            valid_changes[rel_norm] = content
+        except SyntaxError:
+            pass
+    if not valid_changes:
+        return None
+    # Use sorted order to make target selection deterministic across runs
+    target = sorted(valid_changes.keys())[0]
+    return PatchPlan(
+        task="annotate_deprecated_entrypoint",
+        reason=f"deprecation comment on redundant entrypoint: {target}",
+        file_changes=valid_changes,
+        metadata={"lane": "entrypoint_consolidation", "annotated": sorted(valid_changes), "fallback_reason": fallback_reason, "total_backend_entrypoints": len(backend_eps)},
+        pr_title="agent: annotate redundant server entrypoint as deprecated",
+        pr_body=textwrap.dedent(f"""
+        Automated entrypoint consolidation step.
+
+        This repository has **{len(backend_eps)} backend server entrypoints** — above the
+        consolidation threshold of {_ENTRYPOINT_CONSOLIDATION_THRESHOLD}. This PR adds a
+        `# DEPRECATED` comment to one identified redundant wrapper, making migration intent
+        explicit without changing any runtime behaviour.
+
+        Annotated file(s): {', '.join(f'`{p}`' for p in sorted(valid_changes))}
+
+        Validation: `ast.parse` passed on all changed files.
+        """).strip(),
+        stable_branch_hint="agent/fix/entrypoint-consolidation",
+    )
+
+
 def build_patch_plan(
     config: Config, analysis: Dict[str, Any], model_meta: Dict[str, Any], state: Dict[str, Any],
 ) -> Tuple[Optional[PatchPlan], str, Optional[str]]:
     """Return (plan, selected_lane, no_safe_code_mutation_reason).
 
     Lane priority order (mutate / campaign):
-      1. parse_errors  – model-assisted syntax fix
-      2. import_cycles – model-assisted cycle break
-      3. hygiene       – remove marked debug prints
-      4. report        – refresh architecture documentation
+      1. parse_errors              – model-assisted syntax fix
+      2. import_cycles             – model-assisted cycle break
+      3. entrypoint_consolidation  – deprecate redundant server entrypoints
+      4. hygiene                   – remove marked debug prints
+      5. report                    – refresh architecture documentation
 
     A report-only mutation is never produced when parse errors exist unless no
     safe code mutation can be made (reason is then surfaced explicitly).
@@ -1123,6 +1247,11 @@ def build_patch_plan(
                     if plan:
                         return plan, "import_cycles", None
                     skipped_reasons.append("import_cycles: model unavailable or returned no valid fix")
+            elif lane == "entrypoint_consolidation":
+                plan = build_entrypoint_consolidation_plan(config, analysis)
+                if plan:
+                    return plan, "entrypoint_consolidation", None
+                # Not an error to skip - threshold may not be met
             elif lane == "hygiene":
                 plan = remove_marked_debug_prints(config.git_root, analysis, config.mutation_budget)
                 if plan:
@@ -1287,7 +1416,7 @@ on:
       lanes:
         description: 'Comma-separated lane order (campaign mode only)'
         required: false
-        default: 'parse_errors,import_cycles,hygiene,report'
+        default: 'parse_errors,import_cycles,entrypoint_consolidation,hygiene,report'
         type: string
   schedule:
     - cron: '{cron}'
@@ -1343,7 +1472,7 @@ jobs:
           if [ -z "$REPORT_PATH" ]; then REPORT_PATH="{DEFAULT_REPORT_PATH.as_posix()}"; fi
           if [ -z "$MUTATION_BUDGET" ]; then MUTATION_BUDGET="1"; fi
           if [ -z "$MAX_SLICES" ]; then MAX_SLICES="3"; fi
-          if [ -z "$LANES" ]; then LANES="parse_errors,import_cycles,hygiene,report"; fi
+          if [ -z "$LANES" ]; then LANES="parse_errors,import_cycles,entrypoint_consolidation,hygiene,report"; fi
           EXTRA_ARGS=""
           if [ -n "$MODEL" ]; then EXTRA_ARGS="$EXTRA_ARGS --github-model $MODEL"; fi
           if [ "$MODE" = "campaign" ]; then
@@ -1521,11 +1650,62 @@ def run_campaign(
     campaign_summary_path = config.agent_dir / "campaign_summary.json"
     atomic_write_json(campaign_summary_path, summary)
 
+    # Emit human-readable campaign report alongside the JSON artifact
+    campaign_report_path = DEFAULT_REPORT_DIR / "campaign_report.md"
+    atomic_write_text(config.git_root / campaign_report_path, _render_campaign_report(summary))
+
     state["runs"] = int(state.get("runs", 0)) + 1
     state["last_run_epoch"] = int(time.time())
     state["last_outcome"] = "campaign_complete"
     save_state(config, state)
     return summary
+
+
+def _render_campaign_report(summary: Dict[str, Any]) -> str:
+    """Render a human-readable markdown summary of a campaign run."""
+    ts = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    lines = [
+        "# repo-architect campaign report",
+        "",
+        f"Generated: {ts}",
+        "",
+        f"| Field | Value |",
+        f"|---|---|",
+        f"| Status | `{summary.get('status')}` |",
+        f"| Architecture score | {summary.get('architecture_score')} |",
+        f"| Slices attempted | {summary.get('slices_attempted')} |",
+        f"| Slices applied | {summary.get('slices_applied')} |",
+        f"| Lanes requested | {', '.join(summary.get('lanes_requested', []))} |",
+        f"| Model requested | `{summary.get('requested_model') or 'n/a'}` |",
+        f"| Model used | `{summary.get('actual_model') or 'n/a'}` |",
+    ]
+    if summary.get("fallback_reason"):
+        lines.append(f"| Fallback reason | {summary['fallback_reason']} |")
+    lines += ["", "## Slice results", ""]
+    for idx, r in enumerate(summary.get("results", []), 1):
+        status = r.get("status", "unknown")
+        lane = r.get("lane", "?")
+        branch = r.get("branch")
+        pr = r.get("pull_request_url")
+        err = r.get("error") or r.get("no_safe_code_mutation_reason")
+        lines.append(f"### Slice {idx}: `{lane}` — {status}")
+        lines.append("")
+        if branch:
+            lines.append(f"- Branch: `{branch}`")
+        if pr:
+            lines.append(f"- PR: {pr}")
+        changed = r.get("changed_files", [])
+        if changed:
+            shown = changed[:10]
+            truncated = len(changed) - len(shown)
+            display = ', '.join(f'`{f}`' for f in shown)
+            if truncated:
+                display += f" … and {truncated} more"
+            lines.append(f"- Changed: {display}")
+        if err:
+            lines.append(f"- Reason: {err}")
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
 
 
 # -----------------------------

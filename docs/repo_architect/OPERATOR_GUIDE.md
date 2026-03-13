@@ -64,8 +64,9 @@ In `mutate` and `campaign` modes the agent selects exactly one lane per slice, i
 |---|---|---|
 | 1 | `parse_errors` | Model-assisted syntax fix for one or more files with parse errors. Skipped if no parse errors exist or model is unavailable. |
 | 2 | `import_cycles` | Model-assisted import cycle break (TYPE_CHECKING guard / lazy import). Skipped if no cycles or model unavailable. |
-| 3 | `hygiene` | Remove explicitly `# DEBUG`-marked `print()` statements. No model required. |
-| 4 | `report` | Refresh the architecture documentation packet. Only selected when no higher-priority code mutation is possible. |
+| 3 | `entrypoint_consolidation` | Annotates one redundant backend server entrypoint with a `# DEPRECATED` comment when ≥ 4 backend entrypoints exist. Model-assisted. |
+| 4 | `hygiene` | Remove explicitly `# DEBUG`-marked `print()` statements. No model required. |
+| 5 | `report` | Refresh the architecture documentation packet. Only selected when no higher-priority code mutation is possible. |
 
 A **report-only mutation is never produced when parse errors exist** unless all code-lane attempts fail (in which case `no_safe_code_mutation_reason` is populated in the JSON output).
 
@@ -80,7 +81,7 @@ python repo_architect.py \
   --mode campaign \
   --allow-dirty \
   --max-slices 3 \
-  --lanes parse_errors,import_cycles,hygiene,report \
+  --lanes parse_errors,import_cycles,entrypoint_consolidation,hygiene,report \
   --stop-on-failure
 ```
 
@@ -129,3 +130,29 @@ Every run emits a JSON object on stdout. Key fields:
 | `report` | Refreshes `docs/repo_architect/` documentation |
 | `mutate` | Attempts one code or report mutation in lane-priority order |
 | `campaign` | Runs up to `max_slices` slices serially across lanes |
+
+---
+
+## Validation Policy
+
+Each mutation lane runs the following validation before pushing:
+
+| Lane | Validation |
+|---|---|
+| `parse_errors` | `ast.parse` on model-generated content; file must parse cleanly or it is rejected |
+| `import_cycles` | `ast.parse` on model-generated content; unchanged files are not validated |
+| `entrypoint_consolidation` | `ast.parse` on model-generated content |
+| `hygiene` | `python -m py_compile` on all touched Python files |
+| `report` | Verify report files were written; hash included in output |
+
+Validation failures abort the mutation and **never push a broken branch**.
+
+---
+
+## Running Tests
+
+```bash
+python -m unittest tests.test_repo_architect -v
+```
+
+The test suite covers: branch suffix generation, model fallback, `ast.parse` gate, campaign aggregation, output schema stability, lane priority selection, and `entrypoint_consolidation` threshold/validation logic.
