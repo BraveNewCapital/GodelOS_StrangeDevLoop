@@ -111,6 +111,8 @@ class Config:
     # Model selection (preferred may fall back to fallback on unavailability)
     preferred_model: Optional[str] = None
     fallback_model: Optional[str] = None
+    # Explicit fallback model from GITHUB_FALLBACK_MODEL env var (overrides fallback_model if set)
+    github_fallback_model: Optional[str] = None
     # Explicit lane order override (None = use MUTATION_LANE_ORDER)
     campaign_lanes: Optional[Tuple[str, ...]] = None
 
@@ -373,6 +375,30 @@ def _is_model_unavailable_error(msg: str) -> bool:
     return any(sig in lower for sig in _MODEL_UNAVAILABLE_SIGNALS)
 
 
+# Regex matching HTTP status codes that warrant a fallback retry:
+# 403 (permission/forbidden), 404 (not found), 429 (rate-limit/quota), 5xx (provider failure)
+_FALLBACK_HTTP_CODE_RE = re.compile(r"(?:inference failed|network error).*?:\s*(403|404|429|5\d\d)\b")
+# Timeout signals in lowercased error text
+_TIMEOUT_SIGNALS = frozenset({"timed out", "timeout"})
+
+
+def _should_try_fallback(msg: str) -> bool:
+    """Return True if the error warrants retrying with the fallback model.
+
+    Triggers on: model unavailability, HTTP 403/404/429, timeout, and 5xx provider errors.
+    Does NOT trigger on bare non-code error strings (e.g. generic "rate limit exceeded"
+    without an HTTP status code) to keep the trigger set narrow and deterministic.
+    """
+    if _is_model_unavailable_error(msg):
+        return True
+    lower = msg.lower()
+    if any(sig in lower for sig in _TIMEOUT_SIGNALS):
+        return True
+    if _FALLBACK_HTTP_CODE_RE.search(msg):
+        return True
+    return False
+
+
 def extract_json_from_model_text(text: str) -> Any:
     """Extract the first JSON object or array from model-returned text (handles fences)."""
     try:
@@ -421,7 +447,7 @@ def call_models_with_fallback_or_none(
         return resp, preferred, None, False
     except RepoArchitectError as exc:
         reason = str(exc)
-        if fallback and fallback != preferred and _is_model_unavailable_error(reason):
+        if fallback and fallback != preferred and _should_try_fallback(reason):
             try:
                 resp = github_models_chat(token, fallback, messages)
                 return resp, preferred, reason, True
@@ -698,13 +724,17 @@ def build_analysis(root: pathlib.Path) -> Dict[str, Any]:
 
 def enrich_with_github_models(config: Config, analysis: Dict[str, Any]) -> Dict[str, Any]:
     preferred = config.github_model or config.preferred_model
-    fallback = config.fallback_model
+    fallback = config.github_fallback_model or config.fallback_model
     meta: Dict[str, Any] = {
         "enabled": False,
         "used": False,
         "requested_model": preferred,
         "actual_model": None,
         "model": preferred,  # kept for backward compatibility
+        "primary_model": preferred,
+        "fallback_model": fallback,
+        "model_used": None,
+        "fallback_used": False,
         "summary": None,
         "fallback_reason": None,
         "fallback_occurred": False,
@@ -731,11 +761,13 @@ def enrich_with_github_models(config: Config, analysis: Dict[str, Any]) -> Dict[
     )
     meta["fallback_reason"] = fallback_reason
     meta["fallback_occurred"] = fallback_occurred
+    meta["fallback_used"] = fallback_occurred
     if resp is None:
         return meta
     try:
         meta["summary"] = parse_model_text(resp)
         meta["actual_model"] = resp.get("model", fallback if fallback_occurred else preferred)
+        meta["model_used"] = meta["actual_model"]
         meta["used"] = True
     except RepoArchitectError as exc:
         meta["fallback_reason"] = (meta.get("fallback_reason") or "") + f"; parse failed: {exc}"
@@ -1421,7 +1453,12 @@ on:
       github_model:
         description: 'GitHub Models model id (overrides preferred model)'
         required: false
-        default: ''
+        default: 'anthropic/claude-sonnet-4.5'
+        type: string
+      github_fallback_model:
+        description: 'GitHub Models fallback model id (used if primary model fails)'
+        required: false
+        default: 'openai/gpt-5'
         type: string
       report_path:
         description: 'Primary report path'
@@ -1572,6 +1609,8 @@ jobs:
           GITHUB_REPO: ${{{{ github.repository }}}}
           GITHUB_BASE_BRANCH: ${{{{ github.event.repository.default_branch }}}}
           REPO_ARCHITECT_BRANCH_SUFFIX: ${{{{ github.run_id }}}}-${{{{ github.run_attempt }}}}
+          GITHUB_MODEL: ${{{{ github.event.inputs.github_model }}}}
+          GITHUB_FALLBACK_MODEL: ${{{{ github.event.inputs.github_fallback_model }}}}
 {extra_env}        run: |
           MODE="${{{{ github.event.inputs.mode }}}}"
           MODEL="${{{{ github.event.inputs.github_model }}}}"
@@ -1641,6 +1680,10 @@ def run_cycle(config: Config) -> Dict[str, Any]:
         "architecture_score": analysis["architecture_score"],
         "requested_model": model_meta.get("requested_model"),
         "actual_model": model_meta.get("actual_model"),
+        "primary_model": model_meta.get("primary_model"),
+        "fallback_model": model_meta.get("fallback_model"),
+        "model_used": model_meta.get("model_used"),
+        "fallback_used": model_meta.get("fallback_used", False),
         "fallback_reason": model_meta.get("fallback_reason"),
         "fallback_occurred": model_meta.get("fallback_occurred", False),
         "no_safe_code_mutation_reason": None,
@@ -1757,6 +1800,10 @@ def run_campaign(
         "architecture_score": analysis["architecture_score"],
         "requested_model": model_meta.get("requested_model"),
         "actual_model": model_meta.get("actual_model"),
+        "primary_model": model_meta.get("primary_model"),
+        "fallback_model": model_meta.get("fallback_model"),
+        "model_used": model_meta.get("model_used"),
+        "fallback_used": model_meta.get("fallback_used", False),
         "fallback_reason": model_meta.get("fallback_reason"),
         "results": slice_results,
     }
@@ -1940,6 +1987,7 @@ def build_config(args: argparse.Namespace) -> Config:
         configure_branch_protection=args.configure_branch_protection,
         preferred_model=preferred,
         fallback_model=fallback,
+        github_fallback_model=os.environ.get("GITHUB_FALLBACK_MODEL"),
         campaign_lanes=campaign_lanes,
     )
 

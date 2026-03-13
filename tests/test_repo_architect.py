@@ -72,6 +72,7 @@ def _make_config(root: Optional[pathlib.Path] = None, mode: str = "analyze", **o
         configure_branch_protection=False,
         preferred_model=None,
         fallback_model=None,
+        github_fallback_model=None,
     )
     if overrides:
         cfg = dataclasses.replace(cfg, **overrides)
@@ -176,6 +177,67 @@ class TestIsModelUnavailableError(unittest.TestCase):
         self.assertTrue(ra._is_model_unavailable_error("Model_Not_Found"))
 
 
+# ---------------------------------------------------------------------------
+# 2b. _should_try_fallback — expanded trigger set
+# ---------------------------------------------------------------------------
+
+class TestShouldTryFallback(unittest.TestCase):
+    """Verify _should_try_fallback covers the explicit and minimal trigger set."""
+
+    def test_model_unavailable_triggers(self) -> None:
+        self.assertTrue(ra._should_try_fallback("unknown_model: gpt-5.4 not found"))
+
+    def test_http_403_triggers(self) -> None:
+        self.assertTrue(ra._should_try_fallback(
+            "GitHub Models inference failed: 403 Permission denied"
+        ))
+
+    def test_http_404_triggers(self) -> None:
+        self.assertTrue(ra._should_try_fallback(
+            "GitHub Models inference failed: 404 Not found"
+        ))
+
+    def test_http_429_triggers(self) -> None:
+        self.assertTrue(ra._should_try_fallback(
+            "GitHub Models inference failed: 429 Too many requests"
+        ))
+
+    def test_http_500_triggers(self) -> None:
+        self.assertTrue(ra._should_try_fallback(
+            "GitHub Models inference failed: 500 Internal server error"
+        ))
+
+    def test_http_503_triggers(self) -> None:
+        self.assertTrue(ra._should_try_fallback(
+            "GitHub Models inference failed: 503 Service unavailable"
+        ))
+
+    def test_timeout_triggers(self) -> None:
+        self.assertTrue(ra._should_try_fallback(
+            "GitHub Models inference network error: timed out"
+        ))
+
+    def test_timeout_keyword_triggers(self) -> None:
+        self.assertTrue(ra._should_try_fallback(
+            "GitHub Models inference network error: timeout"
+        ))
+
+    def test_bare_rate_limit_string_does_not_trigger(self) -> None:
+        """A generic 'rate limit exceeded' message (no HTTP code) must NOT trigger."""
+        self.assertFalse(ra._should_try_fallback("rate limit exceeded"))
+
+    def test_http_200_does_not_trigger(self) -> None:
+        self.assertFalse(ra._should_try_fallback(
+            "GitHub Models inference failed: 200 OK"
+        ))
+
+    def test_http_400_does_not_trigger(self) -> None:
+        """400 Bad Request is a client error that should not trigger fallback."""
+        self.assertFalse(ra._should_try_fallback(
+            "GitHub Models inference failed: 400 Bad request"
+        ))
+
+
 class TestCallModelsWithFallback(unittest.TestCase):
     _MESSAGES = [{"role": "user", "content": "hi"}]
 
@@ -207,8 +269,90 @@ class TestCallModelsWithFallback(unittest.TestCase):
         self.assertIsNotNone(reason)
         self.assertIn("unknown_model", reason)
 
-    def test_fallback_NOT_triggered_on_transient_error(self) -> None:
-        """Transient errors (rate limit, network) must NOT trigger model fallback."""
+    def test_fallback_triggered_on_http_403(self) -> None:
+        """HTTP 403 (permission) on primary must trigger exactly one fallback attempt."""
+        fallback_resp = {"choices": [{"message": {"content": "ok"}}], "model": "openai/gpt-4.1"}
+        calls: List[str] = []
+
+        def side_effect(token: str, model: str, messages: list) -> dict:
+            calls.append(model)
+            if model == "anthropic/claude-sonnet-4.5":
+                raise ra.RepoArchitectError(
+                    "GitHub Models inference failed: 403 Permission denied"
+                )
+            return fallback_resp
+
+        with patch.object(ra, "github_models_chat", side_effect=side_effect):
+            resp, req_model, reason, fell = ra.call_models_with_fallback_or_none(
+                "tok", "anthropic/claude-sonnet-4.5", "openai/gpt-5", self._MESSAGES
+            )
+        self.assertEqual(calls, ["anthropic/claude-sonnet-4.5", "openai/gpt-5"])
+        self.assertEqual(resp, fallback_resp)
+        self.assertTrue(fell)
+        self.assertIn("403", reason)
+
+    def test_fallback_triggered_on_http_429(self) -> None:
+        """HTTP 429 on primary must trigger fallback retry."""
+        fallback_resp = {"choices": [{"message": {"content": "ok"}}], "model": "openai/gpt-5"}
+        calls: List[str] = []
+
+        def side_effect(token: str, model: str, messages: list) -> dict:
+            calls.append(model)
+            if model == "anthropic/claude-sonnet-4.5":
+                raise ra.RepoArchitectError(
+                    "GitHub Models inference failed: 429 Too many requests"
+                )
+            return fallback_resp
+
+        with patch.object(ra, "github_models_chat", side_effect=side_effect):
+            resp, req_model, reason, fell = ra.call_models_with_fallback_or_none(
+                "tok", "anthropic/claude-sonnet-4.5", "openai/gpt-5", self._MESSAGES
+            )
+        self.assertEqual(calls, ["anthropic/claude-sonnet-4.5", "openai/gpt-5"])
+        self.assertEqual(resp, fallback_resp)
+        self.assertTrue(fell)
+        self.assertIn("429", reason)
+
+    def test_fallback_triggered_on_5xx(self) -> None:
+        """HTTP 5xx provider failure on primary must trigger fallback retry."""
+        fallback_resp = {"choices": [{"message": {"content": "ok"}}], "model": "openai/gpt-5"}
+
+        def side_effect(token: str, model: str, messages: list) -> dict:
+            if model == "anthropic/claude-sonnet-4.5":
+                raise ra.RepoArchitectError(
+                    "GitHub Models inference failed: 503 Service temporarily unavailable"
+                )
+            return fallback_resp
+
+        with patch.object(ra, "github_models_chat", side_effect=side_effect):
+            resp, req_model, reason, fell = ra.call_models_with_fallback_or_none(
+                "tok", "anthropic/claude-sonnet-4.5", "openai/gpt-5", self._MESSAGES
+            )
+        self.assertEqual(resp, fallback_resp)
+        self.assertTrue(fell)
+        self.assertIn("503", reason)
+
+    def test_fallback_triggered_on_timeout(self) -> None:
+        """Network timeout on primary must trigger fallback retry."""
+        fallback_resp = {"choices": [{"message": {"content": "ok"}}], "model": "openai/gpt-5"}
+
+        def side_effect(token: str, model: str, messages: list) -> dict:
+            if model == "anthropic/claude-sonnet-4.5":
+                raise ra.RepoArchitectError(
+                    "GitHub Models inference network error: timed out"
+                )
+            return fallback_resp
+
+        with patch.object(ra, "github_models_chat", side_effect=side_effect):
+            resp, req_model, reason, fell = ra.call_models_with_fallback_or_none(
+                "tok", "anthropic/claude-sonnet-4.5", "openai/gpt-5", self._MESSAGES
+            )
+        self.assertEqual(resp, fallback_resp)
+        self.assertTrue(fell)
+        self.assertIn("timed out", reason)
+
+    def test_fallback_NOT_triggered_on_bare_error_string(self) -> None:
+        """A bare error string without HTTP code must NOT trigger fallback (narrow trigger set)."""
         calls: List[str] = []
 
         def side_effect(token: str, model: str, messages: list) -> dict:
@@ -223,6 +367,32 @@ class TestCallModelsWithFallback(unittest.TestCase):
         self.assertEqual(calls, ["openai/gpt-5.4"])
         self.assertIsNone(resp)
         self.assertFalse(fell)
+
+    def test_fallback_retried_exactly_once_then_both_fail(self) -> None:
+        """When both models fail, combined error is surfaced and fallback_occurred=True."""
+        calls: List[str] = []
+
+        def side_effect(token: str, model: str, messages: list) -> dict:
+            calls.append(model)
+            if model == "anthropic/claude-sonnet-4.5":
+                raise ra.RepoArchitectError(
+                    "GitHub Models inference failed: 503 provider error"
+                )
+            raise ra.RepoArchitectError(
+                "GitHub Models inference failed: 502 fallback provider error"
+            )
+
+        with patch.object(ra, "github_models_chat", side_effect=side_effect):
+            resp, req_model, reason, fell = ra.call_models_with_fallback_or_none(
+                "tok", "anthropic/claude-sonnet-4.5", "openai/gpt-5", self._MESSAGES
+            )
+        self.assertEqual(calls, ["anthropic/claude-sonnet-4.5", "openai/gpt-5"])
+        self.assertIsNone(resp)
+        self.assertTrue(fell)
+        self.assertIsNotNone(reason)
+        self.assertIn("503", reason)
+        self.assertIn("fallback also failed", reason)
+        self.assertIn("502", reason)
 
     def test_both_models_fail_returns_none(self) -> None:
         def side_effect(token: str, model: str, messages: list) -> dict:
@@ -312,6 +482,86 @@ class TestModelConfiguration(unittest.TestCase):
         self.assertIn("REPO_ARCHITECT_FALLBACK_MODEL={fallback}", workflow)
         self.assertIn('if [ -n "$MODEL" ]; then EXTRA_ARGS="$EXTRA_ARGS --github-model $MODEL"; fi', workflow)
         self.assertIn("models: read", workflow)
+        # New: primary/fallback model inputs with defaults
+        self.assertIn("github_fallback_model:", workflow)
+        self.assertIn("default: 'openai/gpt-5'", workflow)
+        self.assertIn("default: 'anthropic/claude-sonnet-4.5'", workflow)
+        # New: GITHUB_MODEL and GITHUB_FALLBACK_MODEL exported as env vars
+        self.assertIn("GITHUB_FALLBACK_MODEL:", workflow)
+
+    def test_build_config_reads_github_fallback_model_env(self) -> None:
+        """GITHUB_FALLBACK_MODEL env var should populate github_fallback_model in Config."""
+        env = {
+            "GITHUB_FALLBACK_MODEL": "openai/gpt-5",
+        }
+        with patch.object(ra, "discover_git_root", return_value=pathlib.Path("/tmp/repo")):
+            with patch.dict(os.environ, env, clear=False):
+                config = ra.build_config(ra.parse_args([]))
+        self.assertEqual(config.github_fallback_model, "openai/gpt-5")
+
+    def test_enrich_uses_github_fallback_model_over_fallback_model(self) -> None:
+        """github_fallback_model takes precedence over fallback_model in enrich_with_github_models."""
+        analysis = {
+            "architecture_score": 0.9,
+            "cycles": [],
+            "parse_error_files": [],
+            "entrypoint_paths": [],
+            "roadmap": [],
+        }
+        fallback_resp = {"choices": [{"message": {"content": "ok"}}], "model": "openai/gpt-5"}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(
+                root,
+                github_token="tok",
+                github_model="anthropic/claude-sonnet-4.5",
+                github_fallback_model="openai/gpt-5",
+                fallback_model="google/gemini-3-pro",
+            )
+            with patch.object(
+                ra,
+                "call_models_with_fallback_or_none",
+                return_value=(fallback_resp, "anthropic/claude-sonnet-4.5", "503 error", True),
+            ) as mocked_call:
+                meta = ra.enrich_with_github_models(config, analysis)
+        # github_fallback_model="openai/gpt-5" must be passed as fallback, not fallback_model
+        self.assertEqual(mocked_call.call_args.args[2], "openai/gpt-5")
+        self.assertTrue(meta["fallback_used"])
+        self.assertTrue(meta["fallback_occurred"])
+
+    def test_enrich_metadata_primary_success(self) -> None:
+        """On primary success, metadata must reflect no fallback was used."""
+        analysis = {
+            "architecture_score": 0.9,
+            "cycles": [],
+            "parse_error_files": [],
+            "entrypoint_paths": [],
+            "roadmap": [],
+        }
+        primary_resp = {
+            "choices": [{"message": {"content": "bullet 1"}}],
+            "model": "anthropic/claude-sonnet-4.5",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(
+                root,
+                github_token="tok",
+                github_model="anthropic/claude-sonnet-4.5",
+                github_fallback_model="openai/gpt-5",
+            )
+            with patch.object(
+                ra,
+                "call_models_with_fallback_or_none",
+                return_value=(primary_resp, "anthropic/claude-sonnet-4.5", None, False),
+            ):
+                meta = ra.enrich_with_github_models(config, analysis)
+        self.assertEqual(meta["primary_model"], "anthropic/claude-sonnet-4.5")
+        self.assertEqual(meta["fallback_model"], "openai/gpt-5")
+        self.assertEqual(meta["model_used"], "anthropic/claude-sonnet-4.5")
+        self.assertFalse(meta["fallback_used"])
+        self.assertFalse(meta["fallback_occurred"])
+        self.assertIsNone(meta["fallback_reason"])
 
 
 # ---------------------------------------------------------------------------
@@ -461,6 +711,7 @@ class TestCampaignAggregation(unittest.TestCase):
 REQUIRED_OUTPUT_FIELDS = frozenset({
     "status", "mode", "lane", "architecture_score",
     "requested_model", "actual_model", "fallback_reason", "fallback_occurred",
+    "primary_model", "fallback_model", "model_used", "fallback_used",
     "no_safe_code_mutation_reason", "branch", "changed_files",
     "validation", "pull_request_url", "artifact_files",
 })
@@ -496,7 +747,9 @@ class TestOutputSchemaStability(unittest.TestCase):
             result = ra.run_campaign(config, list(ra.MUTATION_LANE_ORDER), max_slices=2, stop_on_failure=False)
         campaign_fields = {"status", "mode", "slices_attempted", "slices_applied",
                            "lanes_requested", "lanes_executed", "architecture_score",
-                           "requested_model", "actual_model", "fallback_reason", "results"}
+                           "requested_model", "actual_model", "fallback_reason",
+                           "primary_model", "fallback_model", "model_used", "fallback_used",
+                           "results"}
         missing = campaign_fields - set(result.keys())
         self.assertEqual(missing, set(), f"Missing campaign output fields: {missing}")
 

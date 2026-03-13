@@ -16,7 +16,12 @@ on:
       github_model:
         description: 'GitHub Models model id (overrides preferred model)'
         required: false
-        default: ''
+        default: 'anthropic/claude-sonnet-4.5'
+        type: string
+      github_fallback_model:
+        description: 'GitHub Models fallback model id (used if primary model fails)'
+        required: false
+        default: 'openai/gpt-5'
         type: string
       report_path:
         description: 'Primary report path'
@@ -167,6 +172,8 @@ jobs:
           GITHUB_REPO: ${{ github.repository }}
           GITHUB_BASE_BRANCH: ${{ github.event.repository.default_branch }}
           REPO_ARCHITECT_BRANCH_SUFFIX: ${{ github.run_id }}-${{ github.run_attempt }}
+          GITHUB_MODEL: ${{ github.event.inputs.github_model }}
+          GITHUB_FALLBACK_MODEL: ${{ github.event.inputs.github_fallback_model }}
         run: |
           MODE="${{ github.event.inputs.mode }}"
           MODEL="${{ github.event.inputs.github_model }}"
