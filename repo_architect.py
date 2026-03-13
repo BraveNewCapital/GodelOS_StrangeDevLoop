@@ -18,7 +18,7 @@ import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 APP_NAME = "repo-architect"
 VERSION = "2.1.0"
@@ -60,8 +60,10 @@ REPORT_SUITE = {
 }
 
 # Model selection defaults
-DEFAULT_PREFERRED_MODEL = "anthropic/claude-sonnet-4.6"
-DEFAULT_FALLBACK_MODEL = "google/gemini-3-pro"
+DEFAULT_PREFERRED_MODEL = "openai/gpt-5"
+DEFAULT_FALLBACK_MODEL = "openai/o3"
+# Preferred resolution order for automatic model selection
+PREFERRED_MODEL_ORDER: Tuple[str, ...] = ("openai/gpt-5", "openai/o3")
 # Substrings in HTTP error bodies that indicate the model itself is unavailable (not a transient error)
 _MODEL_UNAVAILABLE_SIGNALS = frozenset({
     "unknown_model", "model_not_found", "unsupported_model", "unsupported model",
@@ -345,6 +347,63 @@ def model_available(catalog: List[Dict[str, Any]], model: str) -> bool:
         if identifier == model:
             return True
     return False
+
+
+def _resolve_models(
+    available: Set[str],
+    catalog_ok: bool,
+    env_model: str = "",
+    env_fallback: str = "",
+    order: Sequence[str] = PREFERRED_MODEL_ORDER,
+) -> Tuple[str, str]:
+    """Resolve preferred and fallback model IDs using override-first, then catalog-order logic.
+
+    Args:
+        available: Set of model IDs returned by the catalog.
+        catalog_ok: Whether the catalog fetch succeeded.
+        env_model: Explicit primary override (GITHUB_MODEL env var).  Empty → auto-resolve.
+        env_fallback: Explicit fallback override (GITHUB_FALLBACK_MODEL env var).  Empty → auto-resolve.
+        order: Preferred resolution order; defaults to PREFERRED_MODEL_ORDER.
+
+    Returns:
+        (preferred, fallback) — never the same value for both unless only one model exists.
+    """
+    order_list = list(order)
+
+    def first_available(candidates: Sequence[str]) -> Optional[str]:
+        for c in candidates:
+            if c in available:
+                return c
+        return None
+
+    def deterministic_available(exclude: Optional[str] = None) -> Optional[str]:
+        candidates = sorted(m for m in available if m != exclude)
+        return candidates[0] if candidates else None
+
+    if env_model:
+        preferred = env_model
+    elif catalog_ok and available:
+        preferred = first_available(order_list) or deterministic_available() or order_list[0]
+    else:
+        preferred = order_list[0]
+
+    if env_fallback:
+        fallback = env_fallback
+    elif catalog_ok and available:
+        fallback = (
+            first_available([c for c in order_list if c != preferred])
+            or deterministic_available(exclude=preferred)
+            or preferred
+        )
+    else:
+        fallback = order_list[1] if len(order_list) > 1 and order_list[1] != preferred else order_list[0]
+
+    if not isinstance(preferred, str) or not preferred:
+        preferred = order_list[0]
+    if not isinstance(fallback, str) or not fallback:
+        fallback = order_list[1] if len(order_list) > 1 and order_list[1] != preferred else order_list[0]
+
+    return preferred, fallback
 
 
 def github_models_chat(token: str, model: str, messages: List[Dict[str, str]]) -> Dict[str, Any]:
@@ -1517,14 +1576,14 @@ on:
           - mutate
           - campaign
       github_model:
-        description: 'GitHub Models model id (overrides preferred model)'
+        description: 'GitHub Models model id (overrides preferred model; leave blank to use catalog resolution)'
         required: false
-        default: 'anthropic/claude-sonnet-4.5'
+        default: ''
         type: string
       github_fallback_model:
         description: 'GitHub Models fallback model id (used if primary model fails)'
         required: false
-        default: 'openai/gpt-5'
+        default: ''
         type: string
       report_path:
         description: 'Primary report path'
@@ -1588,18 +1647,20 @@ jobs:
       - name: Resolve GitHub Models configuration
         env:
           GITHUB_TOKEN: ${{{{ github.token }}}}
+          GITHUB_MODEL: ${{{{ github.event.inputs.github_model }}}}
+          GITHUB_FALLBACK_MODEL: ${{{{ github.event.inputs.github_fallback_model }}}}
         run: |
           python - <<'PY'
           import json
           import os
           import urllib.request
 
+          env_github_model = os.environ.get("GITHUB_MODEL", "").strip()
+          env_github_fallback_model = os.environ.get("GITHUB_FALLBACK_MODEL", "").strip()
           order = [
-              "anthropic/claude-sonnet-4.6",
-              "anthropic/claude-sonnet-4.5",
-              "openai/gpt-4.1",
+              "openai/gpt-5",
+              "openai/o3",
           ]
-          secondary = "google/gemini-3-pro"
           available = set()
           catalog_ok = False
           try:
@@ -1634,31 +1695,28 @@ jobs:
               candidates = sorted(m for m in available if m != exclude)
               return candidates[0] if candidates else None
 
-          if catalog_ok and available:
-              preferred = (
-                  first_available(order)
-                  or (secondary if secondary in available else None)
-                  or deterministic_available()
-              )
+          if env_github_model:
+              preferred = env_github_model
+          elif catalog_ok and available:
+              preferred = first_available(order) or deterministic_available() or order[0]
           else:
               preferred = order[0]
 
-          if catalog_ok and available:
-              if secondary in available and secondary != preferred:
-                  fallback = secondary
-              else:
-                  fallback = (
-                      first_available([c for c in order if c != preferred])
-                      or deterministic_available(exclude=preferred)
-                      or preferred
-                  )
+          if env_github_fallback_model:
+              fallback = env_github_fallback_model
+          elif catalog_ok and available:
+              fallback = (
+                  first_available([c for c in order if c != preferred])
+                  or deterministic_available(exclude=preferred)
+                  or preferred
+              )
           else:
-              fallback = secondary
+              fallback = order[1] if len(order) > 1 and order[1] != preferred else order[0]
 
           if not isinstance(preferred, str) or not preferred:
               preferred = order[0]
           if not isinstance(fallback, str) or not fallback:
-              fallback = secondary if secondary != preferred else order[-1]
+              fallback = order[1] if len(order) > 1 and order[1] != preferred else order[0]
 
           env_file = os.environ.get("GITHUB_ENV")
           if not env_file:
