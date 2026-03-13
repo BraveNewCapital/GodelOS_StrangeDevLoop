@@ -69,6 +69,9 @@ _MODEL_UNAVAILABLE_SIGNALS = frozenset({
 })
 # Canonical lane execution order for mutate / campaign modes
 MUTATION_LANE_ORDER: Tuple[str, ...] = ("parse_errors", "import_cycles", "hygiene", "report")
+# Maximum characters of source code sent to the model per file snippet
+_MAX_SOURCE_SNIPPET_CHARS = 4000
+_MAX_CYCLE_SNIPPET_CHARS = 3000
 
 
 class RepoArchitectError(Exception):
@@ -957,7 +960,7 @@ def build_parse_errors_plan(config: Config, analysis: Dict[str, Any]) -> Optiona
         abs_path = config.git_root / rel
         if not abs_path.exists():
             continue
-        source = abs_path.read_text(encoding="utf-8", errors="replace")[:4000]
+        source = abs_path.read_text(encoding="utf-8", errors="replace")[:_MAX_SOURCE_SNIPPET_CHARS]
         err_detail = py_infos_by_path.get(rel, {}).get("parse_error", "syntax error")
         snippets.append(f"File: {rel}\nError: {err_detail}\n```python\n{source}\n```")
     if not snippets:
@@ -1031,7 +1034,7 @@ def build_import_cycles_plan(config: Config, analysis: Dict[str, Any]) -> Option
         if not abs_path.exists():
             continue
         module_to_path[mod] = rel
-        source = abs_path.read_text(encoding="utf-8", errors="replace")[:3000]
+        source = abs_path.read_text(encoding="utf-8", errors="replace")[:_MAX_CYCLE_SNIPPET_CHARS]
         snippets.append(f"Module: {mod}\nFile: {rel}\n```python\n{source}\n```")
     if not snippets:
         return None
@@ -1185,20 +1188,25 @@ def apply_patch_plan(config: Config, plan: PatchPlan, state: Dict[str, Any]) -> 
         pr_url = None
         pr_number = None
         if config.github_token and config.github_repo and git_has_remote_origin(config.git_root):
-            # Pre-check: if remote branch already exists (from a prior run), generate a fresh name
-            if git_remote_branch_exists(config.git_root, branch):
-                fresh = with_unique_branch_suffix(safe_branch_name(plan.stable_branch_hint + "-r2"))
-                git_checkout_branch(config.git_root, fresh)
-                branch = fresh
+            # Pre-check: if remote branch already exists (from a prior run), generate a fresh name.
+            # Use a timestamp-based suffix so retries within the same run are also distinct.
+            for retry_n in range(1, 4):
+                if not git_remote_branch_exists(config.git_root, branch):
+                    break
+                branch = with_unique_branch_suffix(
+                    safe_branch_name(f"{plan.stable_branch_hint}-retry{retry_n}")
+                )
+                git_checkout_branch(config.git_root, branch)
             try:
                 git_push_branch(config.git_root, branch)
             except RepoArchitectError as push_exc:
                 # One retry on non-fast-forward / rejected push
                 err_lower = str(push_exc).lower()
                 if "non-fast-forward" in err_lower or "rejected" in err_lower or "failed to push" in err_lower:
-                    retry = with_unique_branch_suffix(safe_branch_name(plan.stable_branch_hint + "-r3"))
-                    git_checkout_branch(config.git_root, retry)
-                    branch = retry
+                    branch = with_unique_branch_suffix(
+                        safe_branch_name(f"{plan.stable_branch_hint}-retry{retry_n + 1}")
+                    )
+                    git_checkout_branch(config.git_root, branch)
                     git_push_branch(config.git_root, branch)
                 else:
                     raise
