@@ -250,7 +250,61 @@ class TestCallModelsWithFallback(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# 3. Syntax validation of generated Python (ast.parse gate)
+# 3. Model configuration behaviour
+# ---------------------------------------------------------------------------
+
+class TestModelConfiguration(unittest.TestCase):
+    def test_build_config_uses_env_models_when_github_model_blank(self) -> None:
+        env = dict(os.environ)
+        env.pop("GITHUB_MODEL", None)
+        env["REPO_ARCHITECT_PREFERRED_MODEL"] = "anthropic/claude-sonnet-4.6"
+        env["REPO_ARCHITECT_FALLBACK_MODEL"] = "google/gemini-3-pro"
+        with patch.object(ra, "discover_git_root", return_value=pathlib.Path("/tmp/repo")):
+            with patch.dict(os.environ, env, clear=True):
+                config = ra.build_config(ra.parse_args([]))
+        self.assertIsNone(config.github_model)
+        self.assertEqual(config.preferred_model, "anthropic/claude-sonnet-4.6")
+        self.assertEqual(config.fallback_model, "google/gemini-3-pro")
+
+    def test_github_model_override_takes_precedence_over_preferred(self) -> None:
+        analysis = {
+            "architecture_score": 0.8,
+            "cycles": [],
+            "parse_error_files": [],
+            "entrypoint_paths": [],
+            "roadmap": [],
+        }
+        response = {"choices": [{"message": {"content": "ok"}}], "model": "openai/manual-override"}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(
+                root,
+                github_token="tok",
+                github_model="openai/manual-override",
+                preferred_model="anthropic/claude-sonnet-4.6",
+                fallback_model="google/gemini-3-pro",
+            )
+            with patch.object(
+                ra,
+                "call_models_with_fallback_or_none",
+                return_value=(response, "openai/manual-override", None, False),
+            ) as mocked_call:
+                meta = ra.enrich_with_github_models(config, analysis)
+        self.assertEqual(mocked_call.call_args.args[1], "openai/manual-override")
+        self.assertEqual(mocked_call.call_args.args[2], "google/gemini-3-pro")
+        self.assertEqual(meta["requested_model"], "openai/manual-override")
+        self.assertEqual(meta["actual_model"], "openai/manual-override")
+
+    def test_workflow_yaml_uses_new_model_defaults_and_blank_override_logic(self) -> None:
+        workflow = ra.workflow_yaml([], "17 * * * *", None)
+        self.assertIn("REPO_ARCHITECT_PREFERRED_MODEL: anthropic/claude-sonnet-4.6", workflow)
+        self.assertIn("REPO_ARCHITECT_FALLBACK_MODEL: google/gemini-3-pro", workflow)
+        self.assertIn('if [ -n "$MODEL" ]; then EXTRA_ARGS="$EXTRA_ARGS --github-model $MODEL"; fi', workflow)
+        self.assertIn("models: read", workflow)
+
+
+# ---------------------------------------------------------------------------
+# 4. Syntax validation of generated Python (ast.parse gate)
 # ---------------------------------------------------------------------------
 
 class TestSyntaxValidationGate(unittest.TestCase):
@@ -313,7 +367,7 @@ class TestSyntaxValidationGate(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# 4. Campaign aggregation behaviour
+# 5. Campaign aggregation behaviour
 # ---------------------------------------------------------------------------
 
 class TestCampaignAggregation(unittest.TestCase):

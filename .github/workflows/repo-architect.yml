@@ -83,8 +83,8 @@ jobs:
           GITHUB_REPO: ${{ github.repository }}
           GITHUB_BASE_BRANCH: ${{ github.event.repository.default_branch }}
           REPO_ARCHITECT_BRANCH_SUFFIX: ${{ github.run_id }}-${{ github.run_attempt }}
-          REPO_ARCHITECT_PREFERRED_MODEL: openai/gpt-5.4
-          REPO_ARCHITECT_FALLBACK_MODEL: openai/gpt-4.1
+          REPO_ARCHITECT_PREFERRED_MODEL: anthropic/claude-sonnet-4.6
+          REPO_ARCHITECT_FALLBACK_MODEL: google/gemini-3-pro
         run: |
           MODE="${{ github.event.inputs.mode }}"
           MODEL="${{ github.event.inputs.github_model }}"

@@ -60,8 +60,8 @@ REPORT_SUITE = {
 }
 
 # Model selection defaults
-DEFAULT_PREFERRED_MODEL = "openai/gpt-5.4"
-DEFAULT_FALLBACK_MODEL = "openai/gpt-4.1"
+DEFAULT_PREFERRED_MODEL = "anthropic/claude-sonnet-4.6"
+DEFAULT_FALLBACK_MODEL = "google/gemini-3-pro"
 # Substrings in HTTP error bodies that indicate the model itself is unavailable (not a transient error)
 _MODEL_UNAVAILABLE_SIGNALS = frozenset({
     "unknown_model", "model_not_found", "unsupported_model", "unsupported model",
@@ -697,7 +697,7 @@ def build_analysis(root: pathlib.Path) -> Dict[str, Any]:
 # -----------------------------
 
 def enrich_with_github_models(config: Config, analysis: Dict[str, Any]) -> Dict[str, Any]:
-    preferred = config.preferred_model or config.github_model
+    preferred = config.github_model or config.preferred_model
     fallback = config.fallback_model
     meta: Dict[str, Any] = {
         "enabled": False,
@@ -975,7 +975,7 @@ def build_parse_errors_plan(config: Config, analysis: Dict[str, Any]) -> Optiona
     errors = analysis.get("parse_error_files", [])
     if not errors:
         return None
-    preferred = config.preferred_model or config.github_model
+    preferred = config.github_model or config.preferred_model
     if not config.github_token or not preferred:
         return None
     fallback = config.fallback_model
@@ -1042,7 +1042,7 @@ def build_import_cycles_plan(config: Config, analysis: Dict[str, Any]) -> Option
     cycles = analysis.get("cycles", [])
     if not cycles:
         return None
-    preferred = config.preferred_model or config.github_model
+    preferred = config.github_model or config.preferred_model
     if not config.github_token or not preferred:
         return None
     fallback = config.fallback_model
@@ -1128,7 +1128,7 @@ def build_entrypoint_consolidation_plan(config: Config, analysis: Dict[str, Any]
     backend_eps = clusters.get("backend_servers", [])
     if len(backend_eps) < _ENTRYPOINT_CONSOLIDATION_THRESHOLD:
         return None
-    preferred = config.preferred_model or config.github_model
+    preferred = config.github_model or config.preferred_model
     if not config.github_token or not preferred:
         return None
     fallback = config.fallback_model
@@ -1488,8 +1488,8 @@ jobs:
           GITHUB_REPO: ${{{{ github.repository }}}}
           GITHUB_BASE_BRANCH: ${{{{ github.event.repository.default_branch }}}}
           REPO_ARCHITECT_BRANCH_SUFFIX: ${{{{ github.run_id }}}}-${{{{ github.run_attempt }}}}
-          REPO_ARCHITECT_PREFERRED_MODEL: openai/gpt-5.4
-          REPO_ARCHITECT_FALLBACK_MODEL: openai/gpt-4.1
+          REPO_ARCHITECT_PREFERRED_MODEL: anthropic/claude-sonnet-4.6
+          REPO_ARCHITECT_FALLBACK_MODEL: google/gemini-3-pro
 {extra_env}        run: |
           MODE="${{{{ github.event.inputs.mode }}}}"
           MODEL="${{{{ github.event.inputs.github_model }}}}"
