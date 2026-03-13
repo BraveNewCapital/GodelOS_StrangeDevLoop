@@ -5,16 +5,16 @@ Architecture score: **39**
 ## Top priorities
 - **review_circular_dependencies**: Review 3 local import cycle(s).
 - **review_parse_errors**: Review syntax/parse issues in 2 file(s).
-- **review_multiple_entrypoints**: Review 193 Python entrypoints for runtime duplication.
+- **review_multiple_entrypoints**: Review 194 Python entrypoints for runtime duplication.
 - **publish_runtime_inventory_report**: Generate or refresh repository architecture inventory documentation.
 
 ## Model-assisted summary
 
-- Architecture score is low (39), indicating elevated structural risk.
-- 3 local import cycles detected; review modules for refactoring: agentic_daemon_system, chroma_store, type_system.manager.
-- 2 files have syntax/parse errors: tests/nlu_nlg/nlu/test_pipeline.py, tests/nlu_nlg/nlu/test_lexical_analyzer_parser.py.
-- 193 Python entrypoints present; assess for duplication and runtime complexity.
-- Update runtime inventory documentation (docs/repo_architect/runtime_inventory.md) to reflect current architecture state.
+- Three local import cycles detected (core agentic daemon, knowledge store, type system), risking runtime instability and architectural incoherence.
+- Two files with parse errors (tests/nlu_nlg/nlu/test_pipeline.py, tests/nlu_nlg/nlu/test_lexical_analyzer_parser.py), blocking test coverage and CI reliability.
+- 194 Python entrypoints present, indicating excessive duplication and unclear runtime boundaries; consolidation needed to align with architectural charter.
+- Architecture score of 39 signals significant deviation from GödelOS substrate goals; urgent refactor required to restore bounded recursive structure.
+- Top roadmap priorities: resolve import cycles, fix parse errors, reduce entrypoint sprawl, and publish updated runtime inventory documentation.
 
 
 ## Entrypoint overview
