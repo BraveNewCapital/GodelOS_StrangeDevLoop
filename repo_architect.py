@@ -1498,6 +1498,7 @@ jobs:
           ]
           secondary = "google/gemini-3-pro"
           available = set()
+          catalog_ok = False
           try:
               req = urllib.request.Request(
                   "https://models.github.ai/catalog/models",
@@ -1511,6 +1512,7 @@ jobs:
                   payload = json.loads(resp.read().decode("utf-8"))
               models = payload.get("data", payload) if isinstance(payload, dict) else payload
               if isinstance(models, list):
+                  catalog_ok = True
                   for item in models:
                       if isinstance(item, dict):
                           model_id = item.get("id") or item.get("name") or item.get("model")
@@ -1525,20 +1527,30 @@ jobs:
                       return candidate
               return None
 
-          if available:
-              preferred = first_available(order)
-              if preferred is None:
-                  preferred = secondary if secondary in available else order[0]
+          def deterministic_available(exclude=None):
+              candidates = sorted(m for m in available if m != exclude)
+              return candidates[0] if candidates else None
+
+          if catalog_ok and available:
+              preferred = (
+                  first_available(order)
+                  or (secondary if secondary in available else None)
+                  or deterministic_available()
+              )
           else:
               preferred = order[0]
 
-          if secondary in available and secondary != preferred:
-              fallback = secondary
+          if catalog_ok and available:
+              if secondary in available and secondary != preferred:
+                  fallback = secondary
+              else:
+                  fallback = (
+                      first_available([c for c in order if c != preferred])
+                      or deterministic_available(exclude=preferred)
+                      or preferred
+                  )
           else:
-              fallback = (
-                  first_available([c for c in order if c != preferred])
-                  or (secondary if secondary in available else order[-1])
-              )
+              fallback = secondary
 
           if not isinstance(preferred, str) or not preferred:
               preferred = order[0]
