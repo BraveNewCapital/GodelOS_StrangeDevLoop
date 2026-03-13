@@ -69,6 +69,13 @@ _MODEL_UNAVAILABLE_SIGNALS = frozenset({
 })
 # Canonical lane execution order for mutate / campaign modes
 MUTATION_LANE_ORDER: Tuple[str, ...] = ("parse_errors", "import_cycles", "entrypoint_consolidation", "hygiene", "report")
+# Canonical architectural charter files (relative to git root)
+CHARTER_PATHS: Tuple[str, ...] = (
+    "docs/architecture/GODELOS_ARCHITECTURAL_CHARTER.md",
+    "docs/architecture/GODELOS_REPO_IMPLEMENTATION_CHARTER.md",
+)
+# Maximum characters from each charter file injected into model context
+_MAX_CHARTER_CHARS_PER_FILE = 3000
 # Maximum characters of source code sent to the model per file snippet
 _MAX_SOURCE_SNIPPET_CHARS = 4000
 _MAX_CYCLE_SNIPPET_CHARS = 3000
@@ -719,6 +726,40 @@ def build_analysis(root: pathlib.Path) -> Dict[str, Any]:
 
 
 # -----------------------------
+# Charter context
+# -----------------------------
+
+def load_charter_context(git_root: pathlib.Path) -> Dict[str, Any]:
+    """Load architectural charter files if present.
+
+    Returns a dict with:
+      - loaded_files: list of relative paths that were successfully read
+      - content_hash: hex digest of combined content (None if no files loaded)
+      - applied: False initially; callers set True when charter was injected
+      - content: truncated combined charter text for model injection
+    """
+    loaded_files: List[str] = []
+    contents: List[str] = []
+    for rel in CHARTER_PATHS:
+        path = git_root / rel
+        if path.exists():
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+                loaded_files.append(rel)
+                contents.append(f"### {rel}\n\n{text[:_MAX_CHARTER_CHARS_PER_FILE]}")
+            except OSError:
+                pass
+    combined = "\n\n".join(contents)
+    content_hash = hashlib.sha256(combined.encode("utf-8")).hexdigest()[:16] if combined else None
+    return {
+        "loaded_files": loaded_files,
+        "content_hash": content_hash,
+        "applied": False,
+        "content": combined,
+    }
+
+
+# -----------------------------
 # Models enrichment
 # -----------------------------
 
@@ -742,6 +783,12 @@ def enrich_with_github_models(config: Config, analysis: Dict[str, Any]) -> Dict[
     if not config.github_token or not preferred:
         return meta
     meta["enabled"] = True
+    charter_context: Dict[str, Any] = analysis.get("charter_context") or {}
+    charter_text = charter_context.get("content", "")
+    charter_preamble = (
+        f"\n\nArchitectural charter guidance (authoritative for this repository):\n{charter_text}\n"
+        if charter_text else ""
+    )
     prompt = textwrap.dedent(f"""
     You are summarizing repository architecture risk.
     Architecture score: {analysis['architecture_score']}
@@ -752,10 +799,11 @@ def enrich_with_github_models(config: Config, analysis: Dict[str, Any]) -> Dict[
 
     Return 5 bullet points, compact and concrete, no preamble.
     """).strip()
+    system_content = "You produce concise engineering prioritization notes." + charter_preamble
     resp, requested, fallback_reason, fallback_occurred = call_models_with_fallback_or_none(
         config.github_token, preferred, fallback,
         [
-            {"role": "system", "content": "You produce concise engineering prioritization notes."},
+            {"role": "system", "content": system_content},
             {"role": "user", "content": prompt},
         ],
     )
@@ -962,6 +1010,24 @@ def remove_marked_debug_prints(root: pathlib.Path, analysis: Dict[str, Any], bud
     )
 
 
+def _charter_system_prefix(analysis: Dict[str, Any]) -> str:
+    """Return a brief charter-guidance preamble to prepend to model system messages.
+
+    Returns an empty string when no charter is loaded, so callers do not need
+    to guard against it.
+    """
+    charter_context = analysis.get("charter_context") or {}
+    text = charter_context.get("content", "")
+    if not text:
+        return ""
+    return (
+        "\n\nAuthoritative architectural charter for this repository "
+        "(obey its engineering direction when producing code mutations):\n"
+        + text
+        + "\n"
+    )
+
+
 def build_report_plan(config: Config, analysis: Dict[str, Any], model_meta: Dict[str, Any], state: Dict[str, Any]) -> Optional[PatchPlan]:
     suite = build_report_suite(analysis, model_meta)
     bundle_hash = sha256_text("\n".join([k + "\n" + v for k, v in sorted(suite.items())]))
@@ -1034,7 +1100,7 @@ def build_parse_errors_plan(config: Config, analysis: Dict[str, Any]) -> Optiona
     resp, _req, fallback_reason, _fell = call_models_with_fallback_or_none(
         config.github_token, preferred, fallback,
         [
-            {"role": "system", "content": "You fix Python syntax errors. Return only valid JSON with corrected file contents."},
+            {"role": "system", "content": "You fix Python syntax errors. Return only valid JSON with corrected file contents." + _charter_system_prefix(analysis)},
             {"role": "user", "content": prompt},
         ],
     )
@@ -1111,7 +1177,7 @@ def build_import_cycles_plan(config: Config, analysis: Dict[str, Any]) -> Option
     resp, _req, fallback_reason, _fell = call_models_with_fallback_or_none(
         config.github_token, preferred, fallback,
         [
-            {"role": "system", "content": "You fix Python import cycles. Return only valid JSON with corrected file contents."},
+            {"role": "system", "content": "You fix Python import cycles. Return only valid JSON with corrected file contents." + _charter_system_prefix(analysis)},
             {"role": "user", "content": prompt},
         ],
     )
@@ -1195,7 +1261,7 @@ def build_entrypoint_consolidation_plan(config: Config, analysis: Dict[str, Any]
     resp, _req, fallback_reason, _fell = call_models_with_fallback_or_none(
         config.github_token, preferred, fallback,
         [
-            {"role": "system", "content": "You annotate redundant Python entrypoints with deprecation comments. Return only valid JSON."},
+            {"role": "system", "content": "You annotate redundant Python entrypoints with deprecation comments. Return only valid JSON." + _charter_system_prefix(analysis)},
             {"role": "user", "content": prompt},
         ],
     )
@@ -1663,7 +1729,12 @@ def run_cycle(config: Config) -> Dict[str, Any]:
     ensure_agent_dir(config.agent_dir)
     state = load_state(config)
     analysis = build_analysis(config.git_root)
+    charter_context = load_charter_context(config.git_root)
+    analysis["charter_context"] = charter_context
     model_meta = enrich_with_github_models(config, analysis)
+    # Mark charter as applied if the model was actually used
+    if model_meta.get("used") or model_meta.get("enabled"):
+        charter_context["applied"] = bool(charter_context.get("loaded_files"))
     analysis["model_meta"] = model_meta
     persist_analysis(config, analysis)
 
@@ -1672,6 +1743,12 @@ def run_cycle(config: Config) -> Dict[str, Any]:
         str(config.graph_path.relative_to(config.git_root)),
         str(config.roadmap_path.relative_to(config.git_root)),
     ]
+    # Charter metadata exposed at top level for easy inspection
+    charter_meta = {
+        "loaded_files": charter_context.get("loaded_files", []),
+        "content_hash": charter_context.get("content_hash"),
+        "applied": charter_context.get("applied", False),
+    }
     result: Dict[str, Any] = {
         "status": "analyzed",
         "mode": config.mode,
@@ -1698,6 +1775,7 @@ def run_cycle(config: Config) -> Dict[str, Any]:
         "roadmap_path": str(config.roadmap_path),
         "roadmap": analysis["roadmap"],
         "github_models": model_meta,
+        "charter": charter_meta,
         "metadata": {"architecture_score": analysis["architecture_score"], "model_meta": model_meta, "report_path": str(config.report_path)},
     }
 
@@ -1758,7 +1836,11 @@ def run_campaign(
     ensure_agent_dir(config.agent_dir)
     state = load_state(config)
     analysis = build_analysis(config.git_root)
+    charter_context = load_charter_context(config.git_root)
+    analysis["charter_context"] = charter_context
     model_meta = enrich_with_github_models(config, analysis)
+    if model_meta.get("used") or model_meta.get("enabled"):
+        charter_context["applied"] = bool(charter_context.get("loaded_files"))
     analysis["model_meta"] = model_meta
     persist_analysis(config, analysis)
 
@@ -1783,6 +1865,7 @@ def run_campaign(
             slices_applied += 1
             # Re-analyse so the next lane sees an up-to-date repo state
             analysis = build_analysis(config.git_root)
+            analysis["charter_context"] = charter_context
             model_meta = enrich_with_github_models(config, analysis)
             analysis["model_meta"] = model_meta
         except RepoArchitectError as exc:
@@ -1790,6 +1873,11 @@ def run_campaign(
             if stop_on_failure:
                 break
 
+    charter_meta = {
+        "loaded_files": charter_context.get("loaded_files", []),
+        "content_hash": charter_context.get("content_hash"),
+        "applied": charter_context.get("applied", False),
+    }
     summary: Dict[str, Any] = {
         "mode": "campaign",
         "status": "campaign_complete",
@@ -1805,6 +1893,7 @@ def run_campaign(
         "model_used": model_meta.get("model_used"),
         "fallback_used": model_meta.get("fallback_used", False),
         "fallback_reason": model_meta.get("fallback_reason"),
+        "charter": charter_meta,
         "results": slice_results,
     }
 

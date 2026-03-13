@@ -714,6 +714,7 @@ REQUIRED_OUTPUT_FIELDS = frozenset({
     "primary_model", "fallback_model", "model_used", "fallback_used",
     "no_safe_code_mutation_reason", "branch", "changed_files",
     "validation", "pull_request_url", "artifact_files",
+    "charter",
 })
 
 
@@ -749,7 +750,7 @@ class TestOutputSchemaStability(unittest.TestCase):
                            "lanes_requested", "lanes_executed", "architecture_score",
                            "requested_model", "actual_model", "fallback_reason",
                            "primary_model", "fallback_model", "model_used", "fallback_used",
-                           "results"}
+                           "charter", "results"}
         missing = campaign_fields - set(result.keys())
         self.assertEqual(missing, set(), f"Missing campaign output fields: {missing}")
 
@@ -1041,6 +1042,126 @@ class TestValidateChange(unittest.TestCase):
             config = _make_config(root, mode="mutate", campaign_lanes=("hygiene",))
             result = ra.run_cycle(config)
         self.assertEqual(result["lanes_active"], ["hygiene"])
+
+
+# ---------------------------------------------------------------------------
+# 11. Charter context — loading and metadata
+# ---------------------------------------------------------------------------
+
+class TestCharterContext(unittest.TestCase):
+    """Verify charter file loading, missing-file tolerance, and output metadata."""
+
+    def test_load_charter_context_no_files_present(self) -> None:
+        """No crash when charter files are absent; loaded_files is empty, applied is False."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            ctx = ra.load_charter_context(root)
+        self.assertEqual(ctx["loaded_files"], [])
+        self.assertIsNone(ctx["content_hash"])
+        self.assertFalse(ctx["applied"])
+        self.assertEqual(ctx["content"], "")
+
+    def test_load_charter_context_partial(self) -> None:
+        """Only present charter files are loaded; the missing one is silently skipped."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            first_rel = ra.CHARTER_PATHS[0]
+            charter_path = root / first_rel
+            charter_path.parent.mkdir(parents=True, exist_ok=True)
+            charter_path.write_text("# Test Charter\n\nSome guidance here.", encoding="utf-8")
+
+            ctx = ra.load_charter_context(root)
+
+        self.assertEqual(ctx["loaded_files"], [first_rel])
+        self.assertIsNotNone(ctx["content_hash"])
+        self.assertFalse(ctx["applied"])
+        self.assertIn("Test Charter", ctx["content"])
+        # Missing second file must not be in loaded_files
+        self.assertNotIn(ra.CHARTER_PATHS[1], ctx["loaded_files"])
+
+    def test_load_charter_context_both_files(self) -> None:
+        """When both files exist, both appear in loaded_files and content is combined."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            for rel in ra.CHARTER_PATHS:
+                path = root / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(f"# Charter {rel}\n\nGuidance.", encoding="utf-8")
+
+            ctx = ra.load_charter_context(root)
+
+        self.assertEqual(sorted(ctx["loaded_files"]), sorted(ra.CHARTER_PATHS))
+        self.assertIsNotNone(ctx["content_hash"])
+        self.assertFalse(ctx["applied"])
+        for rel in ra.CHARTER_PATHS:
+            self.assertIn(rel, ctx["content"])
+
+    def test_run_cycle_charter_metadata_in_result(self) -> None:
+        """run_cycle must include charter metadata at top level."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, mode="analyze")
+            result = ra.run_cycle(config)
+        self.assertIn("charter", result)
+        charter = result["charter"]
+        self.assertIn("loaded_files", charter)
+        self.assertIn("content_hash", charter)
+        self.assertIn("applied", charter)
+        self.assertIsInstance(charter["loaded_files"], list)
+
+    def test_run_cycle_charter_loaded_when_files_present(self) -> None:
+        """Charter metadata reflects loaded files when charters exist in the repo."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            # Plant both charter files
+            for rel in ra.CHARTER_PATHS:
+                path = root / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(f"# {rel}\nEngineering direction.", encoding="utf-8")
+            config = _make_config(root, mode="analyze")
+            result = ra.run_cycle(config)
+        charter = result["charter"]
+        self.assertEqual(sorted(charter["loaded_files"]), sorted(ra.CHARTER_PATHS))
+        self.assertIsNotNone(charter["content_hash"])
+
+    def test_run_campaign_charter_metadata_in_result(self) -> None:
+        """run_campaign must include charter metadata in the summary dict."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, mode="campaign")
+            result = ra.run_campaign(config, ["hygiene"], max_slices=1, stop_on_failure=False)
+        self.assertIn("charter", result)
+        charter = result["charter"]
+        self.assertIn("loaded_files", charter)
+        self.assertIn("content_hash", charter)
+        self.assertIn("applied", charter)
+
+    def test_charter_system_prefix_empty_when_no_charter(self) -> None:
+        """_charter_system_prefix returns empty string when no charter content is present."""
+        analysis: Dict[str, Any] = {"charter_context": {"content": "", "loaded_files": []}}
+        self.assertEqual(ra._charter_system_prefix(analysis), "")
+
+    def test_charter_system_prefix_present_when_charter_loaded(self) -> None:
+        """_charter_system_prefix returns non-empty string when charter content is set."""
+        analysis: Dict[str, Any] = {
+            "charter_context": {"content": "# My Charter\n\nDo X.", "loaded_files": ["docs/architecture/X.md"]}
+        }
+        prefix = ra._charter_system_prefix(analysis)
+        self.assertIn("My Charter", prefix)
+        self.assertIn("authoritative", prefix.lower())
+
+    def test_content_hash_changes_with_content(self) -> None:
+        """Different charter content should produce different hashes."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            rel = ra.CHARTER_PATHS[0]
+            path = root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("version 1", encoding="utf-8")
+            ctx1 = ra.load_charter_context(root)
+            path.write_text("version 2", encoding="utf-8")
+            ctx2 = ra.load_charter_context(root)
+        self.assertNotEqual(ctx1["content_hash"], ctx2["content_hash"])
 
 
 if __name__ == "__main__":
