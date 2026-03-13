@@ -1443,7 +1443,7 @@ on:
         default: '3'
         type: string
       lanes:
-        description: 'Comma-separated lane order (campaign mode only)'
+        description: 'Comma-separated lane order (mutate and campaign modes)'
         required: false
         default: 'parse_errors,import_cycles,entrypoint_consolidation,hygiene,report'
         type: string
