@@ -12,20 +12,11 @@ on:
           - analyze
           - report
           - mutate
-      lane:
-        description: 'Slice lane name (e.g. report_packet, parse_repair:test_pipeline)'
-        required: false
-        default: ''
-        type: string
-      targets:
-        description: 'Comma-separated list of files/modules for this slice'
-        required: false
-        default: ''
-        type: string
+          - campaign
       github_model:
-        description: 'GitHub Models model id'
-        required: true
-        default: 'openai/gpt-4.1'
+        description: 'GitHub Models model id (overrides preferred model)'
+        required: false
+        default: ''
         type: string
       report_path:
         description: 'Primary report path'
@@ -41,14 +32,16 @@ on:
           - '1'
           - '2'
           - '3'
-      allow_dirty:
-        description: 'Allow dirty working tree'
+      max_slices:
+        description: 'Campaign max slices (campaign mode only)'
         required: false
-        default: 'true'
-        type: choice
-        options:
-          - 'true'
-          - 'false'
+        default: '3'
+        type: string
+      lanes:
+        description: 'Comma-separated lane order (mutate and campaign modes)'
+        required: false
+        default: 'parse_errors,import_cycles,entrypoint_consolidation,hygiene,report'
+        type: string
   schedule:
     - cron: '17 * * * *'
 
@@ -80,47 +73,38 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+      - name: Ensure artifact directories exist
+        run: |
+          mkdir -p .agent docs/repo_architect
+
       - name: Run repo architect
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPO: ${{ github.repository }}
           GITHUB_BASE_BRANCH: ${{ github.event.repository.default_branch }}
-          GITHUB_MODEL: ${{ github.event.inputs.github_model || 'openai/gpt-4.1' }}
-          REPO_ARCHITECT_LANE: ${{ github.event.inputs.lane || '' }}
-          REPO_ARCHITECT_TARGETS: ${{ github.event.inputs.targets || '' }}
+          REPO_ARCHITECT_BRANCH_SUFFIX: ${{ github.run_id }}-${{ github.run_attempt }}
+          REPO_ARCHITECT_PREFERRED_MODEL: openai/gpt-5.4
+          REPO_ARCHITECT_FALLBACK_MODEL: openai/gpt-4.1
         run: |
           MODE="${{ github.event.inputs.mode }}"
+          MODEL="${{ github.event.inputs.github_model }}"
           REPORT_PATH="${{ github.event.inputs.report_path }}"
           MUTATION_BUDGET="${{ github.event.inputs.mutation_budget }}"
-          ALLOW_DIRTY="${{ github.event.inputs.allow_dirty }}"
+          MAX_SLICES="${{ github.event.inputs.max_slices }}"
+          LANES="${{ github.event.inputs.lanes }}"
           if [ -z "$MODE" ]; then MODE="report"; fi
           if [ -z "$REPORT_PATH" ]; then REPORT_PATH="docs/repo_architect/runtime_inventory.md"; fi
           if [ -z "$MUTATION_BUDGET" ]; then MUTATION_BUDGET="1"; fi
-          if [ -z "$ALLOW_DIRTY" ]; then ALLOW_DIRTY="true"; fi
-
-          # Detect optional --lane / --targets CLI support; fall back to env vars if absent
-          HELP_TEXT="$(python repo_architect.py --help 2>&1)"
-          EXTRA_ARGS=()
-          if echo "$HELP_TEXT" | grep -q -- '--lane'; then
-            if [ -n "$REPO_ARCHITECT_LANE" ]; then
-              EXTRA_ARGS+=(--lane "$REPO_ARCHITECT_LANE")
-            fi
+          if [ -z "$MAX_SLICES" ]; then MAX_SLICES="3"; fi
+          if [ -z "$LANES" ]; then LANES="parse_errors,import_cycles,entrypoint_consolidation,hygiene,report"; fi
+          EXTRA_ARGS=""
+          if [ -n "$MODEL" ]; then EXTRA_ARGS="$EXTRA_ARGS --github-model $MODEL"; fi
+          if [ "$MODE" = "campaign" ]; then
+            EXTRA_ARGS="$EXTRA_ARGS --max-slices $MAX_SLICES --lanes $LANES"
+          elif [ "$MODE" = "mutate" ]; then
+            EXTRA_ARGS="$EXTRA_ARGS --lanes $LANES"
           fi
-          if echo "$HELP_TEXT" | grep -q -- '--targets'; then
-            if [ -n "$REPO_ARCHITECT_TARGETS" ]; then
-              EXTRA_ARGS+=(--targets "$REPO_ARCHITECT_TARGETS")
-            fi
-          fi
-
-          if [ "$ALLOW_DIRTY" = "true" ]; then
-            EXTRA_ARGS+=(--allow-dirty)
-          fi
-
-          python repo_architect.py \
-            --mode "$MODE" \
-            --report-path "$REPORT_PATH" \
-            --mutation-budget "$MUTATION_BUDGET" \
-            "${EXTRA_ARGS[@]}"
+          python repo_architect.py --allow-dirty --mode "$MODE" --report-path "$REPORT_PATH" --mutation-budget "$MUTATION_BUDGET" $EXTRA_ARGS
 
       - name: Upload repo architect artifacts
         if: always()
@@ -130,6 +114,5 @@ jobs:
           path: |
             .agent
             docs/repo_architect
-          include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
