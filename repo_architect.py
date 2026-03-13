@@ -60,8 +60,8 @@ REPORT_SUITE = {
 }
 
 # Model selection defaults
-DEFAULT_PREFERRED_MODEL = "openai/gpt-5.4"
-DEFAULT_FALLBACK_MODEL = "openai/gpt-4.1"
+DEFAULT_PREFERRED_MODEL = "anthropic/claude-sonnet-4.6"
+DEFAULT_FALLBACK_MODEL = "google/gemini-3-pro"
 # Substrings in HTTP error bodies that indicate the model itself is unavailable (not a transient error)
 _MODEL_UNAVAILABLE_SIGNALS = frozenset({
     "unknown_model", "model_not_found", "unsupported_model", "unsupported model",
@@ -697,7 +697,7 @@ def build_analysis(root: pathlib.Path) -> Dict[str, Any]:
 # -----------------------------
 
 def enrich_with_github_models(config: Config, analysis: Dict[str, Any]) -> Dict[str, Any]:
-    preferred = config.preferred_model or config.github_model
+    preferred = config.github_model or config.preferred_model
     fallback = config.fallback_model
     meta: Dict[str, Any] = {
         "enabled": False,
@@ -975,7 +975,7 @@ def build_parse_errors_plan(config: Config, analysis: Dict[str, Any]) -> Optiona
     errors = analysis.get("parse_error_files", [])
     if not errors:
         return None
-    preferred = config.preferred_model or config.github_model
+    preferred = config.github_model or config.preferred_model
     if not config.github_token or not preferred:
         return None
     fallback = config.fallback_model
@@ -1042,7 +1042,7 @@ def build_import_cycles_plan(config: Config, analysis: Dict[str, Any]) -> Option
     cycles = analysis.get("cycles", [])
     if not cycles:
         return None
-    preferred = config.preferred_model or config.github_model
+    preferred = config.github_model or config.preferred_model
     if not config.github_token or not preferred:
         return None
     fallback = config.fallback_model
@@ -1128,7 +1128,7 @@ def build_entrypoint_consolidation_plan(config: Config, analysis: Dict[str, Any]
     backend_eps = clusters.get("backend_servers", [])
     if len(backend_eps) < _ENTRYPOINT_CONSOLIDATION_THRESHOLD:
         return None
-    preferred = config.preferred_model or config.github_model
+    preferred = config.github_model or config.preferred_model
     if not config.github_token or not preferred:
         return None
     fallback = config.fallback_model
@@ -1482,14 +1482,96 @@ jobs:
         run: |
           mkdir -p .agent docs/repo_architect
 
+      - name: Resolve GitHub Models configuration
+        env:
+          GITHUB_TOKEN: ${{{{ github.token }}}}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          order = [
+              "anthropic/claude-sonnet-4.6",
+              "anthropic/claude-sonnet-4.5",
+              "openai/gpt-4.1",
+          ]
+          secondary = "google/gemini-3-pro"
+          available = set()
+          catalog_ok = False
+          try:
+              req = urllib.request.Request(
+                  "https://models.github.ai/catalog/models",
+                  headers={{
+                      "Authorization": f"Bearer {{os.environ['GITHUB_TOKEN']}}",
+                      "Accept": "application/json",
+                      "User-Agent": "repo-architect-workflow",
+                  }},
+              )
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  payload = json.loads(resp.read().decode("utf-8"))
+              models = payload.get("data", payload) if isinstance(payload, dict) else payload
+              if isinstance(models, list):
+                  catalog_ok = True
+                  for item in models:
+                      if isinstance(item, dict):
+                          model_id = item.get("id") or item.get("name") or item.get("model")
+                          if isinstance(model_id, str) and model_id:
+                              available.add(model_id)
+          except Exception as exc:
+              print(f"warning: GitHub Models catalog lookup failed; using defaults ({{exc}})")
+
+          def first_available(candidates):
+              for candidate in candidates:
+                  if candidate in available:
+                      return candidate
+              return None
+
+          def deterministic_available(exclude=None):
+              candidates = sorted(m for m in available if m != exclude)
+              return candidates[0] if candidates else None
+
+          if catalog_ok and available:
+              preferred = (
+                  first_available(order)
+                  or (secondary if secondary in available else None)
+                  or deterministic_available()
+              )
+          else:
+              preferred = order[0]
+
+          if catalog_ok and available:
+              if secondary in available and secondary != preferred:
+                  fallback = secondary
+              else:
+                  fallback = (
+                      first_available([c for c in order if c != preferred])
+                      or deterministic_available(exclude=preferred)
+                      or preferred
+                  )
+          else:
+              fallback = secondary
+
+          if not isinstance(preferred, str) or not preferred:
+              preferred = order[0]
+          if not isinstance(fallback, str) or not fallback:
+              fallback = secondary if secondary != preferred else order[-1]
+
+          env_file = os.environ.get("GITHUB_ENV")
+          if not env_file:
+              raise RuntimeError("GITHUB_ENV is not set; this internal workflow step must run inside GitHub Actions with environment-file support.")
+          with open(env_file, "a", encoding="utf-8") as fh:
+              fh.write(f"REPO_ARCHITECT_PREFERRED_MODEL={{preferred}}\\n")
+              fh.write(f"REPO_ARCHITECT_FALLBACK_MODEL={{fallback}}\\n")
+          print(f"selected preferred={{preferred}} fallback={{fallback}}")
+          PY
+
       - name: Run repo architect
         env:
           GITHUB_TOKEN: ${{{{ github.token }}}}
           GITHUB_REPO: ${{{{ github.repository }}}}
           GITHUB_BASE_BRANCH: ${{{{ github.event.repository.default_branch }}}}
           REPO_ARCHITECT_BRANCH_SUFFIX: ${{{{ github.run_id }}}}-${{{{ github.run_attempt }}}}
-          REPO_ARCHITECT_PREFERRED_MODEL: openai/gpt-5.4
-          REPO_ARCHITECT_FALLBACK_MODEL: openai/gpt-4.1
 {extra_env}        run: |
           MODE="${{{{ github.event.inputs.mode }}}}"
           MODEL="${{{{ github.event.inputs.github_model }}}}"
