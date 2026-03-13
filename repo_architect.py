@@ -69,6 +69,13 @@ _MODEL_UNAVAILABLE_SIGNALS = frozenset({
 })
 # Canonical lane execution order for mutate / campaign modes
 MUTATION_LANE_ORDER: Tuple[str, ...] = ("parse_errors", "import_cycles", "entrypoint_consolidation", "hygiene", "report")
+# Canonical architectural charter files (relative to git root)
+CHARTER_PATHS: Tuple[str, ...] = (
+    "docs/architecture/GODELOS_ARCHITECTURAL_CHARTER.md",
+    "docs/architecture/GODELOS_REPO_IMPLEMENTATION_CHARTER.md",
+)
+# Maximum characters from each charter file injected into model context
+_MAX_CHARTER_CHARS_PER_FILE = 3000
 # Maximum characters of source code sent to the model per file snippet
 _MAX_SOURCE_SNIPPET_CHARS = 4000
 _MAX_CYCLE_SNIPPET_CHARS = 3000
@@ -111,6 +118,8 @@ class Config:
     # Model selection (preferred may fall back to fallback on unavailability)
     preferred_model: Optional[str] = None
     fallback_model: Optional[str] = None
+    # Explicit fallback model from GITHUB_FALLBACK_MODEL env var (overrides fallback_model if set)
+    github_fallback_model: Optional[str] = None
     # Explicit lane order override (None = use MUTATION_LANE_ORDER)
     campaign_lanes: Optional[Tuple[str, ...]] = None
 
@@ -373,6 +382,30 @@ def _is_model_unavailable_error(msg: str) -> bool:
     return any(sig in lower for sig in _MODEL_UNAVAILABLE_SIGNALS)
 
 
+# Regex matching HTTP status codes that warrant a fallback retry:
+# 403 (permission/forbidden), 404 (not found), 429 (rate-limit/quota), 5xx (provider failure)
+_FALLBACK_HTTP_CODE_RE = re.compile(r"(?:inference failed|network error).*?:\s*(403|404|429|5\d\d)\b")
+# Timeout signals in lowercased error text
+_TIMEOUT_SIGNALS = frozenset({"timed out", "timeout"})
+
+
+def _should_try_fallback(msg: str) -> bool:
+    """Return True if the error warrants retrying with the fallback model.
+
+    Triggers on: model unavailability, HTTP 403/404/429, timeout, and 5xx provider errors.
+    Does NOT trigger on bare non-code error strings (e.g. generic "rate limit exceeded"
+    without an HTTP status code) to keep the trigger set narrow and deterministic.
+    """
+    if _is_model_unavailable_error(msg):
+        return True
+    lower = msg.lower()
+    if any(sig in lower for sig in _TIMEOUT_SIGNALS):
+        return True
+    if _FALLBACK_HTTP_CODE_RE.search(msg):
+        return True
+    return False
+
+
 def extract_json_from_model_text(text: str) -> Any:
     """Extract the first JSON object or array from model-returned text (handles fences)."""
     try:
@@ -421,7 +454,7 @@ def call_models_with_fallback_or_none(
         return resp, preferred, None, False
     except RepoArchitectError as exc:
         reason = str(exc)
-        if fallback and fallback != preferred and _is_model_unavailable_error(reason):
+        if fallback and fallback != preferred and _should_try_fallback(reason):
             try:
                 resp = github_models_chat(token, fallback, messages)
                 return resp, preferred, reason, True
@@ -693,18 +726,56 @@ def build_analysis(root: pathlib.Path) -> Dict[str, Any]:
 
 
 # -----------------------------
+# Charter context
+# -----------------------------
+
+def load_charter_context(git_root: pathlib.Path) -> Dict[str, Any]:
+    """Load architectural charter files if present.
+
+    Returns a dict with:
+      - loaded_files: list of relative paths that were successfully read
+      - content_hash: hex digest of combined content (None if no files loaded)
+      - applied: False initially; callers set True when charter was injected
+      - content: truncated combined charter text for model injection
+    """
+    loaded_files: List[str] = []
+    contents: List[str] = []
+    for rel in CHARTER_PATHS:
+        path = git_root / rel
+        if path.exists():
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+                loaded_files.append(rel)
+                contents.append(f"### {rel}\n\n{text[:_MAX_CHARTER_CHARS_PER_FILE]}")
+            except OSError:
+                pass
+    combined = "\n\n".join(contents)
+    content_hash = hashlib.sha256(combined.encode("utf-8")).hexdigest()[:16] if combined else None
+    return {
+        "loaded_files": loaded_files,
+        "content_hash": content_hash,
+        "applied": False,
+        "content": combined,
+    }
+
+
+# -----------------------------
 # Models enrichment
 # -----------------------------
 
 def enrich_with_github_models(config: Config, analysis: Dict[str, Any]) -> Dict[str, Any]:
     preferred = config.github_model or config.preferred_model
-    fallback = config.fallback_model
+    fallback = config.github_fallback_model or config.fallback_model
     meta: Dict[str, Any] = {
         "enabled": False,
         "used": False,
         "requested_model": preferred,
         "actual_model": None,
         "model": preferred,  # kept for backward compatibility
+        "primary_model": preferred,
+        "fallback_model": fallback,
+        "model_used": None,
+        "fallback_used": False,
         "summary": None,
         "fallback_reason": None,
         "fallback_occurred": False,
@@ -712,6 +783,12 @@ def enrich_with_github_models(config: Config, analysis: Dict[str, Any]) -> Dict[
     if not config.github_token or not preferred:
         return meta
     meta["enabled"] = True
+    charter_context: Dict[str, Any] = analysis.get("charter_context") or {}
+    charter_text = charter_context.get("content", "")
+    charter_preamble = (
+        f"\n\nArchitectural charter guidance (authoritative for this repository):\n{charter_text}\n"
+        if charter_text else ""
+    )
     prompt = textwrap.dedent(f"""
     You are summarizing repository architecture risk.
     Architecture score: {analysis['architecture_score']}
@@ -722,20 +799,23 @@ def enrich_with_github_models(config: Config, analysis: Dict[str, Any]) -> Dict[
 
     Return 5 bullet points, compact and concrete, no preamble.
     """).strip()
+    system_content = "You produce concise engineering prioritization notes." + charter_preamble
     resp, requested, fallback_reason, fallback_occurred = call_models_with_fallback_or_none(
         config.github_token, preferred, fallback,
         [
-            {"role": "system", "content": "You produce concise engineering prioritization notes."},
+            {"role": "system", "content": system_content},
             {"role": "user", "content": prompt},
         ],
     )
     meta["fallback_reason"] = fallback_reason
     meta["fallback_occurred"] = fallback_occurred
+    meta["fallback_used"] = fallback_occurred
     if resp is None:
         return meta
     try:
         meta["summary"] = parse_model_text(resp)
         meta["actual_model"] = resp.get("model", fallback if fallback_occurred else preferred)
+        meta["model_used"] = meta["actual_model"]
         meta["used"] = True
     except RepoArchitectError as exc:
         meta["fallback_reason"] = (meta.get("fallback_reason") or "") + f"; parse failed: {exc}"
@@ -930,6 +1010,24 @@ def remove_marked_debug_prints(root: pathlib.Path, analysis: Dict[str, Any], bud
     )
 
 
+def _charter_system_prefix(analysis: Dict[str, Any]) -> str:
+    """Return a brief charter-guidance preamble to prepend to model system messages.
+
+    Returns an empty string when no charter is loaded, so callers do not need
+    to guard against it.
+    """
+    charter_context = analysis.get("charter_context") or {}
+    text = charter_context.get("content", "")
+    if not text:
+        return ""
+    return (
+        "\n\nAuthoritative architectural charter for this repository "
+        "(obey its engineering direction when producing code mutations):\n"
+        + text
+        + "\n"
+    )
+
+
 def build_report_plan(config: Config, analysis: Dict[str, Any], model_meta: Dict[str, Any], state: Dict[str, Any]) -> Optional[PatchPlan]:
     suite = build_report_suite(analysis, model_meta)
     bundle_hash = sha256_text("\n".join([k + "\n" + v for k, v in sorted(suite.items())]))
@@ -1002,7 +1100,7 @@ def build_parse_errors_plan(config: Config, analysis: Dict[str, Any]) -> Optiona
     resp, _req, fallback_reason, _fell = call_models_with_fallback_or_none(
         config.github_token, preferred, fallback,
         [
-            {"role": "system", "content": "You fix Python syntax errors. Return only valid JSON with corrected file contents."},
+            {"role": "system", "content": "You fix Python syntax errors. Return only valid JSON with corrected file contents." + _charter_system_prefix(analysis)},
             {"role": "user", "content": prompt},
         ],
     )
@@ -1079,7 +1177,7 @@ def build_import_cycles_plan(config: Config, analysis: Dict[str, Any]) -> Option
     resp, _req, fallback_reason, _fell = call_models_with_fallback_or_none(
         config.github_token, preferred, fallback,
         [
-            {"role": "system", "content": "You fix Python import cycles. Return only valid JSON with corrected file contents."},
+            {"role": "system", "content": "You fix Python import cycles. Return only valid JSON with corrected file contents." + _charter_system_prefix(analysis)},
             {"role": "user", "content": prompt},
         ],
     )
@@ -1163,7 +1261,7 @@ def build_entrypoint_consolidation_plan(config: Config, analysis: Dict[str, Any]
     resp, _req, fallback_reason, _fell = call_models_with_fallback_or_none(
         config.github_token, preferred, fallback,
         [
-            {"role": "system", "content": "You annotate redundant Python entrypoints with deprecation comments. Return only valid JSON."},
+            {"role": "system", "content": "You annotate redundant Python entrypoints with deprecation comments. Return only valid JSON." + _charter_system_prefix(analysis)},
             {"role": "user", "content": prompt},
         ],
     )
@@ -1421,7 +1519,12 @@ on:
       github_model:
         description: 'GitHub Models model id (overrides preferred model)'
         required: false
-        default: ''
+        default: 'anthropic/claude-sonnet-4.5'
+        type: string
+      github_fallback_model:
+        description: 'GitHub Models fallback model id (used if primary model fails)'
+        required: false
+        default: 'openai/gpt-5'
         type: string
       report_path:
         description: 'Primary report path'
@@ -1572,6 +1675,8 @@ jobs:
           GITHUB_REPO: ${{{{ github.repository }}}}
           GITHUB_BASE_BRANCH: ${{{{ github.event.repository.default_branch }}}}
           REPO_ARCHITECT_BRANCH_SUFFIX: ${{{{ github.run_id }}}}-${{{{ github.run_attempt }}}}
+          GITHUB_MODEL: ${{{{ github.event.inputs.github_model }}}}
+          GITHUB_FALLBACK_MODEL: ${{{{ github.event.inputs.github_fallback_model }}}}
 {extra_env}        run: |
           MODE="${{{{ github.event.inputs.mode }}}}"
           MODEL="${{{{ github.event.inputs.github_model }}}}"
@@ -1624,7 +1729,12 @@ def run_cycle(config: Config) -> Dict[str, Any]:
     ensure_agent_dir(config.agent_dir)
     state = load_state(config)
     analysis = build_analysis(config.git_root)
+    charter_context = load_charter_context(config.git_root)
+    analysis["charter_context"] = charter_context
     model_meta = enrich_with_github_models(config, analysis)
+    # Mark charter as applied if the model was actually used
+    if model_meta.get("used") or model_meta.get("enabled"):
+        charter_context["applied"] = bool(charter_context.get("loaded_files"))
     analysis["model_meta"] = model_meta
     persist_analysis(config, analysis)
 
@@ -1633,6 +1743,12 @@ def run_cycle(config: Config) -> Dict[str, Any]:
         str(config.graph_path.relative_to(config.git_root)),
         str(config.roadmap_path.relative_to(config.git_root)),
     ]
+    # Charter metadata exposed at top level for easy inspection
+    charter_meta = {
+        "loaded_files": charter_context.get("loaded_files", []),
+        "content_hash": charter_context.get("content_hash"),
+        "applied": charter_context.get("applied", False),
+    }
     result: Dict[str, Any] = {
         "status": "analyzed",
         "mode": config.mode,
@@ -1641,6 +1757,10 @@ def run_cycle(config: Config) -> Dict[str, Any]:
         "architecture_score": analysis["architecture_score"],
         "requested_model": model_meta.get("requested_model"),
         "actual_model": model_meta.get("actual_model"),
+        "primary_model": model_meta.get("primary_model"),
+        "fallback_model": model_meta.get("fallback_model"),
+        "model_used": model_meta.get("model_used"),
+        "fallback_used": model_meta.get("fallback_used", False),
         "fallback_reason": model_meta.get("fallback_reason"),
         "fallback_occurred": model_meta.get("fallback_occurred", False),
         "no_safe_code_mutation_reason": None,
@@ -1655,6 +1775,7 @@ def run_cycle(config: Config) -> Dict[str, Any]:
         "roadmap_path": str(config.roadmap_path),
         "roadmap": analysis["roadmap"],
         "github_models": model_meta,
+        "charter": charter_meta,
         "metadata": {"architecture_score": analysis["architecture_score"], "model_meta": model_meta, "report_path": str(config.report_path)},
     }
 
@@ -1715,7 +1836,11 @@ def run_campaign(
     ensure_agent_dir(config.agent_dir)
     state = load_state(config)
     analysis = build_analysis(config.git_root)
+    charter_context = load_charter_context(config.git_root)
+    analysis["charter_context"] = charter_context
     model_meta = enrich_with_github_models(config, analysis)
+    if model_meta.get("used") or model_meta.get("enabled"):
+        charter_context["applied"] = bool(charter_context.get("loaded_files"))
     analysis["model_meta"] = model_meta
     persist_analysis(config, analysis)
 
@@ -1740,6 +1865,7 @@ def run_campaign(
             slices_applied += 1
             # Re-analyse so the next lane sees an up-to-date repo state
             analysis = build_analysis(config.git_root)
+            analysis["charter_context"] = charter_context
             model_meta = enrich_with_github_models(config, analysis)
             analysis["model_meta"] = model_meta
         except RepoArchitectError as exc:
@@ -1747,6 +1873,11 @@ def run_campaign(
             if stop_on_failure:
                 break
 
+    charter_meta = {
+        "loaded_files": charter_context.get("loaded_files", []),
+        "content_hash": charter_context.get("content_hash"),
+        "applied": charter_context.get("applied", False),
+    }
     summary: Dict[str, Any] = {
         "mode": "campaign",
         "status": "campaign_complete",
@@ -1757,7 +1888,12 @@ def run_campaign(
         "architecture_score": analysis["architecture_score"],
         "requested_model": model_meta.get("requested_model"),
         "actual_model": model_meta.get("actual_model"),
+        "primary_model": model_meta.get("primary_model"),
+        "fallback_model": model_meta.get("fallback_model"),
+        "model_used": model_meta.get("model_used"),
+        "fallback_used": model_meta.get("fallback_used", False),
         "fallback_reason": model_meta.get("fallback_reason"),
+        "charter": charter_meta,
         "results": slice_results,
     }
 
@@ -1940,6 +2076,7 @@ def build_config(args: argparse.Namespace) -> Config:
         configure_branch_protection=args.configure_branch_protection,
         preferred_model=preferred,
         fallback_model=fallback,
+        github_fallback_model=os.environ.get("GITHUB_FALLBACK_MODEL"),
         campaign_lanes=campaign_lanes,
     )
 
