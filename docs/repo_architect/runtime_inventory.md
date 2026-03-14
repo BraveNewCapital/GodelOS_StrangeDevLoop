@@ -5,16 +5,16 @@ Architecture score: **39**
 ## Top priorities
 - **review_circular_dependencies**: Review 3 local import cycle(s).
 - **review_parse_errors**: Review syntax/parse issues in 2 file(s).
-- **review_multiple_entrypoints**: Review 193 Python entrypoints for runtime duplication.
+- **review_multiple_entrypoints**: Review 194 Python entrypoints for runtime duplication.
 - **publish_runtime_inventory_report**: Generate or refresh repository architecture inventory documentation.
 
 ## Model-assisted summary
 
-- Architecture score is low (39), indicating elevated structural risk.
-- 3 local import cycles detected; review modules for refactoring: agentic_daemon_system, chroma_store, type_system.manager.
-- 2 files have syntax/parse errors: tests/nlu_nlg/nlu/test_pipeline.py, tests/nlu_nlg/nlu/test_lexical_analyzer_parser.py.
-- 193 Python entrypoints present; assess for duplication and runtime complexity.
-- Update runtime inventory documentation (docs/repo_architect/runtime_inventory.md) to reflect current architecture state.
+- Three local import cycles detected (agentic_daemon_system, chroma_store/interface, type_system/visitor), risking runtime instability and blocking modular refactor.
+- Two files with parse errors (test_pipeline.py, test_lexical_analyzer_parser.py), impeding test coverage and CI reliability.
+- Excessive entrypoints (194), causing runtime duplication, unclear orchestration, and architectural sprawl.
+- Top roadmap items are review-only, not actionable; structural fixes are not yet prioritized or assigned.
+- Architecture score (39) indicates significant deviation from charter goals; urgent consolidation and dependency cleanup required.
 
 
 ## Entrypoint overview
