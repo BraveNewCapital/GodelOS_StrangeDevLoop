@@ -1697,13 +1697,13 @@ class TestRunIssueCycleOutputSchema(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# 20. Issue-first mode: deprecated mode warning
+# 20. Issue-first mode: charter-validated secondary mode notice
 # ---------------------------------------------------------------------------
 
-class TestDeprecatedModeWarning(unittest.TestCase):
-    """Deprecated modes must emit a warning log but still function."""
+class TestCharterValidatedModeNotice(unittest.TestCase):
+    """Charter-validated mutation modes must emit an informational notice and still function."""
 
-    def test_mutate_mode_emits_deprecation_warning(self) -> None:
+    def test_mutate_mode_emits_charter_notice(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = _make_git_root(tmp)
             config = _make_config(root, mode="mutate")
@@ -1729,7 +1729,7 @@ class TestDeprecatedModeWarning(unittest.TestCase):
             finally:
                 _sys.stderr = old_stderr
             output = stderr_capture.getvalue()
-        self.assertIn("DEPRECATED", output)
+        self.assertIn("charter-validated", output)
         self.assertIn("issue", output.lower())
 
     def test_default_mode_is_issue(self) -> None:

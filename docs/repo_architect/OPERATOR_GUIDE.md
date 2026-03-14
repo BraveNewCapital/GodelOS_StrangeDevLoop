@@ -4,9 +4,7 @@
 
 `repo_architect.py` is an **architectural governance** tool that inspects the repository, diagnoses structural and operational gaps, and opens structured GitHub Issues containing Copilot-ready implementation prompts.
 
-**The system is now an architectural governor. It must not write code, create branches, or open code PRs.**
-
-### New operating model
+### Default safe mode: issue-first governance
 
 ```
 inspect repo → identify architectural gap → deduplicate against existing issues
@@ -15,25 +13,64 @@ inspect repo → identify architectural gap → deduplicate against existing iss
 
 The GitHub Issue becomes the mutation surface. Copilot or a human becomes the code author. CI validates the resulting implementation PRs.
 
-### Deprecated model (disabled by default)
+### Charter-validated secondary modes: lane-based mutation
 
 ```
 inspect repo → generate code diff → create branch → open PR → repeat
 ```
 
-This model is deprecated. Modes `mutate` and `campaign` still function for backward compatibility but emit a runtime deprecation warning and are no longer the default or primary path.
+Modes `mutate` and `campaign` implement the narrow, validated self-modification lanes defined in the **GODELOS_REPO_IMPLEMENTATION_CHARTER §9–§10**. They are retained as charter-sanctioned secondary modes that require explicit opt-in (`--mode mutate` or `--mode campaign`). They are not the default execution path.
+
+---
+
+## Charter Reconciliation
+
+This section documents how the two-mode operating model aligns with the project's architectural charters.
+
+### Alignment with GODELOS_ARCHITECTURAL_CHARTER
+
+| Charter principle | How this system honours it |
+|---|---|
+| **§14 Effective Gödel-Machine Program** — "modelling its own architecture, detecting defects, proposing candidate modifications, validating them" | Issue mode inspects, diagnoses, and synthesizes structured proposals. Lane-based mutation validates changes before adoption. |
+| **§15.1 Explicitness** — "every modification must be explainable in terms of a defect, an invariant, a capability target, or a charter objective" | Every issue body includes Summary, Problem, Why it matters, Scope, and Machine metadata tying it to a specific gap. |
+| **§15.2 Boundedness** — "no change may introduce unbounded recursion" | Issue mode produces no code at all. Mutation modes are scoped to one lane per slice with mutation budget limits. |
+| **§15.3 Reversibility** — "mutations should be small, inspectable, and reversible" | Mutation lanes produce thin, single-purpose PRs. Issue mode delegates implementation to Copilot/humans under review. |
+| **§15.4 Validation** — "a change is not admissible unless it passes the relevant validation regime" | Lane-based mutations run `ast.parse`, `py_compile`, and lane-specific validation before pushing. |
+| **§15.5 Convergence** — "purpose of self-modification is convergence" | Both modes share the same analysis engine and prioritize gaps by architectural convergence impact. |
+| **§20 Repository Automation Policy** — "automation should prioritize parse correctness, dependency/import-cycle reduction, convergence toward canonical runtime structure" | Gap detection prioritises the same ordered concerns: parse errors → import cycles → entrypoint fragmentation → score degradation → workflow drift. |
+
+### Alignment with GODELOS_REPO_IMPLEMENTATION_CHARTER
+
+| Charter section | How this system honours it |
+|---|---|
+| **§9 Self-Modification Contract** — allows code generation proposals, small structural refactors, contract extraction, etc. with a validation floor | Lane-based mutation modes (mutate/campaign) implement exactly these allowed forms with `ast.parse`/`py_compile` validation. |
+| **§10 Repo-Architect Mutation Lanes** — defines Lanes 0–9 for narrow, explicit work | The `MUTATION_LANE_ORDER` constant maps to charter Lanes 0–4. Higher lanes (5–9) can be addressed by Copilot via generated issues. |
+| **§11 Mutation Budget Policy** — "thin and rapid, but never indiscriminate" | `--mutation-budget` (default 1) and `--max-slices` (default 3) enforce this. Issue mode respects `--max-issues`. |
+| **§12 Pull Request Contract for Agents** — every PR must state lane, files, invariant, validation, next lane | Lane-based mutations produce structured PR bodies with all required fields. Issue-generated prompts instruct Copilot to do the same. |
+| **§14 Current Priority Order** — parse correctness → import cycles → entrypoint reduction → knowledge substrate → agent boundaries → consciousness instrumentation | `diagnose_gaps()` and `MUTATION_LANE_ORDER` follow this priority stack. |
+
+### Why issue-first is the default
+
+The charters support both diagnosis/governance and narrow validated mutation. Making issue-first the default:
+
+1. **Reduces risk** — no autonomous code changes without human or Copilot review.
+2. **Scales to higher lanes** — contract repair (Lane 5), runtime extraction (Lane 6), agent boundary enforcement (Lane 7), and knowledge substrate normalisation (Lane 8) require judgment that exceeds what the current analysis engine can safely validate. Issue synthesis expresses these as structured Copilot prompts.
+3. **Preserves the lane model** — every detected gap maps to a charter lane. The issue body references the affected subsystem and lane-appropriate scope.
+4. **Satisfies §15.2 boundedness** — the safest mutation budget is zero autonomous code changes by default, with explicit opt-in for narrow validated lanes.
+
+Operators who need autonomous lane-based mutation can use `--mode mutate` or `--mode campaign` at any time.
 
 ---
 
 ## Modes
 
-| Mode | Description | Recommended |
-|---|---|---|
-| `issue` | **Primary mode.** Detects architectural gaps and opens/updates GitHub Issues with Copilot-ready prompts. | ✅ Yes |
-| `analyze` | Build analysis and write `.agent/` artifacts. No GitHub API calls. | ✅ Yes (read-only) |
-| `report` | Refresh `docs/repo_architect/` documentation reports. | ✅ Yes (read-only) |
-| `mutate` | **DEPRECATED.** Attempt one direct code mutation. Emits runtime warning. | ⚠️ Deprecated |
-| `campaign` | **DEPRECATED.** Run multiple mutation slices. Emits runtime warning. | ⚠️ Deprecated |
+| Mode | Description | Charter basis | Default? |
+|---|---|---|---|
+| `issue` | **Default safe governance mode.** Detects gaps and opens/updates GitHub Issues with Copilot-ready prompts. | §14 Effective Gödel-Machine, §15 Self-Modification Doctrine, §20 Automation Policy | ✅ Yes |
+| `analyze` | Build analysis and write `.agent/` artifacts. No GitHub API calls. | §20 Automation Policy | Read-only |
+| `report` | Refresh `docs/repo_architect/` documentation reports. | Lane 0 (Report generation) | Read-only |
+| `mutate` | Attempt one direct code mutation via charter-validated lanes. | §9–§10 Self-Modification Contract, Lanes 0–4 | Opt-in |
+| `campaign` | Run multiple mutation slices across lanes. | §9–§11 Self-Modification Contract, Mutation Budget | Opt-in |
 
 The default mode (both CLI and scheduled workflow) is `issue`.
 
@@ -88,6 +125,49 @@ python repo_architect.py --mode issue --allow-dirty --max-issues 3
 
 ---
 
+## Lane-Based Mutation Modes (Charter §9–§10)
+
+Modes `mutate` and `campaign` implement the narrow, validated self-modification lanes defined in the charter. They are retained as charter-sanctioned secondary modes.
+
+### Lane Priority Order
+
+| Priority | Lane | Charter ref | Behaviour |
+|---|---|---|---|
+| 1 | `parse_errors` | Lane 2 (Parse repair) | Model-assisted syntax fix. Skipped if no parse errors exist or model is unavailable. |
+| 2 | `import_cycles` | Lane 3 (Circular dependency elimination) | Model-assisted import cycle break. Skipped if no cycles or model unavailable. |
+| 3 | `entrypoint_consolidation` | Lane 4 (Entrypoint consolidation) | Annotates redundant entrypoints when ≥ 4 exist. Model-assisted. |
+| 4 | `hygiene` | Lane 1 (Hygiene) | Remove explicitly `# DEBUG`-marked `print()` statements. No model required. |
+| 5 | `report` | Lane 0 (Report generation) | Refresh architecture documentation. Fallback when no code mutation is possible. |
+
+### Running mutation modes
+
+```bash
+# Single mutation in lane-priority order
+python repo_architect.py --mode mutate --allow-dirty
+
+# Restrict to specific lanes
+python repo_architect.py --mode mutate --lane hygiene --allow-dirty
+
+# Multi-slice campaign
+python repo_architect.py --mode campaign --allow-dirty --max-slices 3 --lanes parse_errors,import_cycles,hygiene,report
+```
+
+### Validation policy (charter §9.3)
+
+Each lane runs validation before pushing:
+
+| Lane | Validation |
+|---|---|
+| `parse_errors` | `ast.parse` on model-generated content |
+| `import_cycles` | `ast.parse` + import smoke test (warn-only) |
+| `entrypoint_consolidation` | `ast.parse` on model-generated content |
+| `hygiene` | `python -m py_compile` on all touched Python files |
+| `report` | Verify report files were written |
+
+Validation failures abort the mutation and **never push a broken branch**.
+
+---
+
 ## Issue Structure
 
 Each generated issue follows this template:
@@ -126,13 +206,13 @@ Each generated issue follows this template:
 
 ## Detected Gap Types
 
-| Gap | Subsystem | Priority |
-|---|---|---|
-| Python parse errors | `runtime` | `critical` |
-| Import cycles | `runtime` | `high` |
-| Entrypoint fragmentation (≥4 backend entrypoints) | `runtime` | `medium` |
-| Architecture score < 70/100 | `reporting` | `high` / `medium` |
-| Workflow / documentation drift (model-assisted) | `workflow` | `medium` |
+| Gap | Subsystem | Priority | Charter lane equivalent |
+|---|---|---|---|
+| Python parse errors | `runtime` | `critical` | Lane 2 (Parse repair) |
+| Import cycles | `runtime` | `high` | Lane 3 (Circular dependency elimination) |
+| Entrypoint fragmentation (≥4 backend entrypoints) | `runtime` | `medium` | Lane 4 (Entrypoint consolidation) |
+| Architecture score < 70/100 | `reporting` | `high` / `medium` | Cross-lane |
+| Workflow / documentation drift (model-assisted) | `workflow` | `medium` | Lane 0 (Report generation) |
 
 ---
 
@@ -206,9 +286,9 @@ In dry-run mode (`--dry-run` flag or `dry_run: 'true'` workflow input), the syst
 | `github_model` | (catalog) | Override preferred model |
 | `github_fallback_model` | (catalog) | Override fallback model |
 | `report_path` | `docs/repo_architect/runtime_inventory.md` | Report output path (analyze/report modes) |
-| `mutation_budget` | `1` | [DEPRECATED] mutation budget |
-| `max_slices` | `3` | [DEPRECATED] campaign slices |
-| `lanes` | all lanes | [DEPRECATED] lane order |
+| `mutation_budget` | `1` | Mutation budget per run (mutate mode, charter §11) |
+| `max_slices` | `3` | Campaign slices (campaign mode, charter §11) |
+| `lanes` | all lanes | Lane order (mutate/campaign modes, charter §10) |
 
 ---
 
@@ -278,18 +358,4 @@ The system tries a **preferred** model first and automatically retries with a **
 python -m unittest tests.test_repo_architect -v
 ```
 
-The test suite covers: branch suffix generation, model fallback, `ast.parse` gate, campaign aggregation, output schema stability, lane priority, `entrypoint_consolidation`, lane scoping, `validate_change`, charter context, issue fingerprint generation, issue body rendering, deduplication behavior, label assignment, gap diagnosis, `run_issue_cycle` output schema, and deprecated mode warnings.
-
----
-
-## Deprecated: Mutation Modes
-
-The `mutate` and `campaign` modes are preserved for backward compatibility but emit a runtime warning:
-
-```
-⚠️  DEPRECATED: mode 'mutate' performs direct code mutation which is no longer
-the primary operating model.  Use --mode issue to open structured GitHub Issues
-with Copilot-ready implementation prompts instead.
-```
-
-If you need to continue using mutation modes temporarily, pass `--mode mutate` or `--mode campaign` explicitly. These modes will not be removed immediately, but will be gated behind an explicit opt-in in a future release.
+The test suite covers: branch suffix generation, model fallback, `ast.parse` gate, campaign aggregation, output schema stability, lane priority, `entrypoint_consolidation`, lane scoping, `validate_change`, charter context, issue fingerprint generation, issue body rendering, deduplication behavior, label assignment, gap diagnosis, `run_issue_cycle` output schema, and charter-validated mode notices.

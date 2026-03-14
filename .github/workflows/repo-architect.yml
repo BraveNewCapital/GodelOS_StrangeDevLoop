@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Operating mode. ''issue'' is the primary mode (opens/updates GitHub Issues). ''analyze''/''report'' are read-only. ''mutate''/''campaign'' are DEPRECATED.'
+        description: 'Operating mode. ''issue'' (default safe governance mode). ''analyze''/''report'' are read-only. ''mutate''/''campaign'' are charter-validated secondary modes (§9–§10).'
         required: true
         default: 'issue'
         type: choice
@@ -53,7 +53,7 @@ on:
         default: 'docs/repo_architect/runtime_inventory.md'
         type: string
       mutation_budget:
-        description: '[DEPRECATED] Maximum automatic mutations (mutate mode only)'
+        description: 'Maximum automatic mutations per run (mutate mode, charter §11)'
         required: false
         default: '1'
         type: choice
@@ -62,12 +62,12 @@ on:
           - '2'
           - '3'
       max_slices:
-        description: '[DEPRECATED] Campaign max slices (campaign mode only)'
+        description: 'Campaign max slices (campaign mode, charter §11)'
         required: false
         default: '3'
         type: string
       lanes:
-        description: '[DEPRECATED] Comma-separated lane order (mutate/campaign modes)'
+        description: 'Comma-separated lane order (mutate/campaign modes, charter §10)'
         required: false
         default: 'parse_errors,import_cycles,entrypoint_consolidation,hygiene,report'
         type: string
@@ -79,9 +79,9 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write     # required for deprecated mutate/campaign modes (branch push); read-only for issue mode
+  contents: write     # required for mutation modes (branch push); read-only for issue mode
   issues: write       # required for issue-first mode (open/update GitHub Issues)
-  pull-requests: write  # required for deprecated mutate/campaign modes (PR creation)
+  pull-requests: write  # required for mutation modes (PR creation)
   models: read
 
 jobs:

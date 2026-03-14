@@ -71,10 +71,13 @@ _MODEL_UNAVAILABLE_SIGNALS = frozenset({
 })
 # Canonical lane execution order for mutate / campaign modes
 MUTATION_LANE_ORDER: Tuple[str, ...] = ("parse_errors", "import_cycles", "entrypoint_consolidation", "hygiene", "report")
-# Issue-first mode (new primary operating mode)
+# Issue-first mode (default safe operating mode per charter governance policy)
 ISSUE_MODE = "issue"
-# Modes that perform direct code mutation – deprecated; emit runtime warning when used
-DEPRECATED_MUTATION_MODES: Tuple[str, ...] = ("mutate", "campaign")
+# Modes that perform direct code mutation – retained as charter-validated secondary modes
+# (per GODELOS_REPO_IMPLEMENTATION_CHARTER §9–§10 self-modification lanes) but not the
+# default execution path.  Issue-first mode is the default safe path; mutation modes
+# require explicit opt-in via --mode mutate or --mode campaign.
+CHARTER_MUTATION_MODES: Tuple[str, ...] = ("mutate", "campaign")
 # Directory for dry-run issue artifacts
 ISSUE_REPORT_DIR = DEFAULT_REPORT_DIR / "issues"
 # Standard labels for the issue-first governance system
@@ -2092,18 +2095,19 @@ def build_patch_plan(
     A report-only mutation is never produced when parse errors exist unless no
     safe code mutation can be made (reason is then surfaced explicitly).
 
-    DEPRECATED: ``mutate`` and ``campaign`` modes are deprecated in favour of
-    ``issue`` mode.  Direct code mutation by the agent is no longer the primary
-    operating model.  Use ``--mode issue`` instead.
+    Charter alignment: ``mutate`` and ``campaign`` modes implement the narrow,
+    validated self-modification lanes defined in GODELOS_REPO_IMPLEMENTATION_CHARTER
+    §9–§10.  They are retained as charter-sanctioned secondary modes.  The default
+    safe operating mode is ``issue`` (architectural governance via GitHub Issues).
     """
     if config.mode == "analyze":
         return None, "none", None
 
-    if config.mode in DEPRECATED_MUTATION_MODES:
+    if config.mode in CHARTER_MUTATION_MODES:
         log(
-            f"⚠️  DEPRECATED: mode '{config.mode}' performs direct code mutation which is no longer "
-            "the primary operating model.  Use --mode issue to open structured GitHub Issues "
-            "with Copilot-ready implementation prompts instead.",
+            f"ℹ️  mode '{config.mode}' performs direct code mutation via charter-validated lanes "
+            "(§9–§10 GODELOS_REPO_IMPLEMENTATION_CHARTER).  "
+            "The default safe operating mode is --mode issue (architectural governance via GitHub Issues).",
             json_mode=config.log_json,
         )
 
@@ -2877,9 +2881,10 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         choices=["analyze", "report", "issue", "mutate", "campaign"],
         default="issue",
         help=(
-            "Operating mode. 'issue' (default) is the primary mode: detects architectural gaps and "
+            "Operating mode. 'issue' (default) is the safe governance mode: detects architectural gaps and "
             "opens/updates GitHub Issues. 'analyze'/'report' are read-only. "
-            "'mutate'/'campaign' are DEPRECATED and will emit a runtime warning."
+            "'mutate'/'campaign' are charter-validated secondary modes that perform "
+            "narrow, validated code mutations per GODELOS_REPO_IMPLEMENTATION_CHARTER §9–§10."
         ),
     )
     p.add_argument("--report-path", default=str(DEFAULT_REPORT_PATH))
@@ -2896,11 +2901,11 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     p.add_argument("--preferred-model", default=None, help="Preferred GitHub Models model id")
     p.add_argument("--fallback-model", default=None, help="Fallback model if preferred is unavailable")
     p.add_argument("--log-json", action="store_true")
-    # Lane / campaign args (deprecated paths)
-    p.add_argument("--lane", default=None, help="[DEPRECATED] Single lane to run in mutate mode")
-    p.add_argument("--max-slices", type=int, default=3, help="[DEPRECATED] Campaign: max mutation slices to attempt")
-    p.add_argument("--lanes", default=None, help="[DEPRECATED] Comma-separated lane order for mutate/campaign modes")
-    p.add_argument("--stop-on-failure", action="store_true", help="[DEPRECATED] Campaign: stop on first slice failure")
+    # Lane / campaign args (charter-validated secondary modes §9–§10)
+    p.add_argument("--lane", default=None, help="Single lane to run in mutate mode (convenience alias for --lanes)")
+    p.add_argument("--max-slices", type=int, default=3, help="Campaign: max mutation slices to attempt")
+    p.add_argument("--lanes", default=None, help="Comma-separated lane order for mutate/campaign modes")
+    p.add_argument("--stop-on-failure", action="store_true", help="Campaign: stop on first slice failure")
     # Issue-first mode args
     p.add_argument("--dry-run", action="store_true",
                    help="Issue mode: write issue bodies to disk but do not call the GitHub Issues API.")
@@ -2966,11 +2971,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0
 
-        # Deprecated campaign mode
+        # Charter-validated campaign mode (secondary — requires explicit opt-in)
         if config.mode == "campaign":
             log(
-                "⚠️  DEPRECATED: 'campaign' mode is no longer the primary operating model. "
-                "Use --mode issue to open structured GitHub Issues instead.",
+                "ℹ️  'campaign' mode performs direct code mutation via charter-validated lanes "
+                "(§9–§10 GODELOS_REPO_IMPLEMENTATION_CHARTER).  "
+                "The default safe operating mode is --mode issue.",
                 json_mode=config.log_json,
             )
             lanes_arg = list(config.campaign_lanes) if config.campaign_lanes else list(MUTATION_LANE_ORDER)
