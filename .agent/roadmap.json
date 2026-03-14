@@ -4,7 +4,7 @@
       "actionable": false,
       "name": "review_circular_dependencies",
       "priority": 80,
-      "summary": "Review 4 local import cycle(s).",
+      "summary": "Review 3 local import cycle(s).",
       "targets": [
         [
           "backend.core.agentic_daemon_system",
@@ -12,20 +12,14 @@
           "backend.core.agentic_daemon_system"
         ],
         [
-          "godelOS.core_kr.knowledge_store.interface",
           "godelOS.core_kr.knowledge_store.chroma_store",
-          "godelOS.core_kr.knowledge_store.interface"
+          "godelOS.core_kr.knowledge_store.interface",
+          "godelOS.core_kr.knowledge_store.chroma_store"
         ],
         [
           "godelOS.core_kr.type_system.manager",
           "godelOS.core_kr.type_system.visitor",
           "godelOS.core_kr.type_system.manager"
-        ],
-        [
-          "backend.core.enhanced_websocket_manager",
-          "backend.websocket_manager",
-          "backend.unified_server",
-          "backend.core.enhanced_websocket_manager"
         ]
       ]
     },
@@ -35,17 +29,18 @@
       "priority": 70,
       "summary": "Review syntax/parse issues in 2 file(s).",
       "targets": [
-        "tests/nlu_nlg/nlu/test_lexical_analyzer_parser.py",
-        "tests/nlu_nlg/nlu/test_pipeline.py"
+        "tests/nlu_nlg/nlu/test_pipeline.py",
+        "tests/nlu_nlg/nlu/test_lexical_analyzer_parser.py"
       ]
     },
     {
       "actionable": false,
       "name": "review_multiple_entrypoints",
       "priority": 60,
-      "summary": "Review 190 Python entrypoints for runtime duplication.",
+      "summary": "Review 194 Python entrypoints for runtime duplication.",
       "targets": [
         "backend/llm_tool_integration.py",
+        "backend/main.py",
         "backend/minimal_server.py",
         "backend/start_server.py",
         "backend/unified_server.py",
@@ -64,7 +59,6 @@
         "godelOS/test_runner/__main__.py",
         "godelOS/test_runner/cli.py",
         "repo_architect.py",
-        "repo_architect_.py",
         "scripts/bootstrap_knowledge_graph.py",
         "scripts/cache_models.py",
         "scripts/cleanup_repository.py",
@@ -76,6 +70,7 @@
         "scripts/fix_core_functionality.py",
         "scripts/monitor_repository_health.py",
         "scripts/run_cognitive_tests.py",
+        "tests/api/test_external_api.py",
         "tests/backend/test_api_endpoints.py",
         "tests/backend/test_godelos_integration.py",
         "tests/backend/test_knowledge_management.py",
@@ -129,7 +124,9 @@
         "tests/nlu_nlg/nlg/test_surface_realizer.py",
         "tests/nlu_nlg/nlu/test_discourse_manager.py",
         "tests/nlu_nlg/nlu/test_formalizer.py",
+        "tests/nlu_nlg/nlu/test_lexical_analyzer_parser.py",
         "tests/nlu_nlg/nlu/test_lexicon_ontology_linker.py",
+        "tests/nlu_nlg/nlu/test_pipeline.py",
         "tests/nlu_nlg/nlu/test_semantic_interpreter.py",
         "tests/nlu_nlg/test_nlu_nlg_integration.py",
         "tests/ontology/test_abstraction_hierarchy.py",
@@ -184,6 +181,7 @@
         "tests/test_proof_object.py",
         "tests/test_query_replay_harness.py",
         "tests/test_replay_api.py",
+        "tests/test_repo_architect.py",
         "tests/test_resolution_prover.py",
         "tests/test_resolution_prover_enhanced.py",
         "tests/test_smt_interface.py",

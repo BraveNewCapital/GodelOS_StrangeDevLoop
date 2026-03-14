@@ -4,15 +4,39 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Execution mode'
+        description: 'Operating mode. ''issue'' (default safe governance mode). ''analyze''/''report'' are read-only. ''mutate''/''campaign'' are charter-validated secondary modes (§9–§10).'
         required: true
-        default: 'report'
+        default: 'issue'
         type: choice
         options:
+          - issue
           - analyze
           - report
           - mutate
           - campaign
+      dry_run:
+        description: 'Dry-run: write issue bodies to disk without calling the GitHub Issues API'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+      max_issues:
+        description: 'Issue mode: maximum issues to open/update per run'
+        required: false
+        default: '1'
+        type: choice
+        options:
+          - '1'
+          - '2'
+          - '3'
+          - '5'
+      issue_subsystem:
+        description: 'Issue mode: restrict gap detection to a subsystem (leave blank for all)'
+        required: false
+        default: ''
+        type: string
       github_model:
         description: 'GitHub Models model id (overrides preferred model; leave blank to use catalog resolution)'
         required: false
@@ -24,13 +48,13 @@ on:
         default: ''
         type: string
       report_path:
-        description: 'Primary report path'
-        required: true
+        description: 'Primary report path (analyze/report modes)'
+        required: false
         default: 'docs/repo_architect/runtime_inventory.md'
         type: string
       mutation_budget:
-        description: 'Maximum automatic mutations in a single run'
-        required: true
+        description: 'Maximum automatic mutations per run (mutate mode, charter §11)'
+        required: false
         default: '1'
         type: choice
         options:
@@ -38,12 +62,12 @@ on:
           - '2'
           - '3'
       max_slices:
-        description: 'Campaign max slices (campaign mode only)'
+        description: 'Campaign max slices (campaign mode, charter §11)'
         required: false
         default: '3'
         type: string
       lanes:
-        description: 'Comma-separated lane order (mutate and campaign modes)'
+        description: 'Comma-separated lane order (mutate/campaign modes, charter §10)'
         required: false
         default: 'parse_errors,import_cycles,entrypoint_consolidation,hygiene,report'
         type: string
@@ -55,13 +79,18 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read      # base read access for checkout
+  issues: write       # required for issue-first mode (open/update GitHub Issues)
   models: read
 
 jobs:
-  repo-architect:
+  repo-architect-issue:
+    if: ${{ github.event.inputs.mode == '' || github.event.inputs.mode == 'issue' || github.event.inputs.mode == 'analyze' || github.event.inputs.mode == 'report' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      models: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -80,7 +109,7 @@ jobs:
 
       - name: Ensure artifact directories exist
         run: |
-          mkdir -p .agent docs/repo_architect
+          mkdir -p .agent docs/repo_architect docs/repo_architect/issues
 
       - name: Resolve GitHub Models configuration
         env:
@@ -175,23 +204,46 @@ jobs:
           GITHUB_FALLBACK_MODEL: ${{ github.event.inputs.github_fallback_model }}
         run: |
           MODE="${{ github.event.inputs.mode }}"
+          DRY_RUN="${{ github.event.inputs.dry_run }}"
+          MAX_ISSUES="${{ github.event.inputs.max_issues }}"
+          ISSUE_SUBSYSTEM="${{ github.event.inputs.issue_subsystem }}"
           MODEL="${{ github.event.inputs.github_model }}"
           REPORT_PATH="${{ github.event.inputs.report_path }}"
           MUTATION_BUDGET="${{ github.event.inputs.mutation_budget }}"
           MAX_SLICES="${{ github.event.inputs.max_slices }}"
           LANES="${{ github.event.inputs.lanes }}"
-          if [ -z "$MODE" ]; then MODE="report"; fi
+
+          # Defaults for scheduled runs (primary issue-first mode)
+          if [ -z "$MODE" ]; then MODE="issue"; fi
+          if [ -z "$DRY_RUN" ]; then DRY_RUN="false"; fi
+          if [ -z "$MAX_ISSUES" ]; then MAX_ISSUES="1"; fi
           if [ -z "$REPORT_PATH" ]; then REPORT_PATH="docs/repo_architect/runtime_inventory.md"; fi
           if [ -z "$MUTATION_BUDGET" ]; then MUTATION_BUDGET="1"; fi
           if [ -z "$MAX_SLICES" ]; then MAX_SLICES="3"; fi
           if [ -z "$LANES" ]; then LANES="parse_errors,import_cycles,entrypoint_consolidation,hygiene,report"; fi
+
           EXTRA_ARGS=""
-          if [ -n "$MODEL" ]; then EXTRA_ARGS="$EXTRA_ARGS --github-model $MODEL"; fi
+
+          # Issue-first mode arguments
+          if [ "$MODE" = "issue" ]; then
+            EXTRA_ARGS="$EXTRA_ARGS --max-issues $MAX_ISSUES"
+            if [ "$DRY_RUN" = "true" ]; then
+              EXTRA_ARGS="$EXTRA_ARGS --dry-run"
+            fi
+            if [ -n "$ISSUE_SUBSYSTEM" ]; then
+              EXTRA_ARGS="$EXTRA_ARGS --issue-subsystem $ISSUE_SUBSYSTEM"
+            fi
+          fi
+
+          # Charter-validated mutation mode arguments (§9–§10 GODELOS_REPO_IMPLEMENTATION_CHARTER)
           if [ "$MODE" = "campaign" ]; then
             EXTRA_ARGS="$EXTRA_ARGS --max-slices $MAX_SLICES --lanes $LANES"
           elif [ "$MODE" = "mutate" ]; then
             EXTRA_ARGS="$EXTRA_ARGS --lanes $LANES"
           fi
+
+          if [ -n "$MODEL" ]; then EXTRA_ARGS="$EXTRA_ARGS --github-model $MODEL"; fi
+
           python repo_architect.py --allow-dirty --mode "$MODE" --report-path "$REPORT_PATH" --mutation-budget "$MUTATION_BUDGET" $EXTRA_ARGS
 
       - name: Upload repo architect artifacts
@@ -204,3 +256,99 @@ jobs:
             docs/repo_architect
           if-no-files-found: warn
           retention-days: 7
+
+      - name: Write workflow summary
+        if: always()
+        run: |
+          echo "## repo-architect run summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **mode**: \`${{ github.event.inputs.mode || 'issue' }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **dry-run**: \`${{ github.event.inputs.dry_run || 'false' }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **run**: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+          if [ -f ".agent/latest_analysis.json" ]; then
+            SCORE=$(python -c "import json; d=json.load(open('.agent/latest_analysis.json')); print(d.get('architecture_score','?'))")
+            echo "- **architecture score**: $SCORE/100" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # Charter-validated mutation modes (§9–§10 GODELOS_REPO_IMPLEMENTATION_CHARTER)
+  # Runs only for explicit mutate/campaign dispatch — elevated permissions required.
+  repo-architect-mutate:
+    if: ${{ github.event.inputs.mode == 'mutate' || github.event.inputs.mode == 'campaign' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      models: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Ensure artifact directories exist
+        run: |
+          mkdir -p .agent docs/repo_architect docs/repo_architect/issues
+
+      - name: Run repo architect (mutation mode)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPO: ${{ github.repository }}
+          GITHUB_BASE_BRANCH: ${{ github.event.repository.default_branch }}
+          REPO_ARCHITECT_BRANCH_SUFFIX: ${{ github.run_id }}-${{ github.run_attempt }}
+          GITHUB_MODEL: ${{ github.event.inputs.github_model }}
+          GITHUB_FALLBACK_MODEL: ${{ github.event.inputs.github_fallback_model }}
+        run: |
+          MODE="${{ github.event.inputs.mode }}"
+          MODEL="${{ github.event.inputs.github_model }}"
+          REPORT_PATH="${{ github.event.inputs.report_path }}"
+          MUTATION_BUDGET="${{ github.event.inputs.mutation_budget }}"
+          MAX_SLICES="${{ github.event.inputs.max_slices }}"
+          LANES="${{ github.event.inputs.lanes }}"
+
+          if [ -z "$REPORT_PATH" ]; then REPORT_PATH="docs/repo_architect/runtime_inventory.md"; fi
+          if [ -z "$MUTATION_BUDGET" ]; then MUTATION_BUDGET="1"; fi
+          if [ -z "$MAX_SLICES" ]; then MAX_SLICES="3"; fi
+          if [ -z "$LANES" ]; then LANES="parse_errors,import_cycles,entrypoint_consolidation,hygiene,report"; fi
+
+          EXTRA_ARGS=""
+          if [ "$MODE" = "campaign" ]; then
+            EXTRA_ARGS="$EXTRA_ARGS --max-slices $MAX_SLICES --lanes $LANES"
+          elif [ "$MODE" = "mutate" ]; then
+            EXTRA_ARGS="$EXTRA_ARGS --lanes $LANES"
+          fi
+
+          if [ -n "$MODEL" ]; then EXTRA_ARGS="$EXTRA_ARGS --github-model $MODEL"; fi
+
+          python repo_architect.py --allow-dirty --mode "$MODE" --report-path "$REPORT_PATH" --mutation-budget "$MUTATION_BUDGET" $EXTRA_ARGS
+
+      - name: Upload repo architect artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: repo-architect-mutate-${{ github.run_id }}
+          path: |
+            .agent
+            docs/repo_architect
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Write workflow summary
+        if: always()
+        run: |
+          echo "## repo-architect mutation run summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **mode**: \`${{ github.event.inputs.mode }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **run**: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ This run used **charter-validated mutation mode** (§9–§10)." >> $GITHUB_STEP_SUMMARY

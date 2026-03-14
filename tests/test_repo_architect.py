@@ -15,6 +15,7 @@ import dataclasses
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -1241,6 +1242,789 @@ class TestCharterContext(unittest.TestCase):
             path.write_text("version 2", encoding="utf-8")
             ctx2 = ra.load_charter_context(root)
         self.assertNotEqual(ctx1["content_hash"], ctx2["content_hash"])
+
+
+# ---------------------------------------------------------------------------
+# 14. Issue-first mode: fingerprint generation
+# ---------------------------------------------------------------------------
+
+class TestIssueFingerprintGeneration(unittest.TestCase):
+    """issue_fingerprint must be deterministic, stable, and collision-resistant."""
+
+    def test_deterministic_same_inputs(self) -> None:
+        fp1 = ra.issue_fingerprint("runtime", "import-cycles")
+        fp2 = ra.issue_fingerprint("runtime", "import-cycles")
+        self.assertEqual(fp1, fp2)
+
+    def test_different_subsystem_differs(self) -> None:
+        fp1 = ra.issue_fingerprint("runtime", "import-cycles")
+        fp2 = ra.issue_fingerprint("workflow", "import-cycles")
+        self.assertNotEqual(fp1, fp2)
+
+    def test_different_key_differs(self) -> None:
+        fp1 = ra.issue_fingerprint("runtime", "import-cycles")
+        fp2 = ra.issue_fingerprint("runtime", "parse-errors")
+        self.assertNotEqual(fp1, fp2)
+
+    def test_output_is_12_hex_chars(self) -> None:
+        fp = ra.issue_fingerprint("runtime", "import-cycles")
+        self.assertEqual(len(fp), 12)
+        self.assertRegex(fp, r"^[0-9a-f]{12}$")
+
+    def test_case_insensitive_canonical(self) -> None:
+        fp1 = ra.issue_fingerprint("Runtime", "Import-Cycles")
+        fp2 = ra.issue_fingerprint("runtime", "import-cycles")
+        self.assertEqual(fp1, fp2)
+
+
+# ---------------------------------------------------------------------------
+# 15. Issue-first mode: issue body rendering
+# ---------------------------------------------------------------------------
+
+class TestRenderIssueBody(unittest.TestCase):
+    """render_issue_body must produce a fully-structured markdown body."""
+
+    def _make_gap(self) -> ra.ArchGap:
+        return ra.ArchGap(
+            subsystem="runtime",
+            issue_key="import-cycles",
+            title="[arch-gap] Break 3 circular import cycle(s)",
+            summary="Three circular imports degrade startup.",
+            problem="Cycles: a → b → a.",
+            why_it_matters="They slow startup.",
+            scope="Break top 3 cycles.",
+            suggested_files=["backend/foo.py", "backend/bar.py"],
+            implementation_notes="Use TYPE_CHECKING.",
+            acceptance_criteria=["No cycles remain.", "Tests pass."],
+            validation_commands=["python -m pytest -x -q"],
+            out_of_scope="Unrelated refactoring.",
+            copilot_prompt="You are fixing import cycles. Start with backend/foo.py.",
+            priority="high",
+            confidence=0.95,
+        )
+
+    def test_contains_all_sections(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            body = ra.render_issue_body(self._make_gap(), config, "run-001")
+        for section in ("Summary", "Problem", "Why it matters", "Scope",
+                        "Suggested files", "Implementation notes",
+                        "Copilot implementation prompt", "Acceptance criteria",
+                        "Validation", "Out of scope", "Machine metadata"):
+            self.assertIn(section, body, f"Missing section: {section!r}")
+
+    def test_fingerprint_embedded_in_body(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            gap = self._make_gap()
+            body = ra.render_issue_body(gap, config, "run-001")
+        fp = ra.issue_fingerprint(gap.subsystem, gap.issue_key)
+        self.assertIn(f"arch-gap-fingerprint: {fp}", body)
+
+    def test_copilot_prompt_block_present(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            body = ra.render_issue_body(self._make_gap(), config, "run-001")
+        self.assertIn("Copilot Chat", body)
+        self.assertIn("agent mode", body)
+        self.assertIn("You are fixing import cycles", body)
+
+    def test_acceptance_criteria_as_checkboxes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            body = ra.render_issue_body(self._make_gap(), config, "run-001")
+        self.assertIn("- [ ] No cycles remain.", body)
+        self.assertIn("- [ ] Tests pass.", body)
+
+    def test_machine_metadata_json_valid(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            body = ra.render_issue_body(self._make_gap(), config, "run-001")
+        # Extract JSON from body
+        m = re.search(r"```json\n(\{.*?\})\n```", body, re.DOTALL)
+        self.assertIsNotNone(m, "Expected a JSON code block in the body")
+        meta = json.loads(m.group(1))
+        for field in ("subsystem", "priority", "confidence", "mode", "generated_at", "run_id", "fingerprint", "issue_key"):
+            self.assertIn(field, meta, f"Missing machine metadata field: {field!r}")
+        self.assertEqual(meta["mode"], ra.ISSUE_MODE)
+
+
+# ---------------------------------------------------------------------------
+# 16. Issue-first mode: deduplication
+# ---------------------------------------------------------------------------
+
+class TestIssueSynthesisDeduplication(unittest.TestCase):
+    """synthesize_issue must detect duplicates and skip creation."""
+
+    def _make_gap(self) -> ra.ArchGap:
+        return ra.ArchGap(
+            subsystem="runtime",
+            issue_key="parse-errors",
+            title="[arch-gap] Fix parse errors",
+            summary="Parse errors found.",
+            problem="Files: bad.py.",
+            why_it_matters="CI fails.",
+            scope="Fix syntax.",
+            suggested_files=["bad.py"],
+            implementation_notes="Fix syntax.",
+            acceptance_criteria=["All files compile."],
+            validation_commands=["python -m py_compile bad.py"],
+            out_of_scope="Logic changes.",
+            copilot_prompt="Fix bad.py syntax.",
+            priority="critical",
+            confidence=1.0,
+        )
+
+    def test_dry_run_writes_file_not_api(self) -> None:
+        """In dry-run mode, synthesize_issue writes to disk and does not call GitHub API."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, github_token=None)
+            gap = self._make_gap()
+            action = ra.synthesize_issue(config, gap, "run-001", dry_run=True)
+            self.assertEqual(action.action, "dry_run")
+            self.assertIsNone(action.issue_number)
+            self.assertIsNotNone(action.dry_run_path)
+            # File must exist on disk (check inside with block while tmp dir still exists)
+            out_path = root / action.dry_run_path
+            self.assertTrue(out_path.exists(), f"Dry-run output not written: {out_path}")
+            content = out_path.read_text(encoding="utf-8")
+            self.assertIn(gap.title, content)
+
+    def test_no_credentials_falls_back_to_dry_run(self) -> None:
+        """When no GitHub credentials are available, synthesize_issue auto-falls-back to dry-run."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, github_token=None, github_repo=None)
+            gap = self._make_gap()
+            action = ra.synthesize_issue(config, gap, "run-001", dry_run=False)
+        self.assertEqual(action.action, "dry_run")
+        self.assertIsNotNone(action.dry_run_path)
+
+    def test_skips_creation_when_existing_issue_found(self) -> None:
+        """When an open issue with matching fingerprint exists, update instead of create."""
+        gap = self._make_gap()
+        fp = ra.issue_fingerprint(gap.subsystem, gap.issue_key)
+        fake_existing = {"number": 42, "html_url": "https://github.com/test/repo/issues/42",
+                         "body": f"<!-- arch-gap-fingerprint: {fp} -->"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, github_token="fake-tok", github_repo="org/repo")
+
+            with patch.object(ra, "find_existing_github_issue", return_value=fake_existing):
+                with patch.object(ra, "update_github_issue_api", return_value={"id": 1}) as mock_update:
+                    with patch.object(ra, "ensure_github_labels"):
+                        action = ra.synthesize_issue(config, gap, "run-001", dry_run=False)
+
+        self.assertEqual(action.action, "updated")
+        self.assertEqual(action.issue_number, 42)
+        self.assertEqual(action.dedupe_result, "existing_open")
+        mock_update.assert_called_once()
+
+    def test_creates_new_issue_when_no_duplicate(self) -> None:
+        """When no open issue with matching fingerprint exists, create a new one."""
+        gap = self._make_gap()
+        fake_created = {"number": 99, "html_url": "https://github.com/test/repo/issues/99"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, github_token="fake-tok", github_repo="org/repo")
+
+            with patch.object(ra, "find_existing_github_issue", return_value=None):
+                with patch.object(ra, "create_github_issue_api", return_value=fake_created) as mock_create:
+                    with patch.object(ra, "ensure_github_labels"):
+                        action = ra.synthesize_issue(config, gap, "run-001", dry_run=False)
+
+        self.assertEqual(action.action, "created")
+        self.assertEqual(action.issue_number, 99)
+        self.assertEqual(action.dedupe_result, "new")
+        mock_create.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# 17. Issue-first mode: label assignment
+# ---------------------------------------------------------------------------
+
+class TestIssueLabelAssignment(unittest.TestCase):
+    """synthesize_issue must apply the correct base and subsystem labels."""
+
+    def _make_gap(self, subsystem: str = "runtime", priority: str = "medium") -> ra.ArchGap:
+        return ra.ArchGap(
+            subsystem=subsystem, issue_key="test-gap", title="[arch-gap] Test",
+            summary="s", problem="p", why_it_matters="w", scope="s2",
+            suggested_files=[], implementation_notes="i",
+            acceptance_criteria=["done"], validation_commands=["pytest"],
+            out_of_scope="x", copilot_prompt="fix it", priority=priority, confidence=0.8,
+        )
+
+    def test_base_labels_always_applied(self) -> None:
+        gap = self._make_gap()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            action = ra.synthesize_issue(config, gap, "run-001", dry_run=True)
+        for lbl in ("arch-gap", "copilot-task", "needs-implementation"):
+            self.assertIn(lbl, action.labels_applied, f"Missing base label: {lbl!r}")
+
+    def test_subsystem_label_added_when_valid(self) -> None:
+        gap = self._make_gap(subsystem="workflow")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            action = ra.synthesize_issue(config, gap, "run-001", dry_run=True)
+        self.assertIn("workflow", action.labels_applied)
+
+    def test_priority_label_added_for_critical(self) -> None:
+        gap = self._make_gap(priority="critical")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            action = ra.synthesize_issue(config, gap, "run-001", dry_run=True)
+        self.assertIn("priority:critical", action.labels_applied)
+
+    def test_priority_label_added_for_high(self) -> None:
+        gap = self._make_gap(priority="high")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            action = ra.synthesize_issue(config, gap, "run-001", dry_run=True)
+        self.assertIn("priority:high", action.labels_applied)
+
+    def test_no_priority_label_for_medium(self) -> None:
+        gap = self._make_gap(priority="medium")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            action = ra.synthesize_issue(config, gap, "run-001", dry_run=True)
+        self.assertNotIn("priority:medium", action.labels_applied)
+
+
+# ---------------------------------------------------------------------------
+# 18. Issue-first mode: gap diagnosis
+# ---------------------------------------------------------------------------
+
+class TestDiagnoseGaps(unittest.TestCase):
+    """diagnose_gaps must produce correctly populated ArchGap instances."""
+
+    def _model_meta(self, used: bool = False) -> Dict[str, Any]:
+        return {
+            "used": used, "summary": None, "requested_model": None, "actual_model": None,
+            "primary_model": None, "fallback_model": None, "model_used": None,
+            "fallback_used": False, "fallback_reason": None, "fallback_occurred": False, "enabled": False,
+        }
+
+    def test_parse_errors_produce_critical_gap(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            analysis: Dict[str, Any] = {
+                "parse_error_files": ["bad.py", "worse.py"],
+                "cycles": [],
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 80,
+                "score_factors": {},
+            }
+            gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
+        self.assertTrue(any(g.priority == "critical" and "parse" in g.issue_key for g in gaps))
+        self.assertTrue(any("bad.py" in g.suggested_files for g in gaps))
+
+    def test_import_cycles_produce_high_gap(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            analysis: Dict[str, Any] = {
+                "parse_error_files": [],
+                "cycles": [["a.py", "b.py", "a.py"], ["c.py", "d.py", "c.py"]],
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 80,
+                "score_factors": {},
+            }
+            gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
+        cycle_gaps = [g for g in gaps if "cycle" in g.issue_key]
+        self.assertTrue(len(cycle_gaps) >= 1)
+        self.assertEqual(cycle_gaps[0].priority, "high")
+
+    def test_low_architecture_score_produces_gap(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            analysis: Dict[str, Any] = {
+                "parse_error_files": [],
+                "cycles": [],
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 45,
+                "score_factors": {"parse_errors": 3},
+            }
+            gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
+        score_gaps = [g for g in gaps if "score" in g.issue_key or "degradation" in g.issue_key]
+        self.assertTrue(len(score_gaps) >= 1)
+        self.assertEqual(score_gaps[0].priority, "high")
+
+    def test_score_above_threshold_no_score_gap(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            analysis: Dict[str, Any] = {
+                "parse_error_files": [],
+                "cycles": [],
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 85,
+                "score_factors": {},
+            }
+            gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
+        score_gaps = [g for g in gaps if "score" in g.issue_key or "degradation" in g.issue_key]
+        self.assertEqual(len(score_gaps), 0)
+
+    def test_subsystem_filter_applied(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, issue_subsystem="workflow")
+            analysis: Dict[str, Any] = {
+                "parse_error_files": ["bad.py"],
+                "cycles": [["a", "b", "a"]],
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 45,
+                "score_factors": {},
+            }
+            gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
+        # All returned gaps must be in the "workflow" subsystem
+        for g in gaps:
+            self.assertEqual(g.subsystem, "workflow", f"Non-workflow gap returned: {g.issue_key}")
+
+    def test_gaps_sorted_by_priority(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            analysis: Dict[str, Any] = {
+                "parse_error_files": ["bad.py"],  # critical
+                "cycles": [["a", "b", "a"]],      # high
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 45,          # high (score < 50)
+                "score_factors": {},
+            }
+            gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
+        priority_order = [ra.ISSUE_PRIORITY_LEVELS.index(g.priority) for g in gaps]
+        self.assertEqual(priority_order, sorted(priority_order))
+
+    def test_no_duplicate_gaps(self) -> None:
+        """diagnose_gaps must not produce duplicate fingerprints."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            analysis: Dict[str, Any] = {
+                "parse_error_files": ["bad.py"],
+                "cycles": [],
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 45,
+                "score_factors": {},
+            }
+            gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
+        fps = [ra.issue_fingerprint(g.subsystem, g.issue_key) for g in gaps]
+        self.assertEqual(len(fps), len(set(fps)), "Duplicate fingerprints in diagnose_gaps output")
+
+
+# ---------------------------------------------------------------------------
+# 19. Issue-first mode: run_issue_cycle output schema
+# ---------------------------------------------------------------------------
+
+REQUIRED_ISSUE_OUTPUT_FIELDS = frozenset({
+    "status", "mode", "dry_run", "gaps_detected", "gaps_selected",
+    "issue_actions", "summary", "architecture_score",
+    "requested_model", "actual_model", "primary_model", "fallback_model",
+    "model_used", "fallback_used", "fallback_reason", "fallback_occurred",
+    "artifact_files", "charter",
+    # Backward-compat fields
+    "lane", "lanes_active", "branch", "changed_files", "validation",
+    "pull_request_url", "no_safe_code_mutation_reason",
+})
+
+
+class TestRunIssueCycleOutputSchema(unittest.TestCase):
+    def test_output_schema_complete(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, mode=ra.ISSUE_MODE, dry_run=True)
+            result = ra.run_issue_cycle(config)
+        missing = REQUIRED_ISSUE_OUTPUT_FIELDS - set(result.keys())
+        self.assertEqual(missing, set(), f"Missing output fields in issue mode: {missing}")
+
+    def test_status_is_issue_cycle_complete(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, mode=ra.ISSUE_MODE, dry_run=True)
+            result = ra.run_issue_cycle(config)
+        self.assertEqual(result["status"], "issue_cycle_complete")
+        self.assertEqual(result["mode"], ra.ISSUE_MODE)
+
+    def test_dry_run_flag_reflected_in_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, mode=ra.ISSUE_MODE, dry_run=True)
+            result = ra.run_issue_cycle(config)
+        self.assertTrue(result["dry_run"])
+
+    def test_run_cycle_routes_issue_mode(self) -> None:
+        """run_cycle with mode='issue' must delegate to run_issue_cycle."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, mode=ra.ISSUE_MODE, dry_run=True)
+            result = ra.run_cycle(config)
+        self.assertEqual(result["status"], "issue_cycle_complete")
+
+    def test_max_issues_limits_actions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            # Create conditions for multiple gaps: parse errors + cycles
+            (root / "bad.py").write_text("def foo(\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(root), "add", "."], capture_output=True)
+            subprocess.run(["git", "-C", str(root), "commit", "-m", "bad files"], capture_output=True)
+            config = _make_config(root, mode=ra.ISSUE_MODE, dry_run=True, max_issues=1)
+            result = ra.run_issue_cycle(config)
+        self.assertLessEqual(len(result["issue_actions"]), 1)
+
+
+# ---------------------------------------------------------------------------
+# 20. Issue-first mode: charter-validated secondary mode notice
+# ---------------------------------------------------------------------------
+
+class TestCharterValidatedModeNotice(unittest.TestCase):
+    """Charter-validated mutation modes must emit an informational notice and still function."""
+
+    def test_mutate_mode_emits_charter_notice(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, mode="mutate")
+            analysis: Dict[str, Any] = {
+                "parse_error_files": [],
+                "cycles": [],
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 80,
+                "score_factors": {},
+                "roadmap": [],
+                "python_files": [],
+                "debug_print_candidates": [],
+                "local_import_graph": {},
+            }
+            import io
+            stderr_capture = io.StringIO()
+            import sys as _sys
+            old_stderr = _sys.stderr
+            _sys.stderr = stderr_capture
+            try:
+                ra.build_patch_plan(config, analysis, {}, {})
+            finally:
+                _sys.stderr = old_stderr
+            output = stderr_capture.getvalue()
+        self.assertIn("charter-validated", output)
+        self.assertIn("issue", output.lower())
+
+    def test_default_mode_is_issue(self) -> None:
+        """The default CLI mode must be 'issue', not 'report' or 'mutate'."""
+        args = ra.parse_args([])
+        self.assertEqual(args.mode, ra.ISSUE_MODE)
+
+
+# ---------------------------------------------------------------------------
+# 21. Charter lane map and higher-lane gap detection
+# ---------------------------------------------------------------------------
+
+class TestCharterLaneMap(unittest.TestCase):
+    """CHARTER_LANE_MAP must list all 10 charter-defined lanes."""
+
+    def test_charter_lane_map_has_ten_lanes(self) -> None:
+        self.assertEqual(len(ra.CHARTER_LANE_MAP), 10)
+        self.assertEqual(set(ra.CHARTER_LANE_MAP.keys()), set(range(10)))
+
+    def test_charter_lane_map_entries_are_tuples(self) -> None:
+        for lane_num, entry in ra.CHARTER_LANE_MAP.items():
+            self.assertIsInstance(entry, tuple, f"Lane {lane_num} entry is not a tuple")
+            self.assertEqual(len(entry), 3, f"Lane {lane_num} entry has {len(entry)} fields, expected 3")
+
+    def test_charter_lanes_cover_mutation_lane_order(self) -> None:
+        """Every lane in MUTATION_LANE_ORDER must appear in CHARTER_LANE_MAP values."""
+        automated_names = {entry[0] for entry in ra.CHARTER_LANE_MAP.values()}
+        for lane in ra.MUTATION_LANE_ORDER:
+            self.assertIn(lane, automated_names, f"MUTATION_LANE_ORDER lane '{lane}' not in CHARTER_LANE_MAP")
+
+
+class TestHigherLaneGapDetection(unittest.TestCase):
+    """diagnose_gaps must detect gaps for charter lanes 5 and 7 when signals are present."""
+
+    def _model_meta(self, used: bool = False) -> Dict[str, Any]:
+        return {
+            "used": used, "summary": None, "requested_model": None, "actual_model": None,
+            "primary_model": None, "fallback_model": None, "model_used": None,
+            "fallback_used": False, "fallback_reason": None, "fallback_occurred": False, "enabled": False,
+        }
+
+    def test_dependency_direction_violations_produce_gap(self) -> None:
+        """Cross-boundary imports should trigger a Lane 5 (contract repair) gap."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            analysis: Dict[str, Any] = {
+                "parse_error_files": [],
+                "cycles": [],
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 80,
+                "score_factors": {},
+                "local_import_graph": {
+                    # Module-name format (matching build_analysis output)
+                    "backend.interface.api": ["backend.core.engine"],
+                },
+            }
+            gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
+        contract_gaps = [g for g in gaps if g.issue_key == "contract-repair"]
+        self.assertGreaterEqual(len(contract_gaps), 1, "Expected a contract-repair gap for interface→core import")
+        self.assertEqual(contract_gaps[0].subsystem, "core")
+
+    def test_agent_boundary_violations_produce_gap(self) -> None:
+        """Cross-agent imports should trigger a Lane 7 (agent boundary enforcement) gap."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            analysis: Dict[str, Any] = {
+                "parse_error_files": [],
+                "cycles": [],
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 80,
+                "score_factors": {},
+                "local_import_graph": {
+                    # Module-name format (matching build_analysis output)
+                    "backend.agents.planner.core": ["backend.agents.executor.internal"],
+                },
+            }
+            gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
+        boundary_gaps = [g for g in gaps if g.issue_key == "agent-boundary"]
+        self.assertGreaterEqual(len(boundary_gaps), 1, "Expected an agent-boundary gap for cross-agent import")
+        self.assertEqual(boundary_gaps[0].subsystem, "agents")
+
+    def test_no_violations_no_higher_lane_gaps(self) -> None:
+        """When there are no violations, no Lane 5 or 7 gaps should appear."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            analysis: Dict[str, Any] = {
+                "parse_error_files": [],
+                "cycles": [],
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 80,
+                "score_factors": {},
+                "local_import_graph": {
+                    # Module-name format — same package, no cross-boundary
+                    "backend.core.engine": ["backend.core.utils"],
+                },
+            }
+            gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
+        higher_gaps = [g for g in gaps if g.issue_key in ("contract-repair", "agent-boundary")]
+        self.assertEqual(len(higher_gaps), 0)
+
+
+# ---------------------------------------------------------------------------
+# 22. _module_segments normalizer
+# ---------------------------------------------------------------------------
+
+class TestModuleSegments(unittest.TestCase):
+    """_module_segments must handle both module names and file paths."""
+
+    def test_module_name_splits_on_dots(self) -> None:
+        self.assertEqual(ra._module_segments("backend.core.engine"), ("backend", "core", "engine"))
+
+    def test_file_path_splits_on_slashes(self) -> None:
+        parts = ra._module_segments("backend/core/engine.py")
+        self.assertEqual(parts, ("backend", "core", "engine"))
+
+    def test_file_path_without_py_extension(self) -> None:
+        parts = ra._module_segments("backend/core/engine")
+        self.assertEqual(parts, ("backend", "core", "engine"))
+
+    def test_single_segment_module(self) -> None:
+        self.assertEqual(ra._module_segments("repo_architect"), ("repo_architect",))
+
+
+# ---------------------------------------------------------------------------
+# 23. _module_to_path mapper
+# ---------------------------------------------------------------------------
+
+class TestModuleToPath(unittest.TestCase):
+    """_module_to_path should resolve module names to file paths from analysis data."""
+
+    def test_maps_via_python_files(self) -> None:
+        analysis = {"python_files": [{"module": "backend.core.engine", "path": "backend/core/engine.py"}]}
+        self.assertEqual(ra._module_to_path("backend.core.engine", analysis), "backend/core/engine.py")
+
+    def test_falls_back_to_dot_replacement(self) -> None:
+        analysis = {"python_files": []}
+        self.assertEqual(ra._module_to_path("backend.core.engine", analysis), "backend/core/engine.py")
+
+    def test_falls_back_when_no_python_files(self) -> None:
+        analysis: Dict[str, Any] = {}
+        self.assertEqual(ra._module_to_path("backend.core.engine", analysis), "backend/core/engine.py")
+
+
+# ---------------------------------------------------------------------------
+# 24. Dedupe failure handling in synthesize_issue
+# ---------------------------------------------------------------------------
+
+class TestDedupeFailureHandling(unittest.TestCase):
+    """find_existing_github_issue should raise on API errors, not swallow them."""
+
+    def test_find_existing_raises_on_api_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            config.github_token = "fake-token"
+            config.github_repo = "owner/repo"
+            # Should raise because github_request will fail
+            with self.assertRaises(ra.RepoArchitectError):
+                ra.find_existing_github_issue(config, "abc123def456")
+
+
+# ---------------------------------------------------------------------------
+# 25. Import cycle suggested_files maps to file paths
+# ---------------------------------------------------------------------------
+
+class TestImportCycleSuggestedFiles(unittest.TestCase):
+    """Import cycle gaps should produce file paths in suggested_files, not module names."""
+
+    def _model_meta(self, used: bool = False) -> Dict[str, Any]:
+        return {
+            "used": used, "summary": None, "requested_model": None, "actual_model": None,
+            "primary_model": None, "fallback_model": None, "model_used": None,
+            "fallback_used": False, "fallback_reason": None, "fallback_occurred": False, "enabled": False,
+        }
+
+    def test_suggested_files_are_paths_not_modules(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            analysis: Dict[str, Any] = {
+                "parse_error_files": [],
+                "cycles": [["backend.core.a", "backend.core.b", "backend.core.a"]],
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 80,
+                "score_factors": {},
+                "python_files": [
+                    {"module": "backend.core.a", "path": "backend/core/a.py"},
+                    {"module": "backend.core.b", "path": "backend/core/b.py"},
+                ],
+            }
+            gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
+        cycle_gaps = [g for g in gaps if g.issue_key == "import-cycles"]
+        self.assertTrue(len(cycle_gaps) >= 1)
+        # Suggested files should be file paths, not module names
+        for f in cycle_gaps[0].suggested_files:
+            self.assertIn("/", f, f"Expected a file path but got module name: {f}")
+            self.assertTrue(f.endswith(".py"), f"Expected .py extension but got: {f}")
+
+
+# ---------------------------------------------------------------------------
+# 26. Charter §14/§15/§16 constants and companion files
+# ---------------------------------------------------------------------------
+
+class TestCharterPriorityOrder(unittest.TestCase):
+    """Verify CHARTER_PRIORITY_ORDER matches charter §14."""
+
+    def test_has_eight_items(self) -> None:
+        self.assertEqual(len(ra.CHARTER_PRIORITY_ORDER), 8)
+
+    def test_starts_with_parse_correctness(self) -> None:
+        self.assertIn("parse", ra.CHARTER_PRIORITY_ORDER[0].lower())
+
+    def test_ends_with_self_modification(self) -> None:
+        self.assertIn("self-modification", ra.CHARTER_PRIORITY_ORDER[-1].lower())
+
+
+class TestAgentInstructionContract(unittest.TestCase):
+    """Verify AGENT_INSTRUCTION_CONTRACT matches charter §16."""
+
+    def test_has_eight_instructions(self) -> None:
+        self.assertEqual(len(ra.AGENT_INSTRUCTION_CONTRACT), 8)
+
+    def test_mentions_canonical_entrypoint(self) -> None:
+        combined = " ".join(ra.AGENT_INSTRUCTION_CONTRACT)
+        self.assertIn("backend/unified_server.py", combined)
+
+    def test_all_entries_are_strings(self) -> None:
+        for item in ra.AGENT_INSTRUCTION_CONTRACT:
+            self.assertIsInstance(item, str)
+            self.assertTrue(len(item) > 10, f"Instruction too short: {item}")
+
+
+class TestCharterCompanionFiles(unittest.TestCase):
+    """Verify §15 companion files exist and are valid JSON."""
+
+    def test_companion_file_constants_defined(self) -> None:
+        self.assertEqual(len(ra.CHARTER_COMPANION_FILES), 3)
+        for path in ra.CHARTER_COMPANION_FILES:
+            self.assertTrue(path.endswith(".json"), f"Expected .json: {path}")
+
+    def test_companion_files_exist(self) -> None:
+        git_root = pathlib.Path(__file__).parent.parent
+        for rel in ra.CHARTER_COMPANION_FILES:
+            full = git_root / rel
+            self.assertTrue(full.exists(), f"Missing companion file: {rel}")
+
+    def test_companion_files_are_valid_json(self) -> None:
+        git_root = pathlib.Path(__file__).parent.parent
+        for rel in ra.CHARTER_COMPANION_FILES:
+            full = git_root / rel
+            with open(full, encoding="utf-8") as f:
+                data = json.load(f)
+            self.assertIsInstance(data, dict, f"{rel} is not a JSON object")
+
+    def test_policy_json_has_required_fields(self) -> None:
+        git_root = pathlib.Path(__file__).parent.parent
+        with open(git_root / "docs/repo_architect/policy.json", encoding="utf-8") as f:
+            data = json.load(f)
+        required = {"default_mode", "modes", "canonical_entrypoint", "priority_order", "agent_instruction_contract"}
+        self.assertTrue(required.issubset(set(data.keys())), f"Missing fields: {required - set(data.keys())}")
+
+    def test_mutation_lanes_json_has_all_10_lanes(self) -> None:
+        git_root = pathlib.Path(__file__).parent.parent
+        with open(git_root / "docs/repo_architect/mutation_lanes.json", encoding="utf-8") as f:
+            data = json.load(f)
+        lanes = data.get("lanes", {})
+        self.assertEqual(len(lanes), 10, f"Expected 10 lanes, got {len(lanes)}")
+        for i in range(10):
+            self.assertIn(str(i), lanes, f"Missing lane {i}")
+
+    def test_dependency_contract_json_has_prohibitions(self) -> None:
+        git_root = pathlib.Path(__file__).parent.parent
+        with open(git_root / "docs/repo_architect/dependency_contract.json", encoding="utf-8") as f:
+            data = json.load(f)
+        self.assertIn("hard_prohibitions", data)
+        self.assertTrue(len(data["hard_prohibitions"]) >= 3)
+
+
+class TestLoadCharterContextCompanionFiles(unittest.TestCase):
+    """Verify load_charter_context returns companion_files metadata."""
+
+    def test_companion_files_in_context(self) -> None:
+        git_root = pathlib.Path(__file__).parent.parent
+        ctx = ra.load_charter_context(git_root)
+        self.assertIn("companion_files", ctx)
+        self.assertIsInstance(ctx["companion_files"], list)
+        # In the real repo, all 3 should exist
+        self.assertEqual(len(ctx["companion_files"]), 3)
 
 
 if __name__ == "__main__":
