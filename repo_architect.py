@@ -914,6 +914,9 @@ def _module_segments(identifier: str) -> Tuple[str, ...]:
     Handles both module names (``backend.core.foo``) and file paths
     (``backend/core/foo.py``).  Always returns a tuple of directory-style
     segments (no dots, no ``.py`` suffix).
+
+    Identifiers containing both dots and slashes are treated as file paths
+    (the slash takes precedence).
     """
     if "." in identifier and "/" not in identifier:
         # Module name → split on dots
@@ -1240,7 +1243,7 @@ def diagnose_gaps(config: Config, analysis: Dict[str, Any], model_meta: Dict[str
                     tgt_parts = _module_segments(tgt)
                     # Agent reaching into another agent's internal module:
                     # both are under "agents" but have different parent packages
-                    if "agents" in tgt_parts and _module_segments(src)[:-1] != _module_segments(tgt)[:-1]:
+                    if "agents" in tgt_parts and src_parts[:-1] != tgt_parts[:-1]:
                         agent_violations.append(f"{src} → {tgt}")
         if agent_violations:
             agent_files = [_module_to_path(v.split(" → ")[0], analysis) for v in agent_violations[:_MAX_VIOLATIONS_DISPLAY]]
