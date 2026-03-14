@@ -1789,7 +1789,7 @@ class TestHigherLaneGapDetection(unittest.TestCase):
             }
             gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
         contract_gaps = [g for g in gaps if g.issue_key == "contract-repair"]
-        self.assertTrue(len(contract_gaps) >= 1, "Expected a contract-repair gap for interface→core import")
+        self.assertGreaterEqual(len(contract_gaps), 1, "Expected a contract-repair gap for interface→core import")
         self.assertEqual(contract_gaps[0].subsystem, "core")
 
     def test_agent_boundary_violations_produce_gap(self) -> None:
@@ -1810,7 +1810,7 @@ class TestHigherLaneGapDetection(unittest.TestCase):
             }
             gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
         boundary_gaps = [g for g in gaps if g.issue_key == "agent-boundary"]
-        self.assertTrue(len(boundary_gaps) >= 1, "Expected an agent-boundary gap for cross-agent import")
+        self.assertGreaterEqual(len(boundary_gaps), 1, "Expected an agent-boundary gap for cross-agent import")
         self.assertEqual(boundary_gaps[0].subsystem, "agents")
 
     def test_no_violations_no_higher_lane_gaps(self) -> None:
