@@ -1,0 +1,9 @@
+{
+  "artifact_files": [
+    ".agent/latest_analysis.json",
+    ".agent/code_graph.json",
+    "docs/repo_architect/issues/1a3e5f0dc392.md",
+    "docs/repo_architect/issues/39189bfe6f6c.md"
+  ],
+  "generated_at": 1773512116
+}

@@ -1243,5 +1243,500 @@ class TestCharterContext(unittest.TestCase):
         self.assertNotEqual(ctx1["content_hash"], ctx2["content_hash"])
 
 
+# ---------------------------------------------------------------------------
+# 14. Issue-first mode: fingerprint generation
+# ---------------------------------------------------------------------------
+
+class TestIssueFingerprintGeneration(unittest.TestCase):
+    """issue_fingerprint must be deterministic, stable, and collision-resistant."""
+
+    def test_deterministic_same_inputs(self) -> None:
+        fp1 = ra.issue_fingerprint("runtime", "import-cycles")
+        fp2 = ra.issue_fingerprint("runtime", "import-cycles")
+        self.assertEqual(fp1, fp2)
+
+    def test_different_subsystem_differs(self) -> None:
+        fp1 = ra.issue_fingerprint("runtime", "import-cycles")
+        fp2 = ra.issue_fingerprint("workflow", "import-cycles")
+        self.assertNotEqual(fp1, fp2)
+
+    def test_different_key_differs(self) -> None:
+        fp1 = ra.issue_fingerprint("runtime", "import-cycles")
+        fp2 = ra.issue_fingerprint("runtime", "parse-errors")
+        self.assertNotEqual(fp1, fp2)
+
+    def test_output_is_12_hex_chars(self) -> None:
+        fp = ra.issue_fingerprint("runtime", "import-cycles")
+        self.assertEqual(len(fp), 12)
+        self.assertRegex(fp, r"^[0-9a-f]{12}$")
+
+    def test_case_insensitive_canonical(self) -> None:
+        fp1 = ra.issue_fingerprint("Runtime", "Import-Cycles")
+        fp2 = ra.issue_fingerprint("runtime", "import-cycles")
+        self.assertEqual(fp1, fp2)
+
+
+# ---------------------------------------------------------------------------
+# 15. Issue-first mode: issue body rendering
+# ---------------------------------------------------------------------------
+
+class TestRenderIssueBody(unittest.TestCase):
+    """render_issue_body must produce a fully-structured markdown body."""
+
+    def _make_gap(self) -> ra.ArchGap:
+        return ra.ArchGap(
+            subsystem="runtime",
+            issue_key="import-cycles",
+            title="[arch-gap] Break 3 circular import cycle(s)",
+            summary="Three circular imports degrade startup.",
+            problem="Cycles: a → b → a.",
+            why_it_matters="They slow startup.",
+            scope="Break top 3 cycles.",
+            suggested_files=["backend/foo.py", "backend/bar.py"],
+            implementation_notes="Use TYPE_CHECKING.",
+            acceptance_criteria=["No cycles remain.", "Tests pass."],
+            validation_commands=["python -m pytest -x -q"],
+            out_of_scope="Unrelated refactoring.",
+            copilot_prompt="You are fixing import cycles. Start with backend/foo.py.",
+            priority="high",
+            confidence=0.95,
+        )
+
+    def test_contains_all_sections(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            body = ra.render_issue_body(self._make_gap(), config, "run-001")
+        for section in ("Summary", "Problem", "Why it matters", "Scope",
+                        "Suggested files", "Implementation notes",
+                        "Copilot implementation prompt", "Acceptance criteria",
+                        "Validation", "Out of scope", "Machine metadata"):
+            self.assertIn(section, body, f"Missing section: {section!r}")
+
+    def test_fingerprint_embedded_in_body(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            gap = self._make_gap()
+            body = ra.render_issue_body(gap, config, "run-001")
+        fp = ra.issue_fingerprint(gap.subsystem, gap.issue_key)
+        self.assertIn(f"arch-gap-fingerprint: {fp}", body)
+
+    def test_copilot_prompt_block_present(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            body = ra.render_issue_body(self._make_gap(), config, "run-001")
+        self.assertIn("Copilot Chat", body)
+        self.assertIn("agent mode", body)
+        self.assertIn("You are fixing import cycles", body)
+
+    def test_acceptance_criteria_as_checkboxes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            body = ra.render_issue_body(self._make_gap(), config, "run-001")
+        self.assertIn("- [ ] No cycles remain.", body)
+        self.assertIn("- [ ] Tests pass.", body)
+
+    def test_machine_metadata_json_valid(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            body = ra.render_issue_body(self._make_gap(), config, "run-001")
+        # Extract JSON from body
+        import re as _re
+        m = _re.search(r"```json\n(\{.*?\})\n```", body, _re.DOTALL)
+        self.assertIsNotNone(m, "Expected a JSON code block in the body")
+        meta = json.loads(m.group(1))
+        for field in ("subsystem", "priority", "confidence", "mode", "generated_at", "run_id", "fingerprint", "issue_key"):
+            self.assertIn(field, meta, f"Missing machine metadata field: {field!r}")
+        self.assertEqual(meta["mode"], ra.ISSUE_MODE)
+
+
+# ---------------------------------------------------------------------------
+# 16. Issue-first mode: deduplication
+# ---------------------------------------------------------------------------
+
+class TestIssueSynthesisDeduplication(unittest.TestCase):
+    """synthesize_issue must detect duplicates and skip creation."""
+
+    def _make_gap(self) -> ra.ArchGap:
+        return ra.ArchGap(
+            subsystem="runtime",
+            issue_key="parse-errors",
+            title="[arch-gap] Fix parse errors",
+            summary="Parse errors found.",
+            problem="Files: bad.py.",
+            why_it_matters="CI fails.",
+            scope="Fix syntax.",
+            suggested_files=["bad.py"],
+            implementation_notes="Fix syntax.",
+            acceptance_criteria=["All files compile."],
+            validation_commands=["python -m py_compile bad.py"],
+            out_of_scope="Logic changes.",
+            copilot_prompt="Fix bad.py syntax.",
+            priority="critical",
+            confidence=1.0,
+        )
+
+    def test_dry_run_writes_file_not_api(self) -> None:
+        """In dry-run mode, synthesize_issue writes to disk and does not call GitHub API."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, github_token=None)
+            gap = self._make_gap()
+            action = ra.synthesize_issue(config, gap, "run-001", dry_run=True)
+            self.assertEqual(action.action, "dry_run")
+            self.assertIsNone(action.issue_number)
+            self.assertIsNotNone(action.dry_run_path)
+            # File must exist on disk (check inside with block while tmp dir still exists)
+            out_path = root / action.dry_run_path
+            self.assertTrue(out_path.exists(), f"Dry-run output not written: {out_path}")
+            content = out_path.read_text(encoding="utf-8")
+            self.assertIn(gap.title, content)
+
+    def test_no_credentials_falls_back_to_dry_run(self) -> None:
+        """When no GitHub credentials are available, synthesize_issue auto-falls-back to dry-run."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, github_token=None, github_repo=None)
+            gap = self._make_gap()
+            action = ra.synthesize_issue(config, gap, "run-001", dry_run=False)
+        self.assertEqual(action.action, "dry_run")
+        self.assertIsNotNone(action.dry_run_path)
+
+    def test_skips_creation_when_existing_issue_found(self) -> None:
+        """When an open issue with matching fingerprint exists, update instead of create."""
+        gap = self._make_gap()
+        fp = ra.issue_fingerprint(gap.subsystem, gap.issue_key)
+        fake_existing = {"number": 42, "html_url": "https://github.com/test/repo/issues/42",
+                         "body": f"<!-- arch-gap-fingerprint: {fp} -->"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, github_token="fake-tok", github_repo="org/repo")
+
+            with patch.object(ra, "find_existing_github_issue", return_value=fake_existing):
+                with patch.object(ra, "update_github_issue_api", return_value={"id": 1}) as mock_update:
+                    with patch.object(ra, "ensure_github_labels"):
+                        action = ra.synthesize_issue(config, gap, "run-001", dry_run=False)
+
+        self.assertEqual(action.action, "updated")
+        self.assertEqual(action.issue_number, 42)
+        self.assertEqual(action.dedupe_result, "existing_open")
+        mock_update.assert_called_once()
+
+    def test_creates_new_issue_when_no_duplicate(self) -> None:
+        """When no open issue with matching fingerprint exists, create a new one."""
+        gap = self._make_gap()
+        fake_created = {"number": 99, "html_url": "https://github.com/test/repo/issues/99"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, github_token="fake-tok", github_repo="org/repo")
+
+            with patch.object(ra, "find_existing_github_issue", return_value=None):
+                with patch.object(ra, "create_github_issue_api", return_value=fake_created) as mock_create:
+                    with patch.object(ra, "ensure_github_labels"):
+                        action = ra.synthesize_issue(config, gap, "run-001", dry_run=False)
+
+        self.assertEqual(action.action, "created")
+        self.assertEqual(action.issue_number, 99)
+        self.assertEqual(action.dedupe_result, "new")
+        mock_create.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# 17. Issue-first mode: label assignment
+# ---------------------------------------------------------------------------
+
+class TestIssueLabelAssignment(unittest.TestCase):
+    """synthesize_issue must apply the correct base and subsystem labels."""
+
+    def _make_gap(self, subsystem: str = "runtime", priority: str = "medium") -> ra.ArchGap:
+        return ra.ArchGap(
+            subsystem=subsystem, issue_key="test-gap", title="[arch-gap] Test",
+            summary="s", problem="p", why_it_matters="w", scope="s2",
+            suggested_files=[], implementation_notes="i",
+            acceptance_criteria=["done"], validation_commands=["pytest"],
+            out_of_scope="x", copilot_prompt="fix it", priority=priority, confidence=0.8,
+        )
+
+    def test_base_labels_always_applied(self) -> None:
+        gap = self._make_gap()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            action = ra.synthesize_issue(config, gap, "run-001", dry_run=True)
+        for lbl in ("arch-gap", "copilot-task", "needs-implementation"):
+            self.assertIn(lbl, action.labels_applied, f"Missing base label: {lbl!r}")
+
+    def test_subsystem_label_added_when_valid(self) -> None:
+        gap = self._make_gap(subsystem="workflow")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            action = ra.synthesize_issue(config, gap, "run-001", dry_run=True)
+        self.assertIn("workflow", action.labels_applied)
+
+    def test_priority_label_added_for_critical(self) -> None:
+        gap = self._make_gap(priority="critical")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            action = ra.synthesize_issue(config, gap, "run-001", dry_run=True)
+        self.assertIn("priority:critical", action.labels_applied)
+
+    def test_priority_label_added_for_high(self) -> None:
+        gap = self._make_gap(priority="high")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            action = ra.synthesize_issue(config, gap, "run-001", dry_run=True)
+        self.assertIn("priority:high", action.labels_applied)
+
+    def test_no_priority_label_for_medium(self) -> None:
+        gap = self._make_gap(priority="medium")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            action = ra.synthesize_issue(config, gap, "run-001", dry_run=True)
+        self.assertNotIn("priority:medium", action.labels_applied)
+
+
+# ---------------------------------------------------------------------------
+# 18. Issue-first mode: gap diagnosis
+# ---------------------------------------------------------------------------
+
+class TestDiagnoseGaps(unittest.TestCase):
+    """diagnose_gaps must produce correctly populated ArchGap instances."""
+
+    def _model_meta(self, used: bool = False) -> Dict[str, Any]:
+        return {
+            "used": used, "summary": None, "requested_model": None, "actual_model": None,
+            "primary_model": None, "fallback_model": None, "model_used": None,
+            "fallback_used": False, "fallback_reason": None, "fallback_occurred": False, "enabled": False,
+        }
+
+    def test_parse_errors_produce_critical_gap(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            analysis: Dict[str, Any] = {
+                "parse_error_files": ["bad.py", "worse.py"],
+                "cycles": [],
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 80,
+                "score_factors": {},
+            }
+            gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
+        self.assertTrue(any(g.priority == "critical" and "parse" in g.issue_key for g in gaps))
+        self.assertTrue(any("bad.py" in g.suggested_files for g in gaps))
+
+    def test_import_cycles_produce_high_gap(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            analysis: Dict[str, Any] = {
+                "parse_error_files": [],
+                "cycles": [["a.py", "b.py", "a.py"], ["c.py", "d.py", "c.py"]],
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 80,
+                "score_factors": {},
+            }
+            gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
+        cycle_gaps = [g for g in gaps if "cycle" in g.issue_key]
+        self.assertTrue(len(cycle_gaps) >= 1)
+        self.assertEqual(cycle_gaps[0].priority, "high")
+
+    def test_low_architecture_score_produces_gap(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            analysis: Dict[str, Any] = {
+                "parse_error_files": [],
+                "cycles": [],
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 45,
+                "score_factors": {"parse_errors": 3},
+            }
+            gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
+        score_gaps = [g for g in gaps if "score" in g.issue_key or "degradation" in g.issue_key]
+        self.assertTrue(len(score_gaps) >= 1)
+        self.assertEqual(score_gaps[0].priority, "high")
+
+    def test_score_above_threshold_no_score_gap(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            analysis: Dict[str, Any] = {
+                "parse_error_files": [],
+                "cycles": [],
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 85,
+                "score_factors": {},
+            }
+            gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
+        score_gaps = [g for g in gaps if "score" in g.issue_key or "degradation" in g.issue_key]
+        self.assertEqual(len(score_gaps), 0)
+
+    def test_subsystem_filter_applied(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, issue_subsystem="workflow")
+            analysis: Dict[str, Any] = {
+                "parse_error_files": ["bad.py"],
+                "cycles": [["a", "b", "a"]],
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 45,
+                "score_factors": {},
+            }
+            gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
+        # All returned gaps must be in the "workflow" subsystem
+        for g in gaps:
+            self.assertEqual(g.subsystem, "workflow", f"Non-workflow gap returned: {g.issue_key}")
+
+    def test_gaps_sorted_by_priority(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            analysis: Dict[str, Any] = {
+                "parse_error_files": ["bad.py"],  # critical
+                "cycles": [["a", "b", "a"]],      # high
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 45,          # high (score < 50)
+                "score_factors": {},
+            }
+            gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
+        priority_order = [ra.ISSUE_PRIORITY_LEVELS.index(g.priority) for g in gaps]
+        self.assertEqual(priority_order, sorted(priority_order))
+
+    def test_no_duplicate_gaps(self) -> None:
+        """diagnose_gaps must not produce duplicate fingerprints."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            analysis: Dict[str, Any] = {
+                "parse_error_files": ["bad.py"],
+                "cycles": [],
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 45,
+                "score_factors": {},
+            }
+            gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
+        fps = [ra.issue_fingerprint(g.subsystem, g.issue_key) for g in gaps]
+        self.assertEqual(len(fps), len(set(fps)), "Duplicate fingerprints in diagnose_gaps output")
+
+
+# ---------------------------------------------------------------------------
+# 19. Issue-first mode: run_issue_cycle output schema
+# ---------------------------------------------------------------------------
+
+REQUIRED_ISSUE_OUTPUT_FIELDS = frozenset({
+    "status", "mode", "dry_run", "gaps_detected", "gaps_selected",
+    "issue_actions", "summary", "architecture_score",
+    "requested_model", "actual_model", "primary_model", "fallback_model",
+    "model_used", "fallback_used", "fallback_reason", "fallback_occurred",
+    "artifact_files", "charter",
+    # Backward-compat fields
+    "lane", "lanes_active", "branch", "changed_files", "validation",
+    "pull_request_url", "no_safe_code_mutation_reason",
+})
+
+
+class TestRunIssueCycleOutputSchema(unittest.TestCase):
+    def test_output_schema_complete(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, mode=ra.ISSUE_MODE, dry_run=True)
+            result = ra.run_issue_cycle(config)
+        missing = REQUIRED_ISSUE_OUTPUT_FIELDS - set(result.keys())
+        self.assertEqual(missing, set(), f"Missing output fields in issue mode: {missing}")
+
+    def test_status_is_issue_cycle_complete(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, mode=ra.ISSUE_MODE, dry_run=True)
+            result = ra.run_issue_cycle(config)
+        self.assertEqual(result["status"], "issue_cycle_complete")
+        self.assertEqual(result["mode"], ra.ISSUE_MODE)
+
+    def test_dry_run_flag_reflected_in_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, mode=ra.ISSUE_MODE, dry_run=True)
+            result = ra.run_issue_cycle(config)
+        self.assertTrue(result["dry_run"])
+
+    def test_run_cycle_routes_issue_mode(self) -> None:
+        """run_cycle with mode='issue' must delegate to run_issue_cycle."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, mode=ra.ISSUE_MODE, dry_run=True)
+            result = ra.run_cycle(config)
+        self.assertEqual(result["status"], "issue_cycle_complete")
+
+    def test_max_issues_limits_actions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            # Create conditions for multiple gaps: parse errors + cycles
+            (root / "bad.py").write_text("def foo(\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(root), "add", "."], capture_output=True)
+            subprocess.run(["git", "-C", str(root), "commit", "-m", "bad files"], capture_output=True)
+            config = _make_config(root, mode=ra.ISSUE_MODE, dry_run=True, max_issues=1)
+            result = ra.run_issue_cycle(config)
+        self.assertLessEqual(len(result["issue_actions"]), 1)
+
+
+# ---------------------------------------------------------------------------
+# 20. Issue-first mode: deprecated mode warning
+# ---------------------------------------------------------------------------
+
+class TestDeprecatedModeWarning(unittest.TestCase):
+    """Deprecated modes must emit a warning log but still function."""
+
+    def test_mutate_mode_emits_deprecation_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, mode="mutate")
+            analysis: Dict[str, Any] = {
+                "parse_error_files": [],
+                "cycles": [],
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 80,
+                "score_factors": {},
+                "roadmap": [],
+                "python_files": [],
+                "debug_print_candidates": [],
+                "local_import_graph": {},
+            }
+            import io
+            stderr_capture = io.StringIO()
+            import sys as _sys
+            old_stderr = _sys.stderr
+            _sys.stderr = stderr_capture
+            try:
+                ra.build_patch_plan(config, analysis, {}, {})
+            finally:
+                _sys.stderr = old_stderr
+            output = stderr_capture.getvalue()
+        self.assertIn("DEPRECATED", output)
+        self.assertIn("issue", output.lower())
+
+    def test_default_mode_is_issue(self) -> None:
+        """The default CLI mode must be 'issue', not 'report' or 'mutate'."""
+        args = ra.parse_args([])
+        self.assertEqual(args.mode, ra.ISSUE_MODE)
+
+
 if __name__ == "__main__":
     unittest.main()

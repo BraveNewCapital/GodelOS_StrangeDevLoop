@@ -1,168 +1,274 @@
 # repo-architect Operator Guide
 
-## Overview
+## Operating Model
 
-`repo_architect.py` is a single-file autonomous agent that:
-- Analyses the Python codebase for parse errors, import cycles, entrypoints, and hygiene issues.
-- Generates or refreshes architecture documentation under `docs/repo_architect/`.
-- Creates mutation branches and pull-requests that fix real code issues.
-- Can run repeatedly without branch collisions or stale-branch failures.
+`repo_architect.py` is an **architectural governance** tool that inspects the repository, diagnoses structural and operational gaps, and opens structured GitHub Issues containing Copilot-ready implementation prompts.
 
----
+**The system is now an architectural governor. It must not write code, create branches, or open code PRs.**
 
-## Model Selection (preferred / fallback)
+### New operating model
 
-The agent tries a **preferred** model first and automatically retries with a **fallback** model when the preferred one is unavailable or returns an unknown-model error.
-
-| Priority | Source |
-|---|---|
-| 1 | `--preferred-model` CLI flag |
-| 2 | `REPO_ARCHITECT_PREFERRED_MODEL` env var |
-| 3 | Hard-coded default (`openai/gpt-5.4`) |
-
-| Fallback priority | Source |
-|---|---|
-| 1 | `--fallback-model` CLI flag |
-| 2 | `REPO_ARCHITECT_FALLBACK_MODEL` env var |
-| 3 | Hard-coded default (`openai/gpt-4.1`) |
-
-**Failure tolerance:** if both model calls fail (network, quota, unavailability), the run continues without model-generated output instead of aborting. The JSON result records `fallback_reason` and `fallback_occurred`.
-
-The workflow exports:
-```yaml
-REPO_ARCHITECT_PREFERRED_MODEL: openai/gpt-5.4
-REPO_ARCHITECT_FALLBACK_MODEL: openai/gpt-4.1
+```
+inspect repo → identify architectural gap → deduplicate against existing issues
+    → open/update GitHub Issue → attach Copilot prompt → report outcome
 ```
 
----
+The GitHub Issue becomes the mutation surface. Copilot or a human becomes the code author. CI validates the resulting implementation PRs.
 
-## Unique Branch Strategy
+### Deprecated model (disabled by default)
 
-Every mutation branch is suffixed with a per-run unique token to prevent branch-push collisions.
-
-**Suffix precedence:**
-1. `REPO_ARCHITECT_BRANCH_SUFFIX` env var (if set and non-empty)
-2. `GITHUB_RUN_ID-GITHUB_RUN_ATTEMPT` (when both are present)
-3. UTC timestamp fallback (`YYYYmmddHHMMSS`)
-
-The suffix is sanitised to `[A-Za-z0-9._-]` only.
-
-**Push collision recovery:** Before pushing, the agent checks whether the remote branch already exists. If it does, a fresh unique branch name is generated. A single retry is also performed if the push is rejected due to a non-fast-forward error.
-
-The workflow exports:
-```yaml
-REPO_ARCHITECT_BRANCH_SUFFIX: ${{ github.run_id }}-${{ github.run_attempt }}
+```
+inspect repo → generate code diff → create branch → open PR → repeat
 ```
 
+This model is deprecated. Modes `mutate` and `campaign` still function for backward compatibility but emit a runtime deprecation warning and are no longer the default or primary path.
+
 ---
 
-## Lane Priority Rules
+## Modes
 
-In `mutate` and `campaign` modes the agent selects exactly one lane per slice, in this priority order:
-
-| Priority | Lane | Behaviour |
+| Mode | Description | Recommended |
 |---|---|---|
-| 1 | `parse_errors` | Model-assisted syntax fix for one or more files with parse errors. Skipped if no parse errors exist or model is unavailable. |
-| 2 | `import_cycles` | Model-assisted import cycle break (TYPE_CHECKING guard / lazy import). Skipped if no cycles or model unavailable. |
-| 3 | `entrypoint_consolidation` | Annotates one redundant backend server entrypoint with a `# DEPRECATED` comment when ≥ 4 backend entrypoints exist. Model-assisted. |
-| 4 | `hygiene` | Remove explicitly `# DEBUG`-marked `print()` statements. No model required. |
-| 5 | `report` | Refresh the architecture documentation packet. Only selected when no higher-priority code mutation is possible. |
+| `issue` | **Primary mode.** Detects architectural gaps and opens/updates GitHub Issues with Copilot-ready prompts. | ✅ Yes |
+| `analyze` | Build analysis and write `.agent/` artifacts. No GitHub API calls. | ✅ Yes (read-only) |
+| `report` | Refresh `docs/repo_architect/` documentation reports. | ✅ Yes (read-only) |
+| `mutate` | **DEPRECATED.** Attempt one direct code mutation. Emits runtime warning. | ⚠️ Deprecated |
+| `campaign` | **DEPRECATED.** Run multiple mutation slices. Emits runtime warning. | ⚠️ Deprecated |
 
-A **report-only mutation is never produced when parse errors exist** unless all code-lane attempts fail (in which case `no_safe_code_mutation_reason` is populated in the JSON output).
-
-### Scoping lanes in mutate mode
-
-You can restrict which lanes a mutate run considers via `--lanes` or `--lane`:
-
-```bash
-# Only try hygiene lane
-python repo_architect.py --mode mutate --lane hygiene --allow-dirty
-
-# Only try parse_errors and import_cycles
-python repo_architect.py --mode mutate --lanes parse_errors,import_cycles --allow-dirty
-```
-
-This also works via environment variables: `REPO_ARCHITECT_LANES` or `REPO_ARCHITECT_LANE`.
-
-The workflow passes `--lanes` to both mutate and campaign modes, so the `lanes` workflow_dispatch input controls lane selection in every mutation-capable mode.
+The default mode (both CLI and scheduled workflow) is `issue`.
 
 ---
 
-## Campaign Mode
+## Issue Mode
 
-Campaign mode executes up to `--max-slices` mutation slices across the lane priority order, re-analysing between each slice so later lanes see the updated repository state.
+### What it does
+
+1. Builds repository analysis (parse errors, import cycles, entrypoints, architecture score).
+2. Calls GitHub Models for an architectural risk summary (if credentials are available).
+3. Diagnoses concrete architectural gaps from the analysis.
+4. Deduplicates: searches existing open issues for each gap using a deterministic fingerprint.
+5. Creates a new GitHub Issue (or updates an existing one with a comment).
+6. Emits a structured JSON result and workflow step summary.
+
+### Running it
 
 ```bash
-python repo_architect.py \
-  --mode campaign \
-  --allow-dirty \
-  --max-slices 3 \
-  --lanes parse_errors,import_cycles,entrypoint_consolidation,hygiene,report \
-  --stop-on-failure
+# Live mode: create/update real GitHub Issues
+python repo_architect.py --mode issue --allow-dirty
+
+# Dry-run: write issue bodies to disk without API calls
+python repo_architect.py --mode issue --allow-dirty --dry-run
+
+# Target a specific subsystem
+python repo_architect.py --mode issue --allow-dirty --issue-subsystem runtime
+
+# Open up to 3 issues per run
+python repo_architect.py --mode issue --allow-dirty --max-issues 3
 ```
 
-**CLI flags:**
+### Environment variables
+
+| Variable | Description |
+|---|---|
+| `GITHUB_TOKEN` | Required for live issue creation. Must have `issues: write` permission. |
+| `GITHUB_REPO` | Repository in `owner/repo` format. |
+| `REPO_ARCHITECT_PREFERRED_MODEL` | Preferred GitHub Models model ID. |
+| `REPO_ARCHITECT_FALLBACK_MODEL` | Fallback model if preferred is unavailable. |
+| `REPO_ARCHITECT_SUBSYSTEM` | Target subsystem for gap detection. |
+
+### CLI flags
 
 | Flag | Default | Description |
 |---|---|---|
-| `--max-slices` | `3` | Maximum slices to attempt |
-| `--lanes` | all 5 lanes | Comma-separated lane order (also works in mutate mode) |
-| `--stop-on-failure` | `false` | Abort remaining slices on first failure |
-| `--preferred-model` | (env / default) | Override preferred model for this run |
-| `--fallback-model` | (env / default) | Override fallback model for this run |
+| `--mode issue` | required | Enable issue-first mode |
+| `--dry-run` | `false` | Write issue bodies to disk only |
+| `--max-issues N` | `1` | Maximum issues to open/update per run |
+| `--issue-subsystem X` | all | Restrict to one subsystem |
+| `--allow-dirty` | `false` | Skip dirty-worktree check |
 
-Campaign results are emitted as `status: campaign_complete` JSON and also saved to `.agent/campaign_summary.json`.
+---
+
+## Issue Structure
+
+Each generated issue follows this template:
+
+| Section | Description |
+|---|---|
+| **Summary** | 1-2 sentence description of the gap |
+| **Problem** | Detailed problem statement with evidence |
+| **Why it matters** | Impact and urgency justification |
+| **Scope** | Bounded implementation scope |
+| **Suggested files** | Repo-relative file paths relevant to the fix |
+| **Implementation notes** | Guidance for the implementer |
+| **Copilot implementation prompt** | Ready-to-paste prompt for Copilot Chat / agent mode |
+| **Acceptance criteria** | Checklist items to verify the fix |
+| **Validation** | Shell commands to validate the implementation |
+| **Out of scope** | Explicit exclusions |
+| **Machine metadata** | Structured JSON: subsystem, priority, confidence, fingerprint, run_id, etc. |
+
+### Machine metadata fields
+
+```json
+{
+  "subsystem": "runtime",
+  "priority": "high",
+  "confidence": 0.95,
+  "mode": "issue",
+  "generated_at": "2026-01-01T00:00:00Z",
+  "run_id": "12345678-1",
+  "repo": "org/repo",
+  "issue_key": "import-cycles",
+  "fingerprint": "a1b2c3d4e5f6"
+}
+```
+
+---
+
+## Detected Gap Types
+
+| Gap | Subsystem | Priority |
+|---|---|---|
+| Python parse errors | `runtime` | `critical` |
+| Import cycles | `runtime` | `high` |
+| Entrypoint fragmentation (≥4 backend entrypoints) | `runtime` | `medium` |
+| Architecture score < 70/100 | `reporting` | `high` / `medium` |
+| Workflow / documentation drift (model-assisted) | `workflow` | `medium` |
+
+---
+
+## Deduplication
+
+Each gap has a deterministic 12-hex-character fingerprint derived from `subsystem:issue_key`. The fingerprint is embedded in the issue body as:
+
+```html
+<!-- arch-gap-fingerprint: a1b2c3d4e5f6 -->
+```
+
+On each run:
+- If a matching **open** issue exists → add a re-scan comment (no new issue).
+- If no matching issue exists → create a new one.
+
+---
+
+## Labels and Lifecycle
+
+### Base labels (always applied)
+
+- `arch-gap` — identifies this as an architecture governance issue
+- `copilot-task` — ready for Copilot to implement
+- `needs-implementation` — awaiting a code PR
+
+### Subsystem labels (where applicable)
+
+`workflow`, `runtime`, `reporting`, `docs`, `model-routing`, `issue-orchestration`
+
+### Priority labels (critical and high only)
+
+`priority:critical`, `priority:high`
+
+### Lifecycle labels (manually applied by maintainers)
+
+- `ready-for-validation` — implementation PR exists, needs CI review
+- `blocked` — blocked by a dependency or decision
+- `superseded` — replaced by a more comprehensive issue
+
+---
+
+## Dry-Run Mode
+
+In dry-run mode (`--dry-run` flag or `dry_run: 'true'` workflow input), the system writes issue bodies to `docs/repo_architect/issues/<fingerprint>.md` instead of calling the GitHub Issues API. This is useful for:
+- Local testing and preview
+- CI pipelines without `issues: write` permission
+- Auditing generated prompts before publishing
+
+---
+
+## How Copilot Consumes the Generated Prompt
+
+1. Maintainer opens the GitHub Issue created by this workflow.
+2. In the issue body, find the **Copilot implementation prompt** section.
+3. Copy the entire code block.
+4. Paste into **GitHub Copilot Chat** (agent mode) or the Copilot Workspace.
+5. Copilot reads the referenced files, implements the fix, and opens a PR.
+6. CI validates the PR against the **Validation** commands in the issue.
+7. Maintainer reviews and merges.
+
+---
+
+## Workflow Dispatch Inputs
+
+| Input | Default | Description |
+|---|---|---|
+| `mode` | `issue` | Operating mode |
+| `dry_run` | `false` | Dry-run without API calls |
+| `max_issues` | `1` | Max issues per run |
+| `issue_subsystem` | (all) | Target subsystem |
+| `github_model` | (catalog) | Override preferred model |
+| `github_fallback_model` | (catalog) | Override fallback model |
+| `report_path` | `docs/repo_architect/runtime_inventory.md` | Report output path (analyze/report modes) |
+| `mutation_budget` | `1` | [DEPRECATED] mutation budget |
+| `max_slices` | `3` | [DEPRECATED] campaign slices |
+| `lanes` | all lanes | [DEPRECATED] lane order |
 
 ---
 
 ## Output Contract (machine-readable JSON)
 
-Every run emits a JSON object on stdout. Key fields:
+### Issue mode output
 
 | Field | Description |
 |---|---|
-| `status` | `analyzed`, `analysis_only`, `mutated`, `no_meaningful_delta`, `no_safe_mutation_available`, `campaign_complete` |
-| `mode` | Active mode |
-| `lane` | Selected mutation lane (`none` if no mutation) |
-| `lanes_active` | List of lanes considered (from `--lanes` / env or default lane order) |
-| `architecture_score` | 1–100 composite health score |
-| `requested_model` | Model that was requested |
-| `actual_model` | Model that actually responded (may differ if fallback occurred) |
-| `fallback_reason` | Reason fallback was triggered (or `null`) |
-| `fallback_occurred` | `true` if the fallback model was used |
-| `no_safe_code_mutation_reason` | Explanation when no code-level mutation was safe |
-| `branch` | Git branch name pushed (or `null`) |
-| `changed_files` | List of files modified |
-| `validation` | Output from `py_compile` or equivalent validation |
-| `artifact_files` | All artifact paths generated in this run |
-| `pull_request_url` | PR URL if created |
+| `status` | `issue_cycle_complete` |
+| `mode` | `issue` |
+| `dry_run` | Whether dry-run mode was active |
+| `gaps_detected` | Total gaps found |
+| `gaps_selected` | Gaps processed (up to `max_issues`) |
+| `issue_actions` | Array of `IssueAction` objects |
+| `summary` | Human-readable summary lines |
+| `architecture_score` | 1-100 composite health score |
+| `artifact_files` | All artifact paths generated |
+| `charter` | Charter metadata |
+
+### IssueAction fields
+
+| Field | Description |
+|---|---|
+| `action` | `created`, `updated`, `dry_run`, or `error` |
+| `issue_number` | GitHub Issue number (null for dry-run) |
+| `issue_url` | GitHub Issue URL |
+| `labels_applied` | Labels attached to the issue |
+| `dedupe_result` | `new`, `existing_open`, or `n/a` |
+| `fingerprint` | 12-char deterministic fingerprint |
+| `dry_run_path` | Relative path to dry-run artifact (dry-run only) |
+| `gap_title` | Issue title |
+| `gap_subsystem` | Subsystem of the detected gap |
+
+### Example output
+
+```
+created issue #12 for workflow architectural drift
+updated existing issue #9 for reporting schema inconsistency
+skipped creation because matching open issue exists
+dry-run generated issue body at docs/repo_architect/issues/a1b2c3d4e5f6.md
+```
 
 ---
 
-## Workflow Dispatch Modes
+## Model Selection (preferred / fallback)
 
-| Mode | Effect |
+The system tries a **preferred** model first and automatically retries with a **fallback** model when unavailable.
+
+| Priority | Source |
 |---|---|
-| `analyze` | Builds analysis, writes `.agent/` artifacts, no branch or PR |
-| `report` | Refreshes `docs/repo_architect/` documentation |
-| `mutate` | Attempts one code or report mutation in lane-priority order |
-| `campaign` | Runs up to `max_slices` slices serially across lanes |
+| 1 | `--preferred-model` CLI flag |
+| 2 | `REPO_ARCHITECT_PREFERRED_MODEL` env var |
+| 3 | Hard-coded default (`openai/gpt-5`) |
 
----
-
-## Validation Policy
-
-Each mutation lane runs the following validation before pushing:
-
-| Lane | Validation |
+| Fallback priority | Source |
 |---|---|
-| `parse_errors` | `ast.parse` on model-generated content; file must parse cleanly or it is rejected |
-| `import_cycles` | `ast.parse` on model-generated content; import smoke test attempted (warn-only) |
-| `entrypoint_consolidation` | `ast.parse` on model-generated content |
-| `hygiene` | `python -m py_compile` on all touched Python files |
-| `report` | Verify report files were written; hash included in output |
-
-Validation failures abort the mutation and **never push a broken branch**.
+| 1 | `--fallback-model` CLI flag |
+| 2 | `REPO_ARCHITECT_FALLBACK_MODEL` env var |
+| 3 | Hard-coded default (`openai/o3`) |
 
 ---
 
@@ -172,4 +278,18 @@ Validation failures abort the mutation and **never push a broken branch**.
 python -m unittest tests.test_repo_architect -v
 ```
 
-The test suite covers: branch suffix generation, model fallback, `ast.parse` gate, campaign aggregation, output schema stability, lane priority selection, `entrypoint_consolidation` threshold/validation, lane scoping in mutate mode (`--lane`, `--lanes`, env vars), and enhanced validation (import smoke for import_cycles lane).
+The test suite covers: branch suffix generation, model fallback, `ast.parse` gate, campaign aggregation, output schema stability, lane priority, `entrypoint_consolidation`, lane scoping, `validate_change`, charter context, issue fingerprint generation, issue body rendering, deduplication behavior, label assignment, gap diagnosis, `run_issue_cycle` output schema, and deprecated mode warnings.
+
+---
+
+## Deprecated: Mutation Modes
+
+The `mutate` and `campaign` modes are preserved for backward compatibility but emit a runtime warning:
+
+```
+⚠️  DEPRECATED: mode 'mutate' performs direct code mutation which is no longer
+the primary operating model.  Use --mode issue to open structured GitHub Issues
+with Copilot-ready implementation prompts instead.
+```
+
+If you need to continue using mutation modes temporarily, pass `--mode mutate` or `--mode campaign` explicitly. These modes will not be removed immediately, but will be gated behind an explicit opt-in in a future release.

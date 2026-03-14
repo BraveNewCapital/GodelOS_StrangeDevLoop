@@ -71,6 +71,23 @@ _MODEL_UNAVAILABLE_SIGNALS = frozenset({
 })
 # Canonical lane execution order for mutate / campaign modes
 MUTATION_LANE_ORDER: Tuple[str, ...] = ("parse_errors", "import_cycles", "entrypoint_consolidation", "hygiene", "report")
+# Issue-first mode (new primary operating mode)
+ISSUE_MODE = "issue"
+# Modes that perform direct code mutation – deprecated; emit runtime warning when used
+DEPRECATED_MUTATION_MODES: Tuple[str, ...] = ("mutate", "campaign")
+# Directory for dry-run issue artifacts
+ISSUE_REPORT_DIR = DEFAULT_REPORT_DIR / "issues"
+# Standard labels for the issue-first governance system
+ARCH_GAP_LABELS: Tuple[str, ...] = (
+    "arch-gap", "copilot-task", "needs-implementation",
+    "ready-for-validation", "blocked", "superseded",
+)
+SUBSYSTEM_LABELS: Tuple[str, ...] = (
+    "workflow", "runtime", "reporting", "docs",
+    "model-routing", "issue-orchestration",
+)
+# Priority levels for detected architectural gaps
+ISSUE_PRIORITY_LEVELS: Tuple[str, ...] = ("critical", "high", "medium", "low")
 # Canonical architectural charter files (relative to git root)
 CHARTER_PATHS: Tuple[str, ...] = (
     "docs/architecture/GODELOS_ARCHITECTURAL_CHARTER.md",
@@ -124,6 +141,10 @@ class Config:
     github_fallback_model: Optional[str] = None
     # Explicit lane order override (None = use MUTATION_LANE_ORDER)
     campaign_lanes: Optional[Tuple[str, ...]] = None
+    # Issue-first mode options
+    dry_run: bool = False           # write issue bodies to disk but do not call GitHub API
+    max_issues: int = 1             # maximum issues to open/update per run in issue mode
+    issue_subsystem: Optional[str] = None  # target a specific subsystem (None = all)
 
 
 @dataclasses.dataclass
@@ -146,6 +167,41 @@ class PatchPlan:
     pr_title: str
     pr_body: str
     stable_branch_hint: str
+
+
+@dataclasses.dataclass
+class ArchGap:
+    """A concrete architectural or operational gap detected by the system."""
+    subsystem: str          # one of SUBSYSTEM_LABELS (e.g. "runtime", "workflow")
+    issue_key: str          # short deterministic slug (e.g. "import-cycles-backend")
+    title: str              # short human-readable title for the GitHub issue
+    summary: str            # 1-2 sentence description
+    problem: str            # detailed problem statement
+    why_it_matters: str     # justification
+    scope: str              # bounded scope description
+    suggested_files: List[str]   # repo-relative file paths relevant to the fix
+    implementation_notes: str    # guidance for implementer / Copilot
+    acceptance_criteria: List[str]
+    validation_commands: List[str]
+    out_of_scope: str
+    copilot_prompt: str     # ready-to-paste Copilot Chat / agent mode prompt
+    priority: str           # one of ISSUE_PRIORITY_LEVELS
+    confidence: float       # 0.0-1.0
+
+
+@dataclasses.dataclass
+class IssueAction:
+    """Result of a single issue synthesis operation."""
+    action: str             # "created" | "updated" | "skipped" | "dry_run" | "error"
+    issue_number: Optional[int]
+    issue_url: Optional[str]
+    labels_applied: List[str]
+    dedupe_result: str      # "new" | "existing_open" | "superseded" | "n/a"
+    fingerprint: str
+    dry_run_path: Optional[str]
+    gap_title: str
+    gap_subsystem: str
+    error: Optional[str] = None
 
 
 def log(message: str, *, data: Optional[Dict[str, Any]] = None, json_mode: bool = False) -> None:
@@ -552,6 +608,628 @@ def create_or_update_pull_request(config: Config, branch: str, title: str, body:
         "maintainer_can_modify": True,
     }
     return github_request(config.github_token, f"/repos/{config.github_repo}/pulls", method="POST", payload=payload)
+
+
+# -----------------------------------------------------------------------
+# Issue-first orchestration
+# -----------------------------------------------------------------------
+
+def issue_fingerprint(subsystem: str, issue_key: str) -> str:
+    """Return a deterministic 12-hex-char fingerprint for deduplication."""
+    canonical = f"{subsystem}:{issue_key}".lower().strip()
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:12]
+
+
+def render_issue_body(gap: ArchGap, config: Config, run_id: str) -> str:
+    """Render a structured GitHub issue body from an ArchGap."""
+    fp = issue_fingerprint(gap.subsystem, gap.issue_key)
+    generated_at = dt.datetime.now(dt.timezone.utc).isoformat()
+    criteria_md = "\n".join(f"- [ ] {c}" for c in gap.acceptance_criteria)
+    validation_md = "\n".join(f"```\n{v}\n```" for v in gap.validation_commands)
+    files_md = "\n".join(f"- `{f}`" for f in gap.suggested_files) if gap.suggested_files else "_See implementation notes._"
+    machine_meta = json.dumps({
+        "subsystem": gap.subsystem,
+        "priority": gap.priority,
+        "confidence": gap.confidence,
+        "mode": ISSUE_MODE,
+        "generated_at": generated_at,
+        "run_id": run_id,
+        "repo": config.github_repo or "unknown",
+        "issue_key": gap.issue_key,
+        "fingerprint": fp,
+    }, indent=2, sort_keys=True)
+
+    # Build without textwrap.dedent so embedded multi-line content (JSON, copilot prompt)
+    # does not interfere with whitespace stripping.
+    parts = [
+        "## Summary", "", gap.summary, "",
+        "## Problem", "", gap.problem, "",
+        "## Why it matters", "", gap.why_it_matters, "",
+        "## Scope", "", gap.scope, "",
+        "## Suggested files", "", files_md, "",
+        "## Implementation notes", "", gap.implementation_notes, "",
+        "## Copilot implementation prompt", "",
+        "> Paste the block below directly into **Copilot Chat** or **agent mode** to begin implementation.", "",
+        "```", gap.copilot_prompt, "```", "",
+        "## Acceptance criteria", "", criteria_md, "",
+        "## Validation", "", validation_md, "",
+        "## Out of scope", "", gap.out_of_scope, "",
+        "---",
+        f"<!-- arch-gap-fingerprint: {fp} -->",
+        "<details>",
+        "<summary>Machine metadata</summary>", "",
+        "```json", machine_meta, "```",
+        "</details>", "",
+    ]
+    return "\n".join(parts)
+
+
+def find_existing_github_issue(config: Config, fingerprint: str) -> Optional[Dict[str, Any]]:
+    """Search open GitHub Issues for one containing the arch-gap fingerprint marker."""
+    if not config.github_token or not config.github_repo:
+        return None
+    marker = f"arch-gap-fingerprint: {fingerprint}"
+    query = urllib.parse.urlencode({"q": f"repo:{config.github_repo} is:issue is:open {marker}", "per_page": "5"})
+    try:
+        result = github_request(config.github_token, f"/search/issues?{query}")
+        items = result.get("items", []) if isinstance(result, dict) else []
+        for item in items:
+            body = item.get("body") or ""
+            if marker in body:
+                return item
+    except RepoArchitectError:
+        pass
+    return None
+
+
+def ensure_github_labels(config: Config, label_names: Sequence[str]) -> None:
+    """Create any missing repo labels (best-effort; errors are non-fatal)."""
+    if not config.github_token or not config.github_repo:
+        return
+    # Palette: alternating colours for visibility
+    _COLOURS = ["0075ca", "e4e669", "d93f0b", "0052cc", "5319e7", "1d76db", "b60205", "006b75"]
+    try:
+        existing_raw = github_request(config.github_token, f"/repos/{config.github_repo}/labels?per_page=100")
+        existing = {item["name"] for item in existing_raw} if isinstance(existing_raw, list) else set()
+    except RepoArchitectError:
+        existing = set()
+    for i, name in enumerate(label_names):
+        if name in existing:
+            continue
+        colour = _COLOURS[i % len(_COLOURS)]
+        try:
+            github_request(
+                config.github_token,
+                f"/repos/{config.github_repo}/labels",
+                method="POST",
+                payload={"name": name, "color": colour},
+            )
+        except RepoArchitectError:
+            pass  # label already exists race or insufficient permissions
+
+
+def create_github_issue_api(
+    config: Config, title: str, body: str, labels: List[str]
+) -> Dict[str, Any]:
+    """Create a GitHub Issue and return the API response."""
+    if not config.github_token or not config.github_repo:
+        raise RepoArchitectError("Missing GITHUB_TOKEN or GITHUB_REPO for issue creation.")
+    payload: Dict[str, Any] = {"title": title, "body": body}
+    if labels:
+        payload["labels"] = labels
+    return github_request(config.github_token, f"/repos/{config.github_repo}/issues", method="POST", payload=payload)
+
+
+def update_github_issue_api(
+    config: Config, issue_number: int, comment: str
+) -> Dict[str, Any]:
+    """Add a comment to an existing GitHub Issue."""
+    if not config.github_token or not config.github_repo:
+        raise RepoArchitectError("Missing GITHUB_TOKEN or GITHUB_REPO for issue update.")
+    return github_request(
+        config.github_token,
+        f"/repos/{config.github_repo}/issues/{issue_number}/comments",
+        method="POST",
+        payload={"body": comment},
+    )
+
+
+def synthesize_issue(
+    config: Config, gap: ArchGap, run_id: str, dry_run: bool
+) -> IssueAction:
+    """Synthesize one GitHub Issue for a detected ArchGap.
+
+    Behavior:
+    - Renders the full structured issue body.
+    - In dry_run mode: writes the body to disk under ISSUE_REPORT_DIR.
+    - In live mode: deduplicates against open issues then creates or updates.
+    """
+    fp = issue_fingerprint(gap.subsystem, gap.issue_key)
+    body = render_issue_body(gap, config, run_id)
+    labels: List[str] = ["arch-gap", "copilot-task", "needs-implementation"]
+    if gap.subsystem in SUBSYSTEM_LABELS:
+        labels.append(gap.subsystem)
+    if gap.priority in ("critical", "high"):
+        labels.append(f"priority:{gap.priority}")
+
+    if dry_run:
+        out_dir = config.git_root / ISSUE_REPORT_DIR
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"{fp}.md"
+        header = f"# {gap.title}\n\n_Dry-run preview — not submitted to GitHub._\n\n"
+        atomic_write_text(out_path, header + body)
+        return IssueAction(
+            action="dry_run",
+            issue_number=None,
+            issue_url=None,
+            labels_applied=labels,
+            dedupe_result="n/a",
+            fingerprint=fp,
+            dry_run_path=str(out_path.relative_to(config.git_root)),
+            gap_title=gap.title,
+            gap_subsystem=gap.subsystem,
+        )
+
+    if not config.github_token or not config.github_repo:
+        # No credentials: fall back to dry-run automatically
+        out_dir = config.git_root / ISSUE_REPORT_DIR
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"{fp}.md"
+        header = f"# {gap.title}\n\n_No GitHub credentials — saved locally only._\n\n"
+        atomic_write_text(out_path, header + body)
+        return IssueAction(
+            action="dry_run",
+            issue_number=None,
+            issue_url=None,
+            labels_applied=labels,
+            dedupe_result="n/a",
+            fingerprint=fp,
+            dry_run_path=str(out_path.relative_to(config.git_root)),
+            gap_title=gap.title,
+            gap_subsystem=gap.subsystem,
+        )
+
+    # Ensure required labels exist
+    ensure_github_labels(config, labels)
+
+    # Deduplication: search for an existing open issue with the same fingerprint
+    existing = find_existing_github_issue(config, fp)
+    if existing:
+        issue_number = existing["number"]
+        issue_url = existing.get("html_url")
+        ts = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        comment = (
+            f"**repo-architect re-scan** ({ts}, run `{run_id}`): "
+            f"this gap is still detected. No new issue opened.\n\n"
+            f"Priority: `{gap.priority}` | Confidence: `{gap.confidence:.0%}`"
+        )
+        try:
+            update_github_issue_api(config, issue_number, comment)
+        except RepoArchitectError as exc:
+            return IssueAction(
+                action="error", issue_number=issue_number, issue_url=issue_url,
+                labels_applied=[], dedupe_result="existing_open", fingerprint=fp,
+                dry_run_path=None, gap_title=gap.title, gap_subsystem=gap.subsystem,
+                error=str(exc),
+            )
+        return IssueAction(
+            action="updated", issue_number=issue_number, issue_url=issue_url,
+            labels_applied=[], dedupe_result="existing_open", fingerprint=fp,
+            dry_run_path=None, gap_title=gap.title, gap_subsystem=gap.subsystem,
+        )
+
+    # No existing issue – create a new one
+    try:
+        issue = create_github_issue_api(config, gap.title, body, labels)
+    except RepoArchitectError as exc:
+        return IssueAction(
+            action="error", issue_number=None, issue_url=None,
+            labels_applied=labels, dedupe_result="new", fingerprint=fp,
+            dry_run_path=None, gap_title=gap.title, gap_subsystem=gap.subsystem,
+            error=str(exc),
+        )
+    return IssueAction(
+        action="created",
+        issue_number=issue.get("number"),
+        issue_url=issue.get("html_url"),
+        labels_applied=labels,
+        dedupe_result="new",
+        fingerprint=fp,
+        dry_run_path=None,
+        gap_title=gap.title,
+        gap_subsystem=gap.subsystem,
+    )
+
+
+def _build_copilot_prompt(gap_title: str, subsystem: str, scope: str,
+                          suggested_files: List[str], validation_commands: List[str],
+                          implementation_notes: str) -> str:
+    """Build a concrete Copilot Chat / agent-mode prompt for a detected gap."""
+    files_text = ", ".join(f"`{f}`" for f in suggested_files[:5]) if suggested_files else "relevant files in the subsystem"
+    validation_text = " ".join(f"`{v}`" for v in validation_commands[:2]) if validation_commands else "run the test suite"
+    return textwrap.dedent(f"""\
+        You are implementing a fix for a detected architectural gap in this repository.
+
+        **Task:** {gap_title}
+        **Subsystem:** {subsystem}
+        **Scope:** {scope}
+
+        **Files likely involved:** {files_text}
+
+        **Implementation guidance:**
+        {implementation_notes}
+
+        **Requirements:**
+        - Make concrete changes to the repository (not just analysis or suggestions).
+        - Keep changes minimal and targeted to the described scope.
+        - Do not modify files outside the stated scope.
+        - Ensure all existing tests still pass after your changes.
+        - Run {validation_text} to verify your implementation.
+
+        Start by reading the files listed above, then implement the fix.
+        """).strip()
+
+
+def diagnose_gaps(config: Config, analysis: Dict[str, Any], model_meta: Dict[str, Any]) -> List[ArchGap]:
+    """Detect concrete architectural gaps from the current repository analysis.
+
+    Returns a prioritized list of ArchGap instances. At most one gap per
+    subsystem/issue_key pair is returned (dedup at source).
+    """
+    gaps: List[ArchGap] = []
+    seen: Set[str] = set()
+
+    def add(gap: ArchGap) -> None:
+        key = issue_fingerprint(gap.subsystem, gap.issue_key)
+        if key not in seen:
+            seen.add(key)
+            gaps.append(gap)
+
+    # 1. Parse errors ──────────────────────────────────────────────────────
+    parse_errors = analysis.get("parse_error_files", [])
+    if parse_errors:
+        files = parse_errors[:10]
+        add(ArchGap(
+            subsystem="runtime",
+            issue_key="parse-errors",
+            title=f"[arch-gap] Fix Python parse errors in {len(parse_errors)} file(s)",
+            summary=f"The repository contains {len(parse_errors)} Python file(s) with syntax errors that prevent import.",
+            problem=(
+                f"Files: {', '.join(files[:5])}{'…' if len(parse_errors) > 5 else ''}.\n"
+                "These parse errors break static analysis, test collection, and may crash runtime imports."
+            ),
+            why_it_matters="Parse errors in any imported module cause cascading ImportError failures at startup and block CI.",
+            scope=f"Fix syntax in up to {len(files)} files. No refactoring or logic changes.",
+            suggested_files=files,
+            implementation_notes=(
+                "Run `python -m py_compile <file>` on each listed file to see the exact error. "
+                "Correct the syntax and verify with `ast.parse`. Do not change logic — only fix syntax."
+            ),
+            acceptance_criteria=[
+                "All listed files pass `python -m py_compile` without errors.",
+                "No new parse errors are introduced.",
+                "`python -m pytest` collects without ImportError.",
+            ],
+            validation_commands=[
+                f"python -m py_compile {' '.join(files[:3])}",
+                "python -m pytest --co -q 2>&1 | head -20",
+            ],
+            out_of_scope="Logic changes, refactoring, adding new features.",
+            copilot_prompt=_build_copilot_prompt(
+                f"Fix Python parse errors in {len(parse_errors)} file(s)",
+                "runtime", f"Fix syntax errors in: {', '.join(files[:5])}",
+                files, [f"python -m py_compile {files[0]}", "python -m pytest --co -q"],
+                "Run py_compile on each file, fix the reported syntax error, verify with ast.parse.",
+            ),
+            priority="critical",
+            confidence=1.0,
+        ))
+
+    # 2. Import cycles ─────────────────────────────────────────────────────
+    cycles = analysis.get("cycles", [])
+    if cycles:
+        cycle_files: List[str] = []
+        for c in cycles[:5]:
+            cycle_files.extend(c)
+        cycle_files = list(dict.fromkeys(cycle_files))[:10]
+        add(ArchGap(
+            subsystem="runtime",
+            issue_key="import-cycles",
+            title=f"[arch-gap] Break {len(cycles)} circular import cycle(s)",
+            summary=f"The codebase has {len(cycles)} circular import cycle(s) that degrade startup performance and complicate testing.",
+            problem=(
+                f"Example cycle: {' → '.join(cycles[0]) if cycles else 'see analysis'}.\n"
+                "Circular imports force the interpreter to partially execute modules, causing subtle "
+                "AttributeError and ImportError bugs."
+            ),
+            why_it_matters="Circular imports increase coupling, slow startup, and block modular testing.",
+            scope=f"Break the top {min(len(cycles), 3)} import cycle(s) using TYPE_CHECKING guards or lazy imports.",
+            suggested_files=cycle_files,
+            implementation_notes=(
+                "Use `from __future__ import annotations` + `if TYPE_CHECKING:` guards for type-only imports. "
+                "For runtime dependencies, introduce a separate interface module or use lazy imports."
+            ),
+            acceptance_criteria=[
+                "The targeted cycles no longer appear in `repo_architect.py` import graph.",
+                "All affected files pass `python -m py_compile`.",
+                "Existing tests continue to pass.",
+            ],
+            validation_commands=[
+                "python repo_architect.py --mode analyze --allow-dirty",
+                "python -m pytest -x -q",
+            ],
+            out_of_scope="Refactoring unrelated to the identified cycles.",
+            copilot_prompt=_build_copilot_prompt(
+                f"Break {len(cycles)} circular import cycle(s)",
+                "runtime", "Apply TYPE_CHECKING guards or lazy imports to the identified cycles",
+                cycle_files[:5],
+                ["python repo_architect.py --mode analyze --allow-dirty", "python -m pytest -x -q"],
+                "Use TYPE_CHECKING guards for type-only imports; introduce lazy imports for runtime deps.",
+            ),
+            priority="high",
+            confidence=0.95,
+        ))
+
+    # 3. Entrypoint fragmentation ──────────────────────────────────────────
+    ep_clusters = analysis.get("entrypoint_clusters", {})
+    ep_paths = analysis.get("entrypoint_paths", [])
+    backend_eps = ep_clusters.get("backend_servers", ep_paths)
+    if len(backend_eps) >= _ENTRYPOINT_CONSOLIDATION_THRESHOLD:
+        add(ArchGap(
+            subsystem="runtime",
+            issue_key="entrypoint-fragmentation",
+            title=f"[arch-gap] Consolidate {len(backend_eps)} backend server entrypoints",
+            summary=f"There are {len(backend_eps)} backend server entrypoints. The canonical entrypoint is unclear.",
+            problem=(
+                f"Entrypoints: {', '.join(backend_eps[:5])}.\n"
+                "Multiple entrypoints create ambiguity about the authoritative startup path, complicate "
+                "deployment configuration, and increase maintenance burden."
+            ),
+            why_it_matters="A fragmented entrypoint surface makes it hard to ensure consistent startup behaviour in CI and production.",
+            scope="Add `# DEPRECATED: prefer <canonical>` comments to non-canonical entrypoints. Do not delete files.",
+            suggested_files=list(backend_eps[:8]),
+            implementation_notes=(
+                "Identify the primary entrypoint (typically `backend/unified_server.py` or `main.py`). "
+                "Add a module-level `# DEPRECATED: prefer <canonical_path>` comment to each redundant entrypoint. "
+                "Update any README references."
+            ),
+            acceptance_criteria=[
+                "Canonical entrypoint is documented in README or a comment at the top of each deprecated file.",
+                "All deprecated files have a `# DEPRECATED:` comment.",
+                "No files are deleted in this change.",
+            ],
+            validation_commands=[
+                "python repo_architect.py --mode analyze --allow-dirty",
+                "grep -r 'DEPRECATED' backend/ --include='*.py' | head -20",
+            ],
+            out_of_scope="Deleting files, changing runtime behaviour, refactoring.",
+            copilot_prompt=_build_copilot_prompt(
+                f"Consolidate {len(backend_eps)} backend server entrypoints",
+                "runtime",
+                "Add DEPRECATED comments to non-canonical entrypoints",
+                list(backend_eps[:8]),
+                ["python repo_architect.py --mode analyze --allow-dirty"],
+                "Add `# DEPRECATED: prefer <canonical>` to each non-canonical entrypoint file.",
+            ),
+            priority="medium",
+            confidence=0.85,
+        ))
+
+    # 4. Architecture score degradation ────────────────────────────────────
+    score = analysis.get("architecture_score", 100)
+    if score < 70:
+        risk_factors = analysis.get("score_factors", {})
+        risk_summary = "; ".join(f"{k}: {v}" for k, v in list(risk_factors.items())[:4]) if risk_factors else "see analysis"
+        add(ArchGap(
+            subsystem="reporting",
+            issue_key="architecture-score-degradation",
+            title=f"[arch-gap] Architecture health score degraded to {score}/100",
+            summary=f"The repository architecture score is {score}/100 (threshold: 70). Immediate attention required.",
+            problem=f"Score factors: {risk_summary}.",
+            why_it_matters="A low architecture score indicates structural fragility that compounds over time.",
+            scope="Address the top contributing risk factors. Do not attempt a full refactor in one PR.",
+            suggested_files=[
+                str(config.analysis_path.relative_to(config.git_root)),
+                str(DEFAULT_REPORT_DIR / "top_risks.md"),
+            ],
+            implementation_notes=(
+                "Review `docs/repo_architect/top_risks.md` for the current risk breakdown. "
+                "Address the highest-weight factor first in an isolated PR."
+            ),
+            acceptance_criteria=[
+                "Architecture score improves by at least 5 points after addressing the primary factor.",
+                "No regressions in existing test suite.",
+            ],
+            validation_commands=[
+                "python repo_architect.py --mode report --allow-dirty",
+            ],
+            out_of_scope="Addressing all risk factors in one change.",
+            copilot_prompt=_build_copilot_prompt(
+                f"Improve architecture health score (currently {score}/100)",
+                "reporting",
+                f"Address top risk factors: {risk_summary[:100]}",
+                [str(DEFAULT_REPORT_DIR / "top_risks.md")],
+                ["python repo_architect.py --mode report --allow-dirty"],
+                "Review top_risks.md, identify the primary contributing factor, and address it in a minimal targeted change.",
+            ),
+            priority="high" if score < 50 else "medium",
+            confidence=1.0,
+        ))
+
+    # 5. Workflow / docs drift (model-assisted, if available) ──────────────
+    if model_meta.get("used") and model_meta.get("summary"):
+        model_summary = model_meta["summary"]
+        # Emit a workflow gap only when the model summary mentions drift signals
+        drift_signals = ("drift", "outdated", "inconsistent", "mismatch", "stale", "broken", "missing")
+        if any(s in model_summary.lower() for s in drift_signals):
+            add(ArchGap(
+                subsystem="workflow",
+                issue_key="workflow-drift",
+                title="[arch-gap] Workflow / documentation drift detected",
+                summary="The model analysis identified potential drift between documentation/workflows and current repository state.",
+                problem=f"Model summary excerpt:\n\n> {model_summary[:500]}",
+                why_it_matters="Stale workflows and documentation mislead contributors and cause CI failures.",
+                scope="Update or align the identified workflow/documentation artefacts.",
+                suggested_files=[
+                    ".github/workflows/repo-architect.yml",
+                    "docs/repo_architect/OPERATOR_GUIDE.md",
+                    "README.md",
+                ],
+                implementation_notes=(
+                    "Review the model summary above, identify specific drift items, and update the relevant files. "
+                    "Do not make speculative changes — only address what is concretely identified."
+                ),
+                acceptance_criteria=[
+                    "Identified drift items are resolved.",
+                    "Documentation accurately reflects current behaviour.",
+                ],
+                validation_commands=[
+                    "python repo_architect.py --mode report --allow-dirty",
+                ],
+                out_of_scope="Rewriting documentation wholesale; unrelated improvements.",
+                copilot_prompt=_build_copilot_prompt(
+                    "Resolve workflow/documentation drift",
+                    "workflow",
+                    "Align documentation and workflows with current repository state",
+                    [".github/workflows/repo-architect.yml", "docs/repo_architect/OPERATOR_GUIDE.md"],
+                    ["python repo_architect.py --mode report --allow-dirty"],
+                    f"The model identified drift: {model_summary[:200]}. Locate the specific mismatch and fix it.",
+                ),
+                priority="medium",
+                confidence=0.7,
+            ))
+
+    # Filter by subsystem if requested
+    if config.issue_subsystem:
+        gaps = [g for g in gaps if g.subsystem == config.issue_subsystem]
+
+    # Sort by priority
+    _priority_rank = {p: i for i, p in enumerate(ISSUE_PRIORITY_LEVELS)}
+    gaps.sort(key=lambda g: _priority_rank.get(g.priority, 99))
+    return gaps
+
+
+def run_issue_cycle(config: Config) -> Dict[str, Any]:
+    """Execute one issue-synthesis cycle.
+
+    Steps:
+      1. Build analysis and model enrichment (same as analyze/report modes).
+      2. Diagnose architectural gaps.
+      3. For each gap (up to max_issues): synthesize a GitHub Issue or dry-run artifact.
+      4. Emit a structured JSON result and write a step summary.
+    """
+    ensure_agent_dir(config.agent_dir)
+    state = load_state(config)
+    analysis = build_analysis(config.git_root)
+    charter_context = load_charter_context(config.git_root)
+    analysis["charter_context"] = charter_context
+    model_meta = enrich_with_github_models(config, analysis)
+    if model_meta.get("used") or model_meta.get("enabled"):
+        charter_context["applied"] = bool(charter_context.get("loaded_files"))
+    analysis["model_meta"] = model_meta
+    persist_analysis(config, analysis)
+
+    run_id = (
+        os.environ.get("REPO_ARCHITECT_BRANCH_SUFFIX")
+        or os.environ.get("GITHUB_RUN_ID")
+        or dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d%H%M%S")
+    )
+
+    gaps = diagnose_gaps(config, analysis, model_meta)
+    selected_gaps = gaps[: config.max_issues]
+
+    issue_actions: List[Dict[str, Any]] = []
+    for gap in selected_gaps:
+        action = synthesize_issue(config, gap, run_id, config.dry_run)
+        issue_actions.append(dataclasses.asdict(action))
+
+    artifact_files = [
+        str(config.analysis_path.relative_to(config.git_root)),
+        str(config.graph_path.relative_to(config.git_root)),
+    ]
+    for action in issue_actions:
+        if action.get("dry_run_path"):
+            artifact_files.append(action["dry_run_path"])
+
+    charter_meta = {
+        "loaded_files": charter_context.get("loaded_files", []),
+        "content_hash": charter_context.get("content_hash"),
+        "applied": charter_context.get("applied", False),
+    }
+
+    # Build summary log lines
+    summary_lines: List[str] = []
+    for a in issue_actions:
+        act = a["action"]
+        title = a["gap_title"]
+        if act == "created":
+            summary_lines.append(f"created issue #{a['issue_number']} — {title}")
+        elif act == "updated":
+            summary_lines.append(f"updated existing issue #{a['issue_number']} — {title}")
+        elif act == "skipped":
+            summary_lines.append(f"skipped (duplicate) — {title}")
+        elif act == "dry_run":
+            summary_lines.append(f"dry-run issue body written to {a.get('dry_run_path')} — {title}")
+        else:
+            summary_lines.append(f"error synthesizing issue — {title}: {a.get('error')}")
+
+    result: Dict[str, Any] = {
+        "status": "issue_cycle_complete",
+        "mode": ISSUE_MODE,
+        "dry_run": config.dry_run,
+        "gaps_detected": len(gaps),
+        "gaps_selected": len(selected_gaps),
+        "issue_actions": issue_actions,
+        "summary": summary_lines,
+        "architecture_score": analysis["architecture_score"],
+        "requested_model": model_meta.get("requested_model"),
+        "actual_model": model_meta.get("actual_model"),
+        "primary_model": model_meta.get("primary_model"),
+        "fallback_model": model_meta.get("fallback_model"),
+        "model_used": model_meta.get("model_used"),
+        "fallback_used": model_meta.get("fallback_used", False),
+        "fallback_reason": model_meta.get("fallback_reason"),
+        "fallback_occurred": model_meta.get("fallback_occurred", False),
+        "artifact_files": artifact_files,
+        "repo_root": str(config.git_root),
+        "analysis_path": str(config.analysis_path),
+        "charter": charter_meta,
+        "github_models": model_meta,
+        # Fields kept for output schema compatibility
+        "lane": "none",
+        "lanes_active": [],
+        "branch": None,
+        "changed_files": [],
+        "validation": None,
+        "pull_request_url": None,
+        "no_safe_code_mutation_reason": None,
+        "roadmap": analysis.get("roadmap", []),
+        "graph_path": str(config.graph_path),
+        "roadmap_path": str(config.roadmap_path),
+        "metadata": {
+            "architecture_score": analysis["architecture_score"],
+            "model_meta": model_meta,
+            "report_path": str(config.report_path),
+        },
+    }
+
+    persist_manifest(config, artifact_files)
+    write_step_summary(config, result)
+
+    state["runs"] = int(state.get("runs", 0)) + 1
+    state["last_run_epoch"] = int(time.time())
+    state["last_outcome"] = result["status"]
+    state.setdefault("history", []).append({
+        "ts": state["last_run_epoch"],
+        "status": result["status"],
+        "architecture_score": result["architecture_score"],
+        "mode": config.mode,
+        "gaps_detected": len(gaps),
+        "issue_actions": [{"action": a["action"], "issue_number": a.get("issue_number")} for a in issue_actions],
+    })
+    state["history"] = state["history"][-100:]
+    save_state(config, state)
+    return result
 
 
 def set_branch_protection(config: Config) -> Dict[str, Any]:
@@ -977,27 +1655,50 @@ def build_report_suite(analysis: Dict[str, Any], model_meta: Dict[str, Any]) -> 
 def write_step_summary(config: Config, result: Dict[str, Any]) -> None:
     if not config.step_summary_path:
         return
+    mode = result.get("mode", config.mode)
     summary = [
         f"# {APP_NAME} run summary",
         "",
-        f"- mode: `{result.get('mode', config.mode)}`",
+        f"- mode: `{mode}`",
         f"- status: `{result.get('status')}`",
-        f"- lane: `{result.get('lane', 'none')}`",
         f"- architecture score: **{result.get('architecture_score')}**",
-        f"- changed files: `{len(result.get('changed_files', []))}`",
     ]
-    if result.get("pull_request_url"):
-        summary.append(f"- pull request: {result['pull_request_url']}")
-    if result.get("branch"):
-        summary.append(f"- branch: `{result['branch']}`")
+
+    if mode == ISSUE_MODE:
+        summary.append(f"- gaps detected: `{result.get('gaps_detected', 0)}`")
+        summary.append(f"- issues processed: `{result.get('gaps_selected', 0)}`")
+        if result.get("dry_run"):
+            summary.append("- ⚠️ **dry-run mode** — no issues submitted to GitHub")
+        for action_d in result.get("issue_actions", []):
+            act = action_d.get("action", "?")
+            title = action_d.get("gap_title", "unknown")
+            num = action_d.get("issue_number")
+            url = action_d.get("issue_url")
+            dry_path = action_d.get("dry_run_path")
+            if act == "created" and url:
+                summary.append(f"- ✅ created [#{num}]({url}) — {title}")
+            elif act == "updated" and url:
+                summary.append(f"- 🔄 updated [#{num}]({url}) — {title}")
+            elif act == "dry_run":
+                summary.append(f"- 📄 dry-run: `{dry_path}` — {title}")
+            elif act == "error":
+                summary.append(f"- ❌ error: {action_d.get('error')} — {title}")
+    else:
+        summary.append(f"- lane: `{result.get('lane', 'none')}`")
+        summary.append(f"- changed files: `{len(result.get('changed_files', []))}`")
+        if result.get("pull_request_url"):
+            summary.append(f"- pull request: {result['pull_request_url']}")
+        if result.get("branch"):
+            summary.append(f"- branch: `{result['branch']}`")
+        if result.get("no_safe_code_mutation_reason"):
+            summary.append(f"- no safe mutation: {result['no_safe_code_mutation_reason']}")
+
     if result.get("requested_model"):
         summary.append(f"- model requested: `{result['requested_model']}`")
     if result.get("actual_model"):
         summary.append(f"- model used: `{result['actual_model']}`")
     if result.get("fallback_occurred"):
         summary.append(f"- ⚠️ fallback occurred: {result.get('fallback_reason', '')}")
-    if result.get("no_safe_code_mutation_reason"):
-        summary.append(f"- no safe mutation: {result['no_safe_code_mutation_reason']}")
     if result.get("github_models", {}).get("used"):
         summary += ["", "## Model summary", "", result["github_models"]["summary"]]
     config.step_summary_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1383,9 +2084,21 @@ def build_patch_plan(
 
     A report-only mutation is never produced when parse errors exist unless no
     safe code mutation can be made (reason is then surfaced explicitly).
+
+    DEPRECATED: ``mutate`` and ``campaign`` modes are deprecated in favour of
+    ``issue`` mode.  Direct code mutation by the agent is no longer the primary
+    operating model.  Use ``--mode issue`` instead.
     """
     if config.mode == "analyze":
         return None, "none", None
+
+    if config.mode in DEPRECATED_MUTATION_MODES:
+        log(
+            f"⚠️  DEPRECATED: mode '{config.mode}' performs direct code mutation which is no longer "
+            "the primary operating model.  Use --mode issue to open structured GitHub Issues "
+            "with Copilot-ready implementation prompts instead.",
+            json_mode=config.log_json,
+        )
 
     lanes = config.campaign_lanes if config.campaign_lanes else MUTATION_LANE_ORDER
     skipped_reasons: List[str] = []
@@ -1784,6 +2497,10 @@ def persist_manifest(config: Config, artifact_files: List[str]) -> None:
 
 
 def run_cycle(config: Config) -> Dict[str, Any]:
+    # Route issue mode to the dedicated issue cycle function
+    if config.mode == ISSUE_MODE:
+        return run_issue_cycle(config)
+
     ensure_agent_dir(config.agent_dir)
     state = load_state(config)
     analysis = build_analysis(config.git_root)
@@ -2136,12 +2853,28 @@ def build_config(args: argparse.Namespace) -> Config:
         fallback_model=fallback,
         github_fallback_model=os.environ.get("GITHUB_FALLBACK_MODEL"),
         campaign_lanes=campaign_lanes,
+        dry_run=args.dry_run,
+        max_issues=args.max_issues,
+        issue_subsystem=args.issue_subsystem or os.environ.get("REPO_ARCHITECT_SUBSYSTEM"),
     )
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Single-file repo architect, PR bot, and MCP server.")
-    p.add_argument("--mode", choices=["analyze", "report", "mutate", "campaign"], default="report")
+    p = argparse.ArgumentParser(
+        description="repo-architect: architectural governance via GitHub Issues. "
+        "Inspects the repository, diagnoses gaps, and opens structured GitHub Issues "
+        "with Copilot-ready implementation prompts.",
+    )
+    p.add_argument(
+        "--mode",
+        choices=["analyze", "report", "issue", "mutate", "campaign"],
+        default="issue",
+        help=(
+            "Operating mode. 'issue' (default) is the primary mode: detects architectural gaps and "
+            "opens/updates GitHub Issues. 'analyze'/'report' are read-only. "
+            "'mutate'/'campaign' are DEPRECATED and will emit a runtime warning."
+        ),
+    )
     p.add_argument("--report-path", default=str(DEFAULT_REPORT_PATH))
     p.add_argument("--mutation-budget", type=int, default=1)
     p.add_argument("--allow-dirty", action="store_true")
@@ -2156,11 +2889,19 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     p.add_argument("--preferred-model", default=None, help="Preferred GitHub Models model id")
     p.add_argument("--fallback-model", default=None, help="Fallback model if preferred is unavailable")
     p.add_argument("--log-json", action="store_true")
-    # Lane / campaign args
-    p.add_argument("--lane", default=None, help="Single lane to run in mutate mode (convenience alias for --lanes)")
-    p.add_argument("--max-slices", type=int, default=3, help="Campaign: max mutation slices to attempt")
-    p.add_argument("--lanes", default=None, help="Comma-separated lane order for mutate/campaign modes")
-    p.add_argument("--stop-on-failure", action="store_true", help="Campaign: stop on first slice failure")
+    # Lane / campaign args (deprecated paths)
+    p.add_argument("--lane", default=None, help="[DEPRECATED] Single lane to run in mutate mode")
+    p.add_argument("--max-slices", type=int, default=3, help="[DEPRECATED] Campaign: max mutation slices to attempt")
+    p.add_argument("--lanes", default=None, help="[DEPRECATED] Comma-separated lane order for mutate/campaign modes")
+    p.add_argument("--stop-on-failure", action="store_true", help="[DEPRECATED] Campaign: stop on first slice failure")
+    # Issue-first mode args
+    p.add_argument("--dry-run", action="store_true",
+                   help="Issue mode: write issue bodies to disk but do not call the GitHub Issues API.")
+    p.add_argument("--max-issues", type=int, default=1,
+                   help="Issue mode: maximum number of issues to open/update per run (default: 1).")
+    p.add_argument("--issue-subsystem", default=None,
+                   help="Issue mode: restrict gap detection to a specific subsystem "
+                        f"(choices: {', '.join(SUBSYSTEM_LABELS)}).")
     return p.parse_args(argv)
 
 
@@ -2192,17 +2933,39 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return 0
 
         if args.daemon:
-            log("Starting daemon mode", data={"where": str(config.git_root), "host": "current machine or CI runner process", "interval_seconds": config.interval}, json_mode=config.log_json)
+            log(
+                "Starting daemon mode",
+                data={"where": str(config.git_root), "host": "current machine or CI runner process", "interval_seconds": config.interval, "mode": config.mode},
+                json_mode=config.log_json,
+            )
             while True:
                 try:
-                    res = run_cycle(config)
+                    if config.mode == ISSUE_MODE:
+                        res = run_issue_cycle(config)
+                    else:
+                        res = run_cycle(config)
                     log("Cycle complete", data=res, json_mode=config.log_json)
                 except Exception as exc:
                     log("Cycle failed", data={"error": str(exc), "trace": traceback.format_exc()}, json_mode=config.log_json)
                 time.sleep(config.interval)
             return 0
 
+        # Issue-first mode (new primary mode)
+        if config.mode == ISSUE_MODE:
+            result = run_issue_cycle(config)
+            # Emit human-readable summary to stderr
+            for line in result.get("summary", []):
+                log(line, json_mode=config.log_json)
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+
+        # Deprecated campaign mode
         if config.mode == "campaign":
+            log(
+                "⚠️  DEPRECATED: 'campaign' mode is no longer the primary operating model. "
+                "Use --mode issue to open structured GitHub Issues instead.",
+                json_mode=config.log_json,
+            )
             lanes_arg = list(config.campaign_lanes) if config.campaign_lanes else list(MUTATION_LANE_ORDER)
             result = run_campaign(config, lanes_arg, args.max_slices, args.stop_on_failure)
             print(json.dumps(result, indent=2, sort_keys=True))

@@ -63,40 +63,21 @@
   "backend.core.autonomous_learning": [],
   "backend.core.circuit_breaker": [],
   "backend.core.cognitive_manager": [
-    "backend.core.autonomous_learning",
-    "backend.core.circuit_breaker",
-    "backend.core.cognitive_orchestrator",
-    "backend.core.cognitive_transparency",
-    "backend.core.consciousness_engine",
-    "backend.core.coordination",
-    "backend.core.enhanced_coordination",
-    "backend.core.errors",
-    "backend.core.knowledge_graph_evolution",
-    "backend.core.metacognitive_monitor",
-    "backend.core.phenomenal_experience",
-    "backend.core.query_replay_harness"
+    "backend.core.phenomenal_experience"
   ],
   "backend.core.cognitive_orchestrator": [],
   "backend.core.cognitive_transparency": [],
   "backend.core.consciousness_emergence_detector": [],
   "backend.core.consciousness_engine": [],
   "backend.core.coordination": [],
-  "backend.core.distributed_vector_database": [
-    "backend.core.distributed_vector_search",
-    "backend.core.vector_database"
-  ],
+  "backend.core.distributed_vector_database": [],
   "backend.core.distributed_vector_search": [],
   "backend.core.dormant_module_manager": [],
-  "backend.core.enhanced_coordination": [
-    "backend.core.adaptive_learning",
-    "backend.core.circuit_breaker"
-  ],
+  "backend.core.enhanced_coordination": [],
   "backend.core.enhanced_knowledge_validation": [],
   "backend.core.enhanced_metrics": [],
   "backend.core.enhanced_pdf_processor": [],
-  "backend.core.enhanced_websocket_manager": [
-    "backend.websocket_manager"
-  ],
+  "backend.core.enhanced_websocket_manager": [],
   "backend.core.errors": [],
   "backend.core.formal_layer_bridge": [
     "godelOS.unified_agent_core.cognitive_engine.interfaces",
@@ -120,10 +101,6 @@
   "backend.core.streaming_models": [],
   "backend.core.structured_logging": [],
   "backend.core.unified_consciousness_engine": [
-    "backend.core.consciousness_engine",
-    "backend.core.formal_layer_bridge",
-    "backend.core.knowledge_graph_evolution",
-    "backend.core.phenomenal_experience",
     "godelOS.consciousness.constitution",
     "godelOS.core_kr.ast.nodes",
     "godelOS.core_kr.type_system.types",
@@ -133,15 +110,10 @@
     "godelOS.symbol_grounding.self_model_validator",
     "godelOS.symbol_grounding.validation_feedback_injector"
   ],
-  "backend.core.unified_stream_manager": [
-    "backend.core.streaming_models"
-  ],
+  "backend.core.unified_stream_manager": [],
   "backend.core.vector_database": [],
-  "backend.core.vector_endpoints": [
-    "backend.core.vector_service"
-  ],
+  "backend.core.vector_endpoints": [],
   "backend.core.vector_service": [
-    "backend.core.vector_database",
     "godelOS.semantic_search.vector_store"
   ],
   "backend.domain_reasoning_engine": [],
@@ -161,15 +133,9 @@
   "backend.input_validation": [],
   "backend.knowledge_ingestion": [
     "backend.cognitive_transparency_integration",
-    "backend.core.vector_service",
-    "backend.external_apis",
-    "backend.knowledge_models",
-    "backend.knowledge_pipeline_service",
-    "backend.persistence"
+    "backend.core.vector_service"
   ],
-  "backend.knowledge_management": [
-    "backend.knowledge_models"
-  ],
+  "backend.knowledge_management": [],
   "backend.knowledge_models": [],
   "backend.knowledge_pipeline_service": [
     "backend.core.vector_service",
@@ -210,9 +176,7 @@
     "godelOS.inference_engine.coordinator"
   ],
   "backend.transparency_endpoints": [
-    "backend.cognitive_transparency_integration",
-    "backend.dynamic_knowledge_processor",
-    "backend.live_reasoning_tracker"
+    "backend.cognitive_transparency_integration"
   ],
   "backend.unified_server": [
     "backend.api.adaptive_ingestion_endpoints",
@@ -288,13 +252,7 @@
     "godelOS.core_kr.unification_engine.engine"
   ],
   "examples.demo": [
-    "examples.core_kr_example",
-    "examples.enhanced_test_runner_example",
-    "examples.godel_os_example",
-    "examples.inference_engine_example",
-    "examples.learning_system_example",
-    "examples.simple_example",
-    "examples.test_runner_demo"
+    "examples"
   ],
   "examples.enhanced_test_runner_example": [
     "godelOS.test_runner"
@@ -431,30 +389,22 @@
     "godelOS.cognitive_transparency.models",
     "godelOS.cognitive_transparency.stream_tracker"
   ],
-  "godelOS.cognitive_transparency.autonomous_learning": [
-    "godelOS.cognitive_transparency.models"
-  ],
+  "godelOS.cognitive_transparency.autonomous_learning": [],
   "godelOS.cognitive_transparency.enhanced_metacognition": [
     "godelOS.cognitive_transparency.models",
     "godelOS.metacognition.manager"
   ],
-  "godelOS.cognitive_transparency.knowledge_graph": [
-    "godelOS.cognitive_transparency.models"
-  ],
+  "godelOS.cognitive_transparency.knowledge_graph": [],
   "godelOS.cognitive_transparency.manager": [
     "godelOS.cognitive_transparency.models",
     "godelOS.cognitive_transparency.stream_tracker"
   ],
   "godelOS.cognitive_transparency.models": [],
-  "godelOS.cognitive_transparency.provenance": [
-    "godelOS.cognitive_transparency.models"
-  ],
+  "godelOS.cognitive_transparency.provenance": [],
   "godelOS.cognitive_transparency.stream_tracker": [
     "godelOS.cognitive_transparency.models"
   ],
-  "godelOS.cognitive_transparency.uncertainty": [
-    "godelOS.cognitive_transparency.models"
-  ],
+  "godelOS.cognitive_transparency.uncertainty": [],
   "godelOS.common_sense": [
     "godelOS.common_sense.context_engine",
     "godelOS.common_sense.contextualized_retriever",
@@ -650,8 +600,6 @@
   ],
   "godelOS.knowledge_extraction.nlp_processor": [],
   "godelOS.knowledge_extraction.pipeline": [
-    "godelOS.knowledge_extraction.graph_builder",
-    "godelOS.knowledge_extraction.nlp_processor",
     "godelOS.unified_agent_core.knowledge_store.interfaces"
   ],
   "godelOS.learning_system": [
@@ -834,7 +782,6 @@
   ],
   "godelOS.semantic_search": [],
   "godelOS.semantic_search.query_engine": [
-    "godelOS.semantic_search.vector_store",
     "godelOS.unified_agent_core.knowledge_store.interfaces"
   ],
   "godelOS.semantic_search.vector_store": [],
@@ -1102,26 +1049,16 @@
     "backend.goal_management_system"
   ],
   "metacognition_modules": [],
-  "metacognition_modules.autonomous_knowledge_acquisition": [
-    "metacognition_modules.cognitive_models"
-  ],
+  "metacognition_modules.autonomous_knowledge_acquisition": [],
   "metacognition_modules.cognitive_models": [],
   "metacognition_modules.enhanced_metacognition_manager": [
     "backend.metacognition_modules.cognitive_models",
     "godelOS.metacognition.manager"
   ],
-  "metacognition_modules.enhanced_self_monitoring": [
-    "metacognition_modules.cognitive_models"
-  ],
-  "metacognition_modules.knowledge_gap_detector": [
-    "metacognition_modules.cognitive_models"
-  ],
-  "metacognition_modules.stream_coordinator": [
-    "metacognition_modules.cognitive_models",
-    "metacognition_modules.enhanced_metacognition_manager"
-  ],
+  "metacognition_modules.enhanced_self_monitoring": [],
+  "metacognition_modules.knowledge_gap_detector": [],
+  "metacognition_modules.stream_coordinator": [],
   "repo_architect": [],
-  "repo_architect_": [],
   "scripts.bootstrap_knowledge_graph": [
     "backend.core.knowledge_graph_evolution",
     "backend.llm_cognitive_driver",
@@ -1163,6 +1100,7 @@
   ],
   "scripts.fix_core_functionality": [],
   "scripts.monitor_repository_health": [],
+  "scripts.repo_architect_mutation_probe": [],
   "scripts.run_cognitive_tests": [],
   "setup": [],
   "tests": [],
@@ -1805,6 +1743,9 @@
     "backend.api.replay_endpoints",
     "backend.core.query_replay_harness"
   ],
+  "tests.test_repo_architect": [
+    "repo_architect"
+  ],
   "tests.test_resolution_prover": [
     "godelOS.core_kr.ast.nodes",
     "godelOS.core_kr.knowledge_store.interface",
@@ -1981,8 +1922,7 @@
     "backend.godelos_integration"
   ],
   "tests.unit.test_coordination_telemetry": [
-    "backend",
-    "backend.unified_server"
+    "backend"
   ],
   "tests.unit.test_direct_knowledge": [
     "backend.knowledge_management",
@@ -1995,8 +1935,7 @@
     "godelOS.core_kr.unification_engine.result"
   ],
   "tests.unit.test_health_probes": [
-    "backend",
-    "backend.unified_server"
+    "backend"
   ],
   "tests.unit.test_inference_engine": [
     "godelOS.core_kr.ast.nodes",
@@ -2012,8 +1951,7 @@
   "tests.unit.test_query_view_fix": [],
   "tests.unit.test_response_stream": [],
   "tests.unit.test_structured_errors": [
-    "backend",
-    "backend.unified_server"
+    "backend"
   ],
   "tests.unit.test_svelte_websocket": [],
   "tests.unit.test_unification_fix": [
@@ -2024,8 +1962,7 @@
     "godelOS.core_kr.unification_engine.result"
   ],
   "tests.unit.test_vector_service_retries": [
-    "backend.core",
-    "backend.core.vector_service"
+    "backend.core"
   ],
   "tests.unit.test_websocket": [],
   "tests.unit.test_wikipedia_flow": [],
