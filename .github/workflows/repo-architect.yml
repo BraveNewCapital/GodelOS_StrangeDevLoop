@@ -231,7 +231,7 @@ jobs:
             fi
           fi
 
-          # Deprecated mutation mode arguments (still supported for backward compatibility)
+          # Charter-validated mutation mode arguments (§9–§10 GODELOS_REPO_IMPLEMENTATION_CHARTER)
           if [ "$MODE" = "campaign" ]; then
             EXTRA_ARGS="$EXTRA_ARGS --max-slices $MAX_SLICES --lanes $LANES"
           elif [ "$MODE" = "mutate" ]; then

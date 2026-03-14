@@ -1738,5 +1738,101 @@ class TestCharterValidatedModeNotice(unittest.TestCase):
         self.assertEqual(args.mode, ra.ISSUE_MODE)
 
 
+# ---------------------------------------------------------------------------
+# 21. Charter lane map and higher-lane gap detection
+# ---------------------------------------------------------------------------
+
+class TestCharterLaneMap(unittest.TestCase):
+    """CHARTER_LANE_MAP must list all 10 charter-defined lanes."""
+
+    def test_charter_lane_map_has_ten_lanes(self) -> None:
+        self.assertEqual(len(ra.CHARTER_LANE_MAP), 10)
+        self.assertEqual(set(ra.CHARTER_LANE_MAP.keys()), set(range(10)))
+
+    def test_charter_lane_map_entries_are_tuples(self) -> None:
+        for lane_num, entry in ra.CHARTER_LANE_MAP.items():
+            self.assertIsInstance(entry, tuple, f"Lane {lane_num} entry is not a tuple")
+            self.assertEqual(len(entry), 3, f"Lane {lane_num} entry has {len(entry)} fields, expected 3")
+
+    def test_charter_lanes_cover_mutation_lane_order(self) -> None:
+        """Every lane in MUTATION_LANE_ORDER must appear in CHARTER_LANE_MAP values."""
+        automated_names = {entry[0] for entry in ra.CHARTER_LANE_MAP.values()}
+        for lane in ra.MUTATION_LANE_ORDER:
+            self.assertIn(lane, automated_names, f"MUTATION_LANE_ORDER lane '{lane}' not in CHARTER_LANE_MAP")
+
+
+class TestHigherLaneGapDetection(unittest.TestCase):
+    """diagnose_gaps must detect gaps for charter lanes 5 and 7 when signals are present."""
+
+    def _model_meta(self, used: bool = False) -> Dict[str, Any]:
+        return {
+            "used": used, "summary": None, "requested_model": None, "actual_model": None,
+            "primary_model": None, "fallback_model": None, "model_used": None,
+            "fallback_used": False, "fallback_reason": None, "fallback_occurred": False, "enabled": False,
+        }
+
+    def test_dependency_direction_violations_produce_gap(self) -> None:
+        """Cross-boundary imports should trigger a Lane 5 (contract repair) gap."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            analysis: Dict[str, Any] = {
+                "parse_error_files": [],
+                "cycles": [],
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 80,
+                "score_factors": {},
+                "local_import_graph": {
+                    "backend/interface/api.py": ["backend/core/engine.py"],
+                },
+            }
+            gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
+        contract_gaps = [g for g in gaps if g.issue_key == "contract-repair"]
+        self.assertTrue(len(contract_gaps) >= 1, "Expected a contract-repair gap for interface→core import")
+        self.assertEqual(contract_gaps[0].subsystem, "core")
+
+    def test_agent_boundary_violations_produce_gap(self) -> None:
+        """Cross-agent imports should trigger a Lane 7 (agent boundary enforcement) gap."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            analysis: Dict[str, Any] = {
+                "parse_error_files": [],
+                "cycles": [],
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 80,
+                "score_factors": {},
+                "local_import_graph": {
+                    "backend/agents/planner/core.py": ["backend/agents/executor/internal.py"],
+                },
+            }
+            gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
+        boundary_gaps = [g for g in gaps if g.issue_key == "agent-boundary"]
+        self.assertTrue(len(boundary_gaps) >= 1, "Expected an agent-boundary gap for cross-agent import")
+        self.assertEqual(boundary_gaps[0].subsystem, "agents")
+
+    def test_no_violations_no_higher_lane_gaps(self) -> None:
+        """When there are no violations, no Lane 5 or 7 gaps should appear."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            analysis: Dict[str, Any] = {
+                "parse_error_files": [],
+                "cycles": [],
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 80,
+                "score_factors": {},
+                "local_import_graph": {
+                    "backend/core/engine.py": ["backend/core/utils.py"],
+                },
+            }
+            gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
+        higher_gaps = [g for g in gaps if g.issue_key in ("contract-repair", "agent-boundary")]
+        self.assertEqual(len(higher_gaps), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -23,38 +23,70 @@ Modes `mutate` and `campaign` implement the narrow, validated self-modification 
 
 ---
 
-## Charter Reconciliation
+## Architectural Reconciliation
 
-This section documents how the two-mode operating model aligns with the project's architectural charters.
+This section documents how the repo-architect operating model aligns with the project's canonical architectural specifications.
+
+> **Authoritative sources:**
+> - `docs/architecture/GODELOS_ARCHITECTURAL_CHARTER.md`
+> - `docs/architecture/GODELOS_REPO_IMPLEMENTATION_CHARTER.md`
+>
+> These documents are the source of truth. If implementation and documentation conflict, the charters govern.
+
+### Core principles from the charters
+
+The architectural charters establish that:
+
+1. **Issue-first governance is the default execution model** — the repo-architect loop diagnoses gaps, prioritises them by charter lane, and synthesizes structured GitHub Issues for human or Copilot implementation.
+2. **Mutation lanes defined in the implementation charter remain part of the architecture** — Lanes 0–9 are charter-defined categories of narrow, validated self-modification work.
+3. **Automated mutation is currently gated for safety** — direct code mutation via `--mode mutate`/`--mode campaign` requires explicit opt-in and remains bounded by validation floors (§9.3), mutation budget policy (§11), and the PR contract (§12).
+4. **The repo-architect loop still diagnoses and prioritises all lanes** — even lanes where automated mutation is not yet safe are represented in gap detection, issue synthesis, and diagnostics.
+
+### Full charter lane reference (§10 GODELOS_REPO_IMPLEMENTATION_CHARTER)
+
+| Lane | Name | Purpose | Automated? | Gap detection |
+|---|---|---|---|---|
+| **0** | Report generation | Generate architecture packets, refresh inventories, update risk docs | ✅ (`report` lane) | Architecture score degradation |
+| **1** | Hygiene | Remove debug prints, dead code, simplify internal clutter | ✅ (`hygiene` lane) | — |
+| **2** | Parse repair | Repair syntax errors, restore parsability | ✅ (`parse_errors` lane) | Parse error detection |
+| **3** | Circular dependency elimination | Break import cycles structurally | ✅ (`import_cycles` lane) | Import cycle detection |
+| **4** | Entrypoint consolidation | Reduce runtime duplication, delegate launchers to canonical root | ✅ (`entrypoint_consolidation` lane) | Entrypoint fragmentation detection |
+| **5** | Contract repair | Normalise interfaces, repair adapter mismatches | 🔒 Issue-only | Dependency direction violation detection |
+| **6** | Runtime extraction | Move orchestration logic from scripts into runtime modules | 🔒 Issue-only | — (future) |
+| **7** | Agent boundary enforcement | Isolate agent state, replace cross-module reach-through | 🔒 Issue-only | Agent boundary violation detection |
+| **8** | Knowledge substrate normalisation | Centralise persistent knowledge access | 🔒 Issue-only | — (future) |
+| **9** | Consciousness instrumentation | Add metrics, traces, introspection paths for self-awareness research | 🔒 Issue-only | — (future) |
+
+**Legend:** ✅ = available in `mutate`/`campaign` modes; 🔒 = addressed via issue synthesis with Copilot-ready prompts.
 
 ### Alignment with GODELOS_ARCHITECTURAL_CHARTER
 
 | Charter principle | How this system honours it |
 |---|---|
-| **§14 Effective Gödel-Machine Program** — "modelling its own architecture, detecting defects, proposing candidate modifications, validating them" | Issue mode inspects, diagnoses, and synthesizes structured proposals. Lane-based mutation validates changes before adoption. |
-| **§15.1 Explicitness** — "every modification must be explainable in terms of a defect, an invariant, a capability target, or a charter objective" | Every issue body includes Summary, Problem, Why it matters, Scope, and Machine metadata tying it to a specific gap. |
-| **§15.2 Boundedness** — "no change may introduce unbounded recursion" | Issue mode produces no code at all. Mutation modes are scoped to one lane per slice with mutation budget limits. |
+| **§14 Effective Gödel-Machine Program** — "modelling its own architecture, detecting defects, proposing candidate modifications, validating them" | Issue mode inspects, diagnoses, and synthesizes structured proposals across all 10 charter lanes. Lane-based mutation validates changes before adoption. |
+| **§15.1 Explicitness** — "every modification must be explainable in terms of a defect, an invariant, a capability target, or a charter objective" | Every issue body includes Summary, Problem, Why it matters, Scope, and Machine metadata tying it to a specific gap and charter lane. |
+| **§15.2 Boundedness** — "no change may introduce unbounded recursion" | Issue mode produces no code at all. Mutation modes are scoped to one lane per slice with mutation budget limits (§11). |
 | **§15.3 Reversibility** — "mutations should be small, inspectable, and reversible" | Mutation lanes produce thin, single-purpose PRs. Issue mode delegates implementation to Copilot/humans under review. |
-| **§15.4 Validation** — "a change is not admissible unless it passes the relevant validation regime" | Lane-based mutations run `ast.parse`, `py_compile`, and lane-specific validation before pushing. |
-| **§15.5 Convergence** — "purpose of self-modification is convergence" | Both modes share the same analysis engine and prioritize gaps by architectural convergence impact. |
-| **§20 Repository Automation Policy** — "automation should prioritize parse correctness, dependency/import-cycle reduction, convergence toward canonical runtime structure" | Gap detection prioritises the same ordered concerns: parse errors → import cycles → entrypoint fragmentation → score degradation → workflow drift. |
+| **§15.4 Validation** — "a change is not admissible unless it passes the relevant validation regime" | Lane-based mutations run `ast.parse`, `py_compile`, and lane-specific validation before pushing (§9.3). |
+| **§15.5 Convergence** — "purpose of self-modification is convergence" | Both modes share the same analysis engine and prioritize gaps by architectural convergence impact per §14 priority order. |
+| **§20 Repository Automation Policy** — "automation should prioritize parse correctness, dependency/import-cycle reduction, convergence toward canonical runtime structure" | Gap detection follows the same ordered concerns: parse errors → import cycles → entrypoint fragmentation → dependency violations → agent boundaries → score degradation → workflow drift. |
 
 ### Alignment with GODELOS_REPO_IMPLEMENTATION_CHARTER
 
 | Charter section | How this system honours it |
 |---|---|
-| **§9 Self-Modification Contract** — allows code generation proposals, small structural refactors, contract extraction, etc. with a validation floor | Lane-based mutation modes (mutate/campaign) implement exactly these allowed forms with `ast.parse`/`py_compile` validation. |
-| **§10 Repo-Architect Mutation Lanes** — defines Lanes 0–9 for narrow, explicit work | The `MUTATION_LANE_ORDER` constant maps to charter Lanes 0–4. Higher lanes (5–9) can be addressed by Copilot via generated issues. |
-| **§11 Mutation Budget Policy** — "thin and rapid, but never indiscriminate" | `--mutation-budget` (default 1) and `--max-slices` (default 3) enforce this. Issue mode respects `--max-issues`. |
-| **§12 Pull Request Contract for Agents** — every PR must state lane, files, invariant, validation, next lane | Lane-based mutations produce structured PR bodies with all required fields. Issue-generated prompts instruct Copilot to do the same. |
-| **§14 Current Priority Order** — parse correctness → import cycles → entrypoint reduction → knowledge substrate → agent boundaries → consciousness instrumentation | `diagnose_gaps()` and `MUTATION_LANE_ORDER` follow this priority stack. |
+| **§9 Self-Modification Contract** — allows code generation proposals, small structural refactors, contract extraction, etc. with a validation floor | Lane-based mutation modes (mutate/campaign) implement exactly these allowed forms with `ast.parse`/`py_compile` validation. Issue mode synthesizes proposals that instruct Copilot to follow the same contract. |
+| **§10 Repo-Architect Mutation Lanes** — defines Lanes 0–9 for narrow, explicit work | All 10 lanes are represented: Lanes 0–4 in `MUTATION_LANE_ORDER` for automated mutation; Lanes 0–9 in `CHARTER_LANE_MAP` for gap detection and issue synthesis. |
+| **§11 Mutation Budget Policy** — "thin and rapid, but never indiscriminate" | `--mutation-budget` (default 1) and `--max-slices` (default 3) enforce thinness for mutation modes. Issue mode respects `--max-issues` (default 1). |
+| **§12 Pull Request Contract for Agents** — every PR must state lane, files, invariant, validation, next lane | Lane-based mutations produce structured PR bodies with all required fields. Issue-generated Copilot prompts instruct the same contract. |
+| **§14 Current Priority Order** — parse correctness → import cycles → entrypoint reduction → knowledge substrate → agent boundaries → consciousness instrumentation | `diagnose_gaps()` and `MUTATION_LANE_ORDER` follow this priority stack. Higher lanes (5–9) are surfaced as issues when their signals are detected. |
 
 ### Why issue-first is the default
 
 The charters support both diagnosis/governance and narrow validated mutation. Making issue-first the default:
 
 1. **Reduces risk** — no autonomous code changes without human or Copilot review.
-2. **Scales to higher lanes** — contract repair (Lane 5), runtime extraction (Lane 6), agent boundary enforcement (Lane 7), and knowledge substrate normalisation (Lane 8) require judgment that exceeds what the current analysis engine can safely validate. Issue synthesis expresses these as structured Copilot prompts.
+2. **Scales to higher lanes** — contract repair (Lane 5), runtime extraction (Lane 6), agent boundary enforcement (Lane 7), knowledge substrate normalisation (Lane 8), and consciousness instrumentation (Lane 9) require judgment that exceeds what the current analysis engine can safely validate. Issue synthesis expresses these as structured Copilot prompts.
 3. **Preserves the lane model** — every detected gap maps to a charter lane. The issue body references the affected subsystem and lane-appropriate scope.
 4. **Satisfies §15.2 boundedness** — the safest mutation budget is zero autonomous code changes by default, with explicit opt-in for narrow validated lanes.
 
@@ -211,8 +243,12 @@ Each generated issue follows this template:
 | Python parse errors | `runtime` | `critical` | Lane 2 (Parse repair) |
 | Import cycles | `runtime` | `high` | Lane 3 (Circular dependency elimination) |
 | Entrypoint fragmentation (≥4 backend entrypoints) | `runtime` | `medium` | Lane 4 (Entrypoint consolidation) |
+| Dependency direction violations | `core` | `medium` | Lane 5 (Contract repair) |
+| Agent boundary violations | `agents` | `medium` | Lane 7 (Agent boundary enforcement) |
 | Architecture score < 70/100 | `reporting` | `high` / `medium` | Cross-lane |
 | Workflow / documentation drift (model-assisted) | `workflow` | `medium` | Lane 0 (Report generation) |
+
+Lanes 6 (Runtime extraction), 8 (Knowledge substrate normalisation), and 9 (Consciousness instrumentation) are represented in `CHARTER_LANE_MAP` and will be detected as gap signals become available in the analysis engine.
 
 ---
 
@@ -240,7 +276,7 @@ On each run:
 
 ### Subsystem labels (where applicable)
 
-`workflow`, `runtime`, `reporting`, `docs`, `model-routing`, `issue-orchestration`
+`workflow`, `runtime`, `reporting`, `docs`, `model-routing`, `issue-orchestration`, `core`, `knowledge`, `agents`, `consciousness`
 
 ### Priority labels (critical and high only)
 

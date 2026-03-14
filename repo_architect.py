@@ -88,9 +88,24 @@ ARCH_GAP_LABELS: Tuple[str, ...] = (
 SUBSYSTEM_LABELS: Tuple[str, ...] = (
     "workflow", "runtime", "reporting", "docs",
     "model-routing", "issue-orchestration",
+    "core", "knowledge", "agents", "consciousness",
 )
 # Priority levels for detected architectural gaps
 ISSUE_PRIORITY_LEVELS: Tuple[str, ...] = ("critical", "high", "medium", "low")
+# Charter-defined mutation lanes (§10 GODELOS_REPO_IMPLEMENTATION_CHARTER)
+# Maps lane number to (name, subsystem, description)
+CHARTER_LANE_MAP: Dict[int, Tuple[str, str, str]] = {
+    0: ("report", "reporting", "Report generation — architecture packets, inventories, risk docs"),
+    1: ("hygiene", "runtime", "Hygiene — remove debug prints, dead code, internal clutter"),
+    2: ("parse_errors", "runtime", "Parse repair — fix syntax errors, restore parsability"),
+    3: ("import_cycles", "runtime", "Circular dependency elimination — break import cycles structurally"),
+    4: ("entrypoint_consolidation", "runtime", "Entrypoint consolidation — reduce runtime duplication"),
+    5: ("contract_repair", "core", "Contract repair — normalise interfaces, repair adapter mismatches"),
+    6: ("runtime_extraction", "runtime", "Runtime extraction — move orchestration logic into runtime modules"),
+    7: ("agent_boundary", "agents", "Agent boundary enforcement — isolate agent state, use messages/interfaces"),
+    8: ("knowledge_normalisation", "knowledge", "Knowledge substrate normalisation — centralise persistent knowledge access"),
+    9: ("consciousness_instrumentation", "consciousness", "Consciousness instrumentation — metrics, traces, introspection paths"),
+}
 # Canonical architectural charter files (relative to git root)
 CHARTER_PATHS: Tuple[str, ...] = (
     "docs/architecture/GODELOS_ARCHITECTURAL_CHARTER.md",
@@ -1109,7 +1124,103 @@ def diagnose_gaps(config: Config, analysis: Dict[str, Any], model_meta: Dict[str
                 confidence=0.7,
             ))
 
-    # Filter by subsystem if requested
+    # 6. Dependency direction violations — Lane 5 (Contract repair) ────────
+    # Detect when modules import across architectural layer boundaries
+    import_graph = analysis.get("local_import_graph", {})
+    if import_graph:
+        # Heuristic: interface → core or knowledge → runtime imports signal contract misalignment
+        boundary_violations: List[str] = []
+        for src, targets in import_graph.items():
+            if not isinstance(targets, list):
+                continue
+            for tgt in targets:
+                # Detect cross-boundary imports per §6 Dependency Direction Contract
+                if ("interface" in str(src) and "core" in str(tgt)) or \
+                   ("knowledge" in str(src) and "runtime" in str(tgt)) or \
+                   ("agents" in str(src) and "interface" in str(tgt)):
+                    boundary_violations.append(f"{src} → {tgt}")
+        if boundary_violations:
+            add(ArchGap(
+                subsystem="core",
+                issue_key="contract-repair",
+                title=f"[arch-gap] Repair {len(boundary_violations)} cross-boundary import(s) (Lane 5)",
+                summary=f"Detected {len(boundary_violations)} import(s) that violate the charter dependency direction contract.",
+                problem=(
+                    f"Violations: {'; '.join(boundary_violations[:5])}.\n"
+                    "These imports cross architectural layer boundaries defined in §6 of the "
+                    "GODELOS_REPO_IMPLEMENTATION_CHARTER (dependency direction: runtime → core → knowledge → agents → interface)."
+                ),
+                why_it_matters="Cross-boundary imports increase coupling, hinder modular testing, and violate the charter dependency contract.",
+                scope="Repair the identified import violations using interface extraction or dependency inversion.",
+                suggested_files=[v.split(" → ")[0] for v in boundary_violations[:5]],
+                implementation_notes=(
+                    "Introduce interface modules at layer boundaries. Use dependency inversion to reverse "
+                    "inappropriate imports. See §6 GODELOS_REPO_IMPLEMENTATION_CHARTER for the target direction."
+                ),
+                acceptance_criteria=[
+                    "The identified cross-boundary imports are removed or inverted.",
+                    "No new cross-boundary imports are introduced.",
+                    "Existing tests pass.",
+                ],
+                validation_commands=["python repo_architect.py --mode analyze --allow-dirty"],
+                out_of_scope="Refactoring unrelated to the identified boundary violations.",
+                copilot_prompt=_build_copilot_prompt(
+                    f"Repair {len(boundary_violations)} cross-boundary import(s)",
+                    "core", "Apply dependency inversion to fix cross-layer imports",
+                    [v.split(" → ")[0] for v in boundary_violations[:5]],
+                    ["python repo_architect.py --mode analyze --allow-dirty", "python -m pytest -x -q"],
+                    "Introduce interface modules or use dependency inversion. Target direction: runtime → core → knowledge → agents → interface.",
+                ),
+                priority="medium",
+                confidence=0.75,
+            ))
+
+    # 7. Agent boundary violations — Lane 7 (Agent boundary enforcement) ───
+    # Detect when agent modules directly access other agents' internals
+    if import_graph:
+        agent_violations: List[str] = []
+        for src, targets in import_graph.items():
+            if not isinstance(targets, list):
+                continue
+            if "agent" in str(src).lower():
+                for tgt in targets:
+                    # Agent reaching into another agent's internal module
+                    if "agent" in str(tgt).lower() and str(src).split("/")[:-1] != str(tgt).split("/")[:-1]:
+                        agent_violations.append(f"{src} → {tgt}")
+        if agent_violations:
+            add(ArchGap(
+                subsystem="agents",
+                issue_key="agent-boundary",
+                title=f"[arch-gap] Enforce agent boundaries for {len(agent_violations)} cross-agent import(s) (Lane 7)",
+                summary=f"Detected {len(agent_violations)} import(s) where agent modules reach into other agents' internals.",
+                problem=(
+                    f"Cross-agent imports: {'; '.join(agent_violations[:5])}.\n"
+                    "Agents should communicate through explicit channels (§4.4 GODELOS_REPO_IMPLEMENTATION_CHARTER), "
+                    "not by reaching into each other's private internals."
+                ),
+                why_it_matters="Cross-agent coupling prevents independent testing, deployment, and evolution of agent modules.",
+                scope="Replace direct cross-agent imports with message-based or interface-mediated communication.",
+                suggested_files=[v.split(" → ")[0] for v in agent_violations[:5]],
+                implementation_notes=(
+                    "Identify the shared interface or message contract. Replace direct imports with "
+                    "message dispatch or shared interface modules."
+                ),
+                acceptance_criteria=[
+                    "No agent module directly imports another agent's internal modules.",
+                    "Cross-agent communication uses explicit interfaces or messages.",
+                ],
+                validation_commands=["python repo_architect.py --mode analyze --allow-dirty"],
+                out_of_scope="Refactoring agent internals; only addressing cross-agent coupling.",
+                copilot_prompt=_build_copilot_prompt(
+                    f"Enforce agent boundaries for {len(agent_violations)} cross-agent import(s)",
+                    "agents", "Replace direct cross-agent imports with interfaces or messages",
+                    [v.split(" → ")[0] for v in agent_violations[:5]],
+                    ["python repo_architect.py --mode analyze --allow-dirty", "python -m pytest -x -q"],
+                    "Replace direct cross-agent imports with message-based or shared-interface patterns per §4.4.",
+                ),
+                priority="medium",
+                confidence=0.7,
+            ))
     if config.issue_subsystem:
         gaps = [g for g in gaps if g.subsystem == config.issue_subsystem]
 
