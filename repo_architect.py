@@ -690,20 +690,22 @@ def render_issue_body(gap: ArchGap, config: Config, run_id: str) -> str:
 
 
 def find_existing_github_issue(config: Config, fingerprint: str) -> Optional[Dict[str, Any]]:
-    """Search open GitHub Issues for one containing the arch-gap fingerprint marker."""
+    """Search open GitHub Issues for one containing the arch-gap fingerprint marker.
+
+    Returns the matching issue dict, or ``None`` if no match is found.
+    Raises :class:`RepoArchitectError` when the search API call itself fails,
+    so callers can decide whether to skip issue creation on dedupe failure.
+    """
     if not config.github_token or not config.github_repo:
         return None
     marker = f"arch-gap-fingerprint: {fingerprint}"
     query = urllib.parse.urlencode({"q": f"repo:{config.github_repo} is:issue is:open {marker}", "per_page": "5"})
-    try:
-        result = github_request(config.github_token, f"/search/issues?{query}")
-        items = result.get("items", []) if isinstance(result, dict) else []
-        for item in items:
-            body = item.get("body") or ""
-            if marker in body:
-                return item
-    except RepoArchitectError:
-        pass
+    result = github_request(config.github_token, f"/search/issues?{query}")
+    items = result.get("items", []) if isinstance(result, dict) else []
+    for item in items:
+        body = item.get("body") or ""
+        if marker in body:
+            return item
     return None
 
 
@@ -818,7 +820,18 @@ def synthesize_issue(
     ensure_github_labels(config, labels)
 
     # Deduplication: search for an existing open issue with the same fingerprint
-    existing = find_existing_github_issue(config, fp)
+    try:
+        existing = find_existing_github_issue(config, fp)
+    except RepoArchitectError as exc:
+        # Dedupe lookup failed — skip creation to avoid duplicates
+        log("Deduplication lookup failed; skipping issue creation to avoid duplicates",
+            data={"fingerprint": fp, "error": str(exc)})
+        return IssueAction(
+            action="error", issue_number=None, issue_url=None,
+            labels_applied=labels, dedupe_result="lookup_failed", fingerprint=fp,
+            dry_run_path=None, gap_title=gap.title, gap_subsystem=gap.subsystem,
+            error=f"Dedupe lookup failed: {exc}",
+        )
     if existing:
         issue_number = existing["number"]
         issue_url = existing.get("html_url")
@@ -833,13 +846,13 @@ def synthesize_issue(
         except RepoArchitectError as exc:
             return IssueAction(
                 action="error", issue_number=issue_number, issue_url=issue_url,
-                labels_applied=[], dedupe_result="existing_open", fingerprint=fp,
+                labels_applied=labels, dedupe_result="existing_open", fingerprint=fp,
                 dry_run_path=None, gap_title=gap.title, gap_subsystem=gap.subsystem,
                 error=str(exc),
             )
         return IssueAction(
             action="updated", issue_number=issue_number, issue_url=issue_url,
-            labels_applied=[], dedupe_result="existing_open", fingerprint=fp,
+            labels_applied=labels, dedupe_result="existing_open", fingerprint=fp,
             dry_run_path=None, gap_title=gap.title, gap_subsystem=gap.subsystem,
         )
 
@@ -893,6 +906,39 @@ def _build_copilot_prompt(gap_title: str, subsystem: str, scope: str,
 
         Start by reading the files listed above, then implement the fix.
         """).strip()
+
+
+def _module_segments(identifier: str) -> Tuple[str, ...]:
+    """Normalize a module name or file path to its constituent segments.
+
+    Handles both module names (``backend.core.foo``) and file paths
+    (``backend/core/foo.py``).  Always returns a tuple of directory-style
+    segments (no dots, no ``.py`` suffix).
+    """
+    if "." in identifier and "/" not in identifier:
+        # Module name → split on dots
+        return tuple(identifier.split("."))
+    # File path → use pathlib
+    parts = pathlib.Path(identifier).parts
+    # Strip .py suffix from the last segment
+    if parts and parts[-1].endswith(".py"):
+        parts = parts[:-1] + (parts[-1][:-3],)
+    return parts
+
+
+def _module_to_path(identifier: str, analysis: Dict[str, Any]) -> str:
+    """Best-effort mapping of a module name to a repo-relative file path.
+
+    Falls back to ``module.replace('.', '/') + '.py'`` when the analysis
+    ``python_files`` data is unavailable or the module is not found.
+    """
+    py_files = analysis.get("python_files", [])
+    if py_files:
+        for info in py_files:
+            if isinstance(info, dict) and info.get("module") == identifier:
+                return info["path"]
+    # Fallback: replace dots with slashes
+    return identifier.replace(".", "/") + ".py"
 
 
 def diagnose_gaps(config: Config, analysis: Dict[str, Any], model_meta: Dict[str, Any]) -> List[ArchGap]:
@@ -953,10 +999,12 @@ def diagnose_gaps(config: Config, analysis: Dict[str, Any], model_meta: Dict[str
     # 2. Import cycles ─────────────────────────────────────────────────────
     cycles = analysis.get("cycles", [])
     if cycles:
-        cycle_files: List[str] = []
+        cycle_modules: List[str] = []
         for c in cycles[:5]:
-            cycle_files.extend(c)
-        cycle_files = list(dict.fromkeys(cycle_files))[:10]
+            cycle_modules.extend(c)
+        cycle_modules = list(dict.fromkeys(cycle_modules))[:10]
+        # Map module names → file paths for suggested_files
+        cycle_files = [_module_to_path(m, analysis) for m in cycle_modules]
         add(ArchGap(
             subsystem="runtime",
             issue_key="import-cycles",
@@ -1134,15 +1182,16 @@ def diagnose_gaps(config: Config, analysis: Dict[str, Any], model_meta: Dict[str
         for src, targets in import_graph.items():
             if not isinstance(targets, list):
                 continue
-            src_parts = pathlib.Path(str(src)).parts
+            src_parts = _module_segments(src)
             for tgt in targets:
-                tgt_parts = pathlib.Path(str(tgt)).parts
+                tgt_parts = _module_segments(tgt)
                 # Detect cross-boundary imports per §6 Dependency Direction Contract
                 if ("interface" in src_parts and "core" in tgt_parts) or \
                    ("knowledge" in src_parts and "runtime" in tgt_parts) or \
                    ("agents" in src_parts and "interface" in tgt_parts):
                     boundary_violations.append(f"{src} → {tgt}")
         if boundary_violations:
+            violation_files = [_module_to_path(v.split(" → ")[0], analysis) for v in boundary_violations[:_MAX_VIOLATIONS_DISPLAY]]
             add(ArchGap(
                 subsystem="core",
                 issue_key="contract-repair",
@@ -1155,7 +1204,7 @@ def diagnose_gaps(config: Config, analysis: Dict[str, Any], model_meta: Dict[str
                 ),
                 why_it_matters="Cross-boundary imports increase coupling, hinder modular testing, and violate the charter dependency contract.",
                 scope="Repair the identified import violations using interface extraction or dependency inversion.",
-                suggested_files=[v.split(" → ")[0] for v in boundary_violations[:_MAX_VIOLATIONS_DISPLAY]],
+                suggested_files=violation_files,
                 implementation_notes=(
                     "Introduce interface modules at layer boundaries. Use dependency inversion to reverse "
                     "inappropriate imports. See §6 GODELOS_REPO_IMPLEMENTATION_CHARTER for the target direction."
@@ -1170,7 +1219,7 @@ def diagnose_gaps(config: Config, analysis: Dict[str, Any], model_meta: Dict[str
                 copilot_prompt=_build_copilot_prompt(
                     f"Repair {len(boundary_violations)} cross-boundary import(s)",
                     "core", "Apply dependency inversion to fix cross-layer imports",
-                    [v.split(" → ")[0] for v in boundary_violations[:_MAX_VIOLATIONS_DISPLAY]],
+                    violation_files,
                     ["python repo_architect.py --mode analyze --allow-dirty", "python -m pytest -x -q"],
                     "Introduce interface modules or use dependency inversion. Target direction: runtime → core → knowledge → agents → interface.",
                 ),
@@ -1185,14 +1234,16 @@ def diagnose_gaps(config: Config, analysis: Dict[str, Any], model_meta: Dict[str
         for src, targets in import_graph.items():
             if not isinstance(targets, list):
                 continue
-            src_parts = pathlib.Path(str(src)).parts
+            src_parts = _module_segments(src)
             if "agents" in src_parts:
                 for tgt in targets:
-                    tgt_parts = pathlib.Path(str(tgt)).parts
-                    # Agent reaching into another agent's internal module
-                    if "agents" in tgt_parts and pathlib.Path(str(src)).parent != pathlib.Path(str(tgt)).parent:
+                    tgt_parts = _module_segments(tgt)
+                    # Agent reaching into another agent's internal module:
+                    # both are under "agents" but have different parent packages
+                    if "agents" in tgt_parts and _module_segments(src)[:-1] != _module_segments(tgt)[:-1]:
                         agent_violations.append(f"{src} → {tgt}")
         if agent_violations:
+            agent_files = [_module_to_path(v.split(" → ")[0], analysis) for v in agent_violations[:_MAX_VIOLATIONS_DISPLAY]]
             add(ArchGap(
                 subsystem="agents",
                 issue_key="agent-boundary",
@@ -1205,7 +1256,7 @@ def diagnose_gaps(config: Config, analysis: Dict[str, Any], model_meta: Dict[str
                 ),
                 why_it_matters="Cross-agent coupling prevents independent testing, deployment, and evolution of agent modules.",
                 scope="Replace direct cross-agent imports with message-based or interface-mediated communication.",
-                suggested_files=[v.split(" → ")[0] for v in agent_violations[:_MAX_VIOLATIONS_DISPLAY]],
+                suggested_files=agent_files,
                 implementation_notes=(
                     "Identify the shared interface or message contract. Replace direct imports with "
                     "message dispatch or shared interface modules."
@@ -1219,7 +1270,7 @@ def diagnose_gaps(config: Config, analysis: Dict[str, Any], model_meta: Dict[str
                 copilot_prompt=_build_copilot_prompt(
                     f"Enforce agent boundaries for {len(agent_violations)} cross-agent import(s)",
                     "agents", "Replace direct cross-agent imports with interfaces or messages",
-                    [v.split(" → ")[0] for v in agent_violations[:_MAX_VIOLATIONS_DISPLAY]],
+                    agent_files,
                     ["python repo_architect.py --mode analyze --allow-dirty", "python -m pytest -x -q"],
                     "Replace direct cross-agent imports with message-based or shared-interface patterns per §4.4.",
                 ),
@@ -3028,8 +3079,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     p.add_argument("--max-issues", type=int, default=1,
                    help="Issue mode: maximum number of issues to open/update per run (default: 1).")
     p.add_argument("--issue-subsystem", default=None,
-                   help="Issue mode: restrict gap detection to a specific subsystem "
-                        f"(choices: {', '.join(SUBSYSTEM_LABELS)}).")
+                   choices=SUBSYSTEM_LABELS,
+                   help="Issue mode: restrict gap detection to a specific subsystem.")
     return p.parse_args(argv)
 
 

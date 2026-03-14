@@ -149,7 +149,7 @@ python repo_architect.py --mode issue --allow-dirty --max-issues 3
 
 | Flag | Default | Description |
 |---|---|---|
-| `--mode issue` | required | Enable issue-first mode |
+| `--mode issue` | `issue` | Operating mode (issue/mutate/campaign/report/analyze) |
 | `--dry-run` | `false` | Write issue bodies to disk only |
 | `--max-issues N` | `1` | Maximum issues to open/update per run |
 | `--issue-subsystem X` | all | Restrict to one subsystem |

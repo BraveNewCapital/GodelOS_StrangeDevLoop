@@ -1784,7 +1784,8 @@ class TestHigherLaneGapDetection(unittest.TestCase):
                 "architecture_score": 80,
                 "score_factors": {},
                 "local_import_graph": {
-                    "backend/interface/api.py": ["backend/core/engine.py"],
+                    # Module-name format (matching build_analysis output)
+                    "backend.interface.api": ["backend.core.engine"],
                 },
             }
             gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
@@ -1805,7 +1806,8 @@ class TestHigherLaneGapDetection(unittest.TestCase):
                 "architecture_score": 80,
                 "score_factors": {},
                 "local_import_graph": {
-                    "backend/agents/planner/core.py": ["backend/agents/executor/internal.py"],
+                    # Module-name format (matching build_analysis output)
+                    "backend.agents.planner.core": ["backend.agents.executor.internal"],
                 },
             }
             gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
@@ -1826,12 +1828,112 @@ class TestHigherLaneGapDetection(unittest.TestCase):
                 "architecture_score": 80,
                 "score_factors": {},
                 "local_import_graph": {
-                    "backend/core/engine.py": ["backend/core/utils.py"],
+                    # Module-name format — same package, no cross-boundary
+                    "backend.core.engine": ["backend.core.utils"],
                 },
             }
             gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
         higher_gaps = [g for g in gaps if g.issue_key in ("contract-repair", "agent-boundary")]
         self.assertEqual(len(higher_gaps), 0)
+
+
+# ---------------------------------------------------------------------------
+# 22. _module_segments normalizer
+# ---------------------------------------------------------------------------
+
+class TestModuleSegments(unittest.TestCase):
+    """_module_segments must handle both module names and file paths."""
+
+    def test_module_name_splits_on_dots(self) -> None:
+        self.assertEqual(ra._module_segments("backend.core.engine"), ("backend", "core", "engine"))
+
+    def test_file_path_splits_on_slashes(self) -> None:
+        parts = ra._module_segments("backend/core/engine.py")
+        self.assertEqual(parts, ("backend", "core", "engine"))
+
+    def test_file_path_without_py_extension(self) -> None:
+        parts = ra._module_segments("backend/core/engine")
+        self.assertEqual(parts, ("backend", "core", "engine"))
+
+    def test_single_segment_module(self) -> None:
+        self.assertEqual(ra._module_segments("repo_architect"), ("repo_architect",))
+
+
+# ---------------------------------------------------------------------------
+# 23. _module_to_path mapper
+# ---------------------------------------------------------------------------
+
+class TestModuleToPath(unittest.TestCase):
+    """_module_to_path should resolve module names to file paths from analysis data."""
+
+    def test_maps_via_python_files(self) -> None:
+        analysis = {"python_files": [{"module": "backend.core.engine", "path": "backend/core/engine.py"}]}
+        self.assertEqual(ra._module_to_path("backend.core.engine", analysis), "backend/core/engine.py")
+
+    def test_falls_back_to_dot_replacement(self) -> None:
+        analysis = {"python_files": []}
+        self.assertEqual(ra._module_to_path("backend.core.engine", analysis), "backend/core/engine.py")
+
+    def test_falls_back_when_no_python_files(self) -> None:
+        analysis: Dict[str, Any] = {}
+        self.assertEqual(ra._module_to_path("backend.core.engine", analysis), "backend/core/engine.py")
+
+
+# ---------------------------------------------------------------------------
+# 24. Dedupe failure handling in synthesize_issue
+# ---------------------------------------------------------------------------
+
+class TestDedupeFailureHandling(unittest.TestCase):
+    """find_existing_github_issue should raise on API errors, not swallow them."""
+
+    def test_find_existing_raises_on_api_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            config.github_token = "fake-token"
+            config.github_repo = "owner/repo"
+            # Should raise because github_request will fail
+            with self.assertRaises(ra.RepoArchitectError):
+                ra.find_existing_github_issue(config, "abc123def456")
+
+
+# ---------------------------------------------------------------------------
+# 25. Import cycle suggested_files maps to file paths
+# ---------------------------------------------------------------------------
+
+class TestImportCycleSuggestedFiles(unittest.TestCase):
+    """Import cycle gaps should produce file paths in suggested_files, not module names."""
+
+    def _model_meta(self, used: bool = False) -> Dict[str, Any]:
+        return {
+            "used": used, "summary": None, "requested_model": None, "actual_model": None,
+            "primary_model": None, "fallback_model": None, "model_used": None,
+            "fallback_used": False, "fallback_reason": None, "fallback_occurred": False, "enabled": False,
+        }
+
+    def test_suggested_files_are_paths_not_modules(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            analysis: Dict[str, Any] = {
+                "parse_error_files": [],
+                "cycles": [["backend.core.a", "backend.core.b", "backend.core.a"]],
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 80,
+                "score_factors": {},
+                "python_files": [
+                    {"module": "backend.core.a", "path": "backend/core/a.py"},
+                    {"module": "backend.core.b", "path": "backend/core/b.py"},
+                ],
+            }
+            gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
+        cycle_gaps = [g for g in gaps if g.issue_key == "import-cycles"]
+        self.assertTrue(len(cycle_gaps) >= 1)
+        # Suggested files should be file paths, not module names
+        for f in cycle_gaps[0].suggested_files:
+            self.assertIn("/", f, f"Expected a file path but got module name: {f}")
+            self.assertTrue(f.endswith(".py"), f"Expected .py extension but got: {f}")
 
 
 if __name__ == "__main__":
