@@ -79,8 +79,9 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
-  issues: write
+  contents: write     # required for deprecated mutate/campaign modes (branch push); read-only for issue mode
+  issues: write       # required for issue-first mode (open/update GitHub Issues)
+  pull-requests: write  # required for deprecated mutate/campaign modes (PR creation)
   models: read
 
 jobs:

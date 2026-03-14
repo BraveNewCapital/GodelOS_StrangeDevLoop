@@ -105,6 +105,8 @@ _ENTRYPOINT_CONSOLIDATION_THRESHOLD = 4
 # When building entrypoint snippets: consider this many candidates, send at most this many to model
 _ENTRYPOINT_CONSOLIDATION_CANDIDATES = 8
 _ENTRYPOINT_CONSOLIDATION_SNIPPETS = 5
+# Maximum number of file/evidence items shown inline in Copilot prompt or issue body sections
+_MAX_INLINE_FILE_DISPLAY = 5
 
 
 class RepoArchitectError(Exception):
@@ -615,7 +617,12 @@ def create_or_update_pull_request(config: Config, branch: str, title: str, body:
 # -----------------------------------------------------------------------
 
 def issue_fingerprint(subsystem: str, issue_key: str) -> str:
-    """Return a deterministic 12-hex-char fingerprint for deduplication."""
+    """Return a deterministic 12-hex-char fingerprint for deduplication.
+
+    12 hex characters (48 bits) gives ~1-in-281-trillion collision probability
+    per pair, which is adequate for the bounded set of architectural gap types
+    per repository (typically ≤ 30 distinct gap keys).
+    """
     canonical = f"{subsystem}:{issue_key}".lower().strip()
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:12]
 
@@ -845,7 +852,7 @@ def _build_copilot_prompt(gap_title: str, subsystem: str, scope: str,
                           suggested_files: List[str], validation_commands: List[str],
                           implementation_notes: str) -> str:
     """Build a concrete Copilot Chat / agent-mode prompt for a detected gap."""
-    files_text = ", ".join(f"`{f}`" for f in suggested_files[:5]) if suggested_files else "relevant files in the subsystem"
+    files_text = ", ".join(f"`{f}`" for f in suggested_files[:_MAX_INLINE_FILE_DISPLAY]) if suggested_files else "relevant files in the subsystem"
     validation_text = " ".join(f"`{v}`" for v in validation_commands[:2]) if validation_commands else "run the test suite"
     return textwrap.dedent(f"""\
         You are implementing a fix for a detected architectural gap in this repository.

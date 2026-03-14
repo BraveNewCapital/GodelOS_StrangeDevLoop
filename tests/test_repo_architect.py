@@ -15,6 +15,7 @@ import dataclasses
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -1345,8 +1346,7 @@ class TestRenderIssueBody(unittest.TestCase):
             config = _make_config(root)
             body = ra.render_issue_body(self._make_gap(), config, "run-001")
         # Extract JSON from body
-        import re as _re
-        m = _re.search(r"```json\n(\{.*?\})\n```", body, _re.DOTALL)
+        m = re.search(r"```json\n(\{.*?\})\n```", body, re.DOTALL)
         self.assertIsNotNone(m, "Expected a JSON code block in the body")
         meta = json.loads(m.group(1))
         for field in ("subsystem", "priority", "confidence", "mode", "generated_at", "run_id", "fingerprint", "issue_key"):
