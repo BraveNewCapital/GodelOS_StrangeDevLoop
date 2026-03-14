@@ -106,10 +106,38 @@ CHARTER_LANE_MAP: Dict[int, Tuple[str, str, str]] = {
     8: ("knowledge_normalisation", "knowledge", "Knowledge substrate normalisation — centralise persistent knowledge access"),
     9: ("consciousness_instrumentation", "consciousness", "Consciousness instrumentation — metrics, traces, introspection paths"),
 }
+# Charter §14 Current Priority Order (GODELOS_REPO_IMPLEMENTATION_CHARTER)
+CHARTER_PRIORITY_ORDER: Tuple[str, ...] = (
+    "restore or preserve parse correctness",
+    "eliminate import cycles",
+    "reduce runtime entrypoint ambiguity",
+    "normalise knowledge substrate boundaries",
+    "isolate agent boundaries",
+    "add explicit machine-consciousness instrumentation seams",
+    "build toward durable Gödlø-P persistence semantics",
+    "progressively enable validated self-modification loops",
+)
+# Machine-readable companion files (§15 GODELOS_REPO_IMPLEMENTATION_CHARTER)
+CHARTER_COMPANION_FILES: Tuple[str, ...] = (
+    "docs/repo_architect/policy.json",
+    "docs/repo_architect/mutation_lanes.json",
+    "docs/repo_architect/dependency_contract.json",
+)
 # Canonical architectural charter files (relative to git root)
 CHARTER_PATHS: Tuple[str, ...] = (
     "docs/architecture/GODELOS_ARCHITECTURAL_CHARTER.md",
     "docs/architecture/GODELOS_REPO_IMPLEMENTATION_CHARTER.md",
+)
+# §16 Minimal Agent Instruction Contract (GODELOS_REPO_IMPLEMENTATION_CHARTER)
+AGENT_INSTRUCTION_CONTRACT: Tuple[str, ...] = (
+    "Work only in one mutation lane at a time.",
+    "Preserve canonical runtime convergence toward backend/unified_server.py.",
+    "Break import cycles structurally, not cosmetically.",
+    "Do not widen coupling between runtime, core, knowledge, agents, and interface layers.",
+    "Do not bypass knowledge-store interfaces for persistent memory operations.",
+    "Do not make claims about consciousness without adding measurable instrumentation or evidence paths.",
+    "Prefer thin, verifiable PRs over broad rewrites.",
+    "Every PR must explain objective, architectural effect, validation, and next follow-up lane.",
 )
 # Maximum characters from each charter file injected into model context
 _MAX_CHARTER_CHARS_PER_FILE = 3000
@@ -1647,13 +1675,14 @@ def build_analysis(root: pathlib.Path) -> Dict[str, Any]:
 # -----------------------------
 
 def load_charter_context(git_root: pathlib.Path) -> Dict[str, Any]:
-    """Load architectural charter files if present.
+    """Load architectural charter files and companion policy files if present.
 
     Returns a dict with:
       - loaded_files: list of relative paths that were successfully read
       - content_hash: hex digest of combined content (None if no files loaded)
       - applied: False initially; callers set True when charter was injected
       - content: truncated combined charter text for model injection
+      - companion_files: list of §15 companion file paths that exist
     """
     loaded_files: List[str] = []
     contents: List[str] = []
@@ -1666,6 +1695,11 @@ def load_charter_context(git_root: pathlib.Path) -> Dict[str, Any]:
                 contents.append(f"### {rel}\n\n{text[:_MAX_CHARTER_CHARS_PER_FILE]}")
             except OSError:
                 pass
+    # §15 companion files — record existence for diagnostics
+    companion_files: List[str] = []
+    for rel in CHARTER_COMPANION_FILES:
+        if (git_root / rel).exists():
+            companion_files.append(rel)
     combined = "\n\n".join(contents)
     content_hash = hashlib.sha256(combined.encode("utf-8")).hexdigest()[:16] if combined else None
     return {
@@ -1673,6 +1707,7 @@ def load_charter_context(git_root: pathlib.Path) -> Dict[str, Any]:
         "content_hash": content_hash,
         "applied": False,
         "content": combined,
+        "companion_files": companion_files,
     }
 
 

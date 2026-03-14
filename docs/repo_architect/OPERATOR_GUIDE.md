@@ -394,4 +394,18 @@ The system tries a **preferred** model first and automatically retries with a **
 python -m unittest tests.test_repo_architect -v
 ```
 
-The test suite covers: branch suffix generation, model fallback, `ast.parse` gate, campaign aggregation, output schema stability, lane priority, `entrypoint_consolidation`, lane scoping, `validate_change`, charter context, issue fingerprint generation, issue body rendering, deduplication behavior, label assignment, gap diagnosis, `run_issue_cycle` output schema, and charter-validated mode notices.
+The test suite covers: branch suffix generation, model fallback, `ast.parse` gate, campaign aggregation, output schema stability, lane priority, `entrypoint_consolidation`, lane scoping, `validate_change`, charter context, issue fingerprint generation, issue body rendering, deduplication behavior, label assignment, gap diagnosis, `run_issue_cycle` output schema, charter-validated mode notices, module-name normalization, and companion file existence.
+
+---
+
+## Machine-Readable Companion Files (Charter §15)
+
+The implementation charter (§15) requires machine-readable policy files that encode mutation lanes, dependency contracts, and architectural invariants. These files live alongside the OPERATOR_GUIDE:
+
+| File | Charter ref | Contents |
+|---|---|---|
+| [`policy.json`](policy.json) | §15 | Operating modes, canonical entrypoint, protected paths, priority order (§14), agent instruction contract (§16), architectural invariants |
+| [`mutation_lanes.json`](mutation_lanes.json) | §10, §11 | All 10 charter-defined lanes with purpose, constraints, automation status, preferred methods, validation floor, and mutation budget policy |
+| [`dependency_contract.json`](dependency_contract.json) | §6 | Layer order, allowed dependency direction, hard prohibitions, circular import policy, ownership hints |
+
+Agents should consume these files before proposing code changes. The constants `CHARTER_COMPANION_FILES`, `CHARTER_PRIORITY_ORDER`, and `AGENT_INSTRUCTION_CONTRACT` in `repo_architect.py` encode the same data as Python tuples for runtime use.

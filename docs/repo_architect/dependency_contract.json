@@ -1,0 +1,49 @@
+{
+  "$schema": "docs/repo_architect/dependency_contract.json",
+  "description": "Machine-readable dependency direction contract from GODELOS_REPO_IMPLEMENTATION_CHARTER §6.",
+  "charter_source": "docs/architecture/GODELOS_REPO_IMPLEMENTATION_CHARTER.md",
+  "charter_section": "§6 Dependency Direction Contract",
+  "layer_order": [
+    "interface",
+    "agents",
+    "knowledge",
+    "core",
+    "runtime"
+  ],
+  "layer_descriptions": {
+    "interface": "External API surface, protocol handling, presentation",
+    "agents": "Agent orchestration, lifecycle, message routing",
+    "knowledge": "Knowledge substrate, persistent store adapters, semantic memory",
+    "core": "Core cognitive processing, state management, operator logic",
+    "runtime": "Process orchestration, scheduling, lifecycle, messaging, runtime state"
+  },
+  "allowed_direction": "interface → agents → knowledge → core → runtime (dependencies flow inward)",
+  "hard_prohibitions": [
+    "interface importing deep internal concrete storage implementations directly",
+    "knowledge adapters importing runtime orchestration logic",
+    "agent modules reaching through interface modules to access runtime internals",
+    "circular imports between backend/core and backend/runtime",
+    "circular imports between godelOS/core_kr interface and concrete store implementations"
+  ],
+  "circular_import_policy": {
+    "stance": "Any import cycle is presumed architectural debt",
+    "acceptable_responses": [
+      "dependency inversion",
+      "interface extraction",
+      "event-based decoupling",
+      "message boundary insertion",
+      "module split",
+      "relocation of misplaced logic"
+    ],
+    "forbidden": "Never patch cycles by adding local imports inside functions unless explicitly temporary, commented as debt, and tracked for removal"
+  },
+  "canonical_entrypoint": "backend/unified_server.py",
+  "ownership_hints": {
+    "backend/runtime/": "Runtime Kernel — process orchestration, scheduling, lifecycle",
+    "backend/core/": "Core Cognitive Engine — reasoning, state update, operator logic",
+    "godelOS/core_kr/": "Knowledge Substrate — persistent knowledge, semantic storage",
+    "backend/agents/": "Agent Framework — agent lifecycle, message routing, boundary enforcement",
+    "backend/interface/": "Interface Layer — external API surface",
+    "backend/consciousness/": "Consciousness Instrumentation — metrics, traces, self-observation"
+  }
+}

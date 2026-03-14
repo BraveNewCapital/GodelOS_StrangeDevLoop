@@ -1,0 +1,150 @@
+{
+  "$schema": "docs/repo_architect/mutation_lanes.json",
+  "description": "Machine-readable mutation lane definitions from GODELOS_REPO_IMPLEMENTATION_CHARTER §10.",
+  "charter_source": "docs/architecture/GODELOS_REPO_IMPLEMENTATION_CHARTER.md",
+  "charter_section": "§10 Repo-Architect Mutation Lanes",
+  "lanes": {
+    "0": {
+      "name": "report",
+      "title": "Report generation",
+      "subsystem": "reporting",
+      "purpose": "Generate architecture packets, refresh inventories, update risk docs.",
+      "allowed_outputs": ["docs only", "metadata only", "analysis files only"],
+      "hard_constraints": [],
+      "automated": true,
+      "automation_lane": "report"
+    },
+    "1": {
+      "name": "hygiene",
+      "title": "Hygiene",
+      "subsystem": "runtime",
+      "purpose": "Remove marked debug prints, eliminate dead local noise, simplify obvious internal clutter.",
+      "allowed_outputs": ["code changes"],
+      "hard_constraints": ["no semantics change unless trivial and provable"],
+      "automated": true,
+      "automation_lane": "hygiene"
+    },
+    "2": {
+      "name": "parse_errors",
+      "title": "Parse repair",
+      "subsystem": "runtime",
+      "purpose": "Repair syntax errors, restore parsability, unblock analysis and test execution.",
+      "allowed_outputs": ["code changes"],
+      "hard_constraints": [
+        "preserve intended semantics where inferable",
+        "if intent is unclear, prefer minimal repair plus note"
+      ],
+      "automated": true,
+      "automation_lane": "parse_errors"
+    },
+    "3": {
+      "name": "import_cycles",
+      "title": "Circular dependency elimination",
+      "subsystem": "runtime",
+      "purpose": "Break import cycles by structural means.",
+      "allowed_outputs": ["code changes"],
+      "hard_constraints": ["do not merely hide the cycle"],
+      "preferred_methods": [
+        "interface extraction",
+        "inversion of dependency",
+        "event dispatch separation",
+        "module split"
+      ],
+      "automated": true,
+      "automation_lane": "import_cycles"
+    },
+    "4": {
+      "name": "entrypoint_consolidation",
+      "title": "Entrypoint consolidation",
+      "subsystem": "runtime",
+      "purpose": "Reduce runtime duplication, delegate launchers to canonical runtime root.",
+      "allowed_outputs": ["code changes"],
+      "hard_constraints": ["no breaking of demos or scripts without wrapper preservation"],
+      "automated": true,
+      "automation_lane": "entrypoint_consolidation"
+    },
+    "5": {
+      "name": "contract_repair",
+      "title": "Contract repair",
+      "subsystem": "core",
+      "purpose": "Normalise interfaces, repair adapter mismatches, align implementations with substrate boundaries.",
+      "allowed_outputs": ["code changes"],
+      "hard_constraints": [],
+      "automated": false,
+      "automation_lane": null,
+      "gap_detection": "dependency direction violation detection"
+    },
+    "6": {
+      "name": "runtime_extraction",
+      "title": "Runtime extraction",
+      "subsystem": "runtime",
+      "purpose": "Move orchestration logic out of scripts or ad hoc files into runtime modules.",
+      "allowed_outputs": ["code changes"],
+      "hard_constraints": [],
+      "automated": false,
+      "automation_lane": null,
+      "gap_detection": null
+    },
+    "7": {
+      "name": "agent_boundary",
+      "title": "Agent boundary enforcement",
+      "subsystem": "agents",
+      "purpose": "Isolate agent internal state, replace direct cross-module reach-through with messages or interfaces.",
+      "allowed_outputs": ["code changes"],
+      "hard_constraints": [],
+      "automated": false,
+      "automation_lane": null,
+      "gap_detection": "agent boundary violation detection"
+    },
+    "8": {
+      "name": "knowledge_normalisation",
+      "title": "Knowledge substrate normalisation",
+      "subsystem": "knowledge",
+      "purpose": "Centralise persistent knowledge access, remove direct concrete-store entanglement.",
+      "allowed_outputs": ["code changes"],
+      "hard_constraints": [],
+      "automated": false,
+      "automation_lane": null,
+      "gap_detection": null
+    },
+    "9": {
+      "name": "consciousness_instrumentation",
+      "title": "Consciousness instrumentation",
+      "subsystem": "consciousness",
+      "purpose": "Add metrics, traces, validation hooks, and introspection paths relevant to recursive self-awareness research.",
+      "allowed_outputs": ["code changes"],
+      "hard_constraints": ["instrumentation must remain evidence-oriented, not rhetorical"],
+      "automated": false,
+      "automation_lane": null,
+      "gap_detection": null
+    }
+  },
+  "automation_priority_order": [
+    "parse_errors",
+    "import_cycles",
+    "entrypoint_consolidation",
+    "hygiene",
+    "report"
+  ],
+  "validation_floor": {
+    "description": "Any self-modifying mutation must at minimum satisfy (§9.3)",
+    "requirements": [
+      "repository compiles or targeted files compile where relevant",
+      "changed tests pass, or a clear debt note explains why not",
+      "architectural invariants are not worsened",
+      "the PR explains the lane and intended convergence effect"
+    ]
+  },
+  "mutation_budget_policy": {
+    "description": "Autonomous changes must be thin and rapid, but never indiscriminate (§11).",
+    "default_budget": 1,
+    "default_max_slices": 3,
+    "single_pr_scope": [
+      "fix one parse error cluster",
+      "break one import cycle",
+      "consolidate one entrypoint family",
+      "extract one interface boundary",
+      "add one instrumentation seam"
+    ]
+  }
+}

@@ -1936,5 +1936,96 @@ class TestImportCycleSuggestedFiles(unittest.TestCase):
             self.assertTrue(f.endswith(".py"), f"Expected .py extension but got: {f}")
 
 
+# ---------------------------------------------------------------------------
+# 26. Charter §14/§15/§16 constants and companion files
+# ---------------------------------------------------------------------------
+
+class TestCharterPriorityOrder(unittest.TestCase):
+    """Verify CHARTER_PRIORITY_ORDER matches charter §14."""
+
+    def test_has_eight_items(self) -> None:
+        self.assertEqual(len(ra.CHARTER_PRIORITY_ORDER), 8)
+
+    def test_starts_with_parse_correctness(self) -> None:
+        self.assertIn("parse", ra.CHARTER_PRIORITY_ORDER[0].lower())
+
+    def test_ends_with_self_modification(self) -> None:
+        self.assertIn("self-modification", ra.CHARTER_PRIORITY_ORDER[-1].lower())
+
+
+class TestAgentInstructionContract(unittest.TestCase):
+    """Verify AGENT_INSTRUCTION_CONTRACT matches charter §16."""
+
+    def test_has_eight_instructions(self) -> None:
+        self.assertEqual(len(ra.AGENT_INSTRUCTION_CONTRACT), 8)
+
+    def test_mentions_canonical_entrypoint(self) -> None:
+        combined = " ".join(ra.AGENT_INSTRUCTION_CONTRACT)
+        self.assertIn("backend/unified_server.py", combined)
+
+    def test_all_entries_are_strings(self) -> None:
+        for item in ra.AGENT_INSTRUCTION_CONTRACT:
+            self.assertIsInstance(item, str)
+            self.assertTrue(len(item) > 10, f"Instruction too short: {item}")
+
+
+class TestCharterCompanionFiles(unittest.TestCase):
+    """Verify §15 companion files exist and are valid JSON."""
+
+    def test_companion_file_constants_defined(self) -> None:
+        self.assertEqual(len(ra.CHARTER_COMPANION_FILES), 3)
+        for path in ra.CHARTER_COMPANION_FILES:
+            self.assertTrue(path.endswith(".json"), f"Expected .json: {path}")
+
+    def test_companion_files_exist(self) -> None:
+        git_root = pathlib.Path(__file__).parent.parent
+        for rel in ra.CHARTER_COMPANION_FILES:
+            full = git_root / rel
+            self.assertTrue(full.exists(), f"Missing companion file: {rel}")
+
+    def test_companion_files_are_valid_json(self) -> None:
+        git_root = pathlib.Path(__file__).parent.parent
+        for rel in ra.CHARTER_COMPANION_FILES:
+            full = git_root / rel
+            with open(full, encoding="utf-8") as f:
+                data = json.load(f)
+            self.assertIsInstance(data, dict, f"{rel} is not a JSON object")
+
+    def test_policy_json_has_required_fields(self) -> None:
+        git_root = pathlib.Path(__file__).parent.parent
+        with open(git_root / "docs/repo_architect/policy.json", encoding="utf-8") as f:
+            data = json.load(f)
+        required = {"default_mode", "modes", "canonical_entrypoint", "priority_order", "agent_instruction_contract"}
+        self.assertTrue(required.issubset(set(data.keys())), f"Missing fields: {required - set(data.keys())}")
+
+    def test_mutation_lanes_json_has_all_10_lanes(self) -> None:
+        git_root = pathlib.Path(__file__).parent.parent
+        with open(git_root / "docs/repo_architect/mutation_lanes.json", encoding="utf-8") as f:
+            data = json.load(f)
+        lanes = data.get("lanes", {})
+        self.assertEqual(len(lanes), 10, f"Expected 10 lanes, got {len(lanes)}")
+        for i in range(10):
+            self.assertIn(str(i), lanes, f"Missing lane {i}")
+
+    def test_dependency_contract_json_has_prohibitions(self) -> None:
+        git_root = pathlib.Path(__file__).parent.parent
+        with open(git_root / "docs/repo_architect/dependency_contract.json", encoding="utf-8") as f:
+            data = json.load(f)
+        self.assertIn("hard_prohibitions", data)
+        self.assertTrue(len(data["hard_prohibitions"]) >= 3)
+
+
+class TestLoadCharterContextCompanionFiles(unittest.TestCase):
+    """Verify load_charter_context returns companion_files metadata."""
+
+    def test_companion_files_in_context(self) -> None:
+        git_root = pathlib.Path(__file__).parent.parent
+        ctx = ra.load_charter_context(git_root)
+        self.assertIn("companion_files", ctx)
+        self.assertIsInstance(ctx["companion_files"], list)
+        # In the real repo, all 3 should exist
+        self.assertEqual(len(ctx["companion_files"]), 3)
+
+
 if __name__ == "__main__":
     unittest.main()
