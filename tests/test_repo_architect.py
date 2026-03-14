@@ -427,14 +427,14 @@ class TestModelConfiguration(unittest.TestCase):
     def test_build_config_uses_env_models_when_github_model_blank(self) -> None:
         env = dict(os.environ)
         env.pop("GITHUB_MODEL", None)
-        env["REPO_ARCHITECT_PREFERRED_MODEL"] = "anthropic/claude-sonnet-4.6"
-        env["REPO_ARCHITECT_FALLBACK_MODEL"] = "google/gemini-3-pro"
+        env["REPO_ARCHITECT_PREFERRED_MODEL"] = "openai/gpt-5"
+        env["REPO_ARCHITECT_FALLBACK_MODEL"] = "openai/o3"
         with patch.object(ra, "discover_git_root", return_value=pathlib.Path("/tmp/repo")):
             with patch.dict(os.environ, env, clear=True):
                 config = ra.build_config(ra.parse_args([]))
         self.assertIsNone(config.github_model)
-        self.assertEqual(config.preferred_model, "anthropic/claude-sonnet-4.6")
-        self.assertEqual(config.fallback_model, "google/gemini-3-pro")
+        self.assertEqual(config.preferred_model, "openai/gpt-5")
+        self.assertEqual(config.fallback_model, "openai/o3")
 
     def test_github_model_override_takes_precedence_over_preferred(self) -> None:
         analysis = {
@@ -470,10 +470,12 @@ class TestModelConfiguration(unittest.TestCase):
         self.assertIn("Resolve GitHub Models configuration", workflow)
         self.assertIn("https://models.github.ai/catalog/models", workflow)
         self.assertIn("catalog_ok = False", workflow)
-        self.assertIn('"anthropic/claude-sonnet-4.6"', workflow)
-        self.assertIn('"anthropic/claude-sonnet-4.5"', workflow)
-        self.assertIn('"openai/gpt-4.1"', workflow)
-        self.assertIn('secondary = "google/gemini-3-pro"', workflow)
+        self.assertIn('"openai/gpt-5"', workflow)
+        self.assertIn('"openai/o3"', workflow)
+        self.assertNotIn('"anthropic/claude-sonnet-4.6"', workflow)
+        self.assertNotIn('"anthropic/claude-sonnet-4.5"', workflow)
+        self.assertNotIn('"openai/gpt-4.1"', workflow)
+        self.assertNotIn('secondary = "google/gemini-3-pro"', workflow)
         self.assertIn("def deterministic_available(exclude=None):", workflow)
         self.assertIn("or deterministic_available()", workflow)
         self.assertIn("or deterministic_available(exclude=preferred)", workflow)
@@ -482,12 +484,15 @@ class TestModelConfiguration(unittest.TestCase):
         self.assertIn("REPO_ARCHITECT_FALLBACK_MODEL={fallback}", workflow)
         self.assertIn('if [ -n "$MODEL" ]; then EXTRA_ARGS="$EXTRA_ARGS --github-model $MODEL"; fi', workflow)
         self.assertIn("models: read", workflow)
-        # New: primary/fallback model inputs with defaults
+        # github_fallback_model input with empty default
         self.assertIn("github_fallback_model:", workflow)
-        self.assertIn("default: 'openai/gpt-5'", workflow)
-        self.assertIn("default: 'anthropic/claude-sonnet-4.5'", workflow)
-        # New: GITHUB_MODEL and GITHUB_FALLBACK_MODEL exported as env vars
+        self.assertIn("default: ''", workflow)
+        # GITHUB_MODEL and GITHUB_FALLBACK_MODEL exported as env vars to resolver step
         self.assertIn("GITHUB_FALLBACK_MODEL:", workflow)
+        self.assertIn("GITHUB_MODEL:", workflow)
+        # Override-first logic present
+        self.assertIn("env_github_model", workflow)
+        self.assertIn("env_github_fallback_model", workflow)
 
     def test_build_config_reads_github_fallback_model_env(self) -> None:
         """GITHUB_FALLBACK_MODEL env var should populate github_fallback_model in Config."""
@@ -562,6 +567,80 @@ class TestModelConfiguration(unittest.TestCase):
         self.assertFalse(meta["fallback_used"])
         self.assertFalse(meta["fallback_occurred"])
         self.assertIsNone(meta["fallback_reason"])
+
+
+# ---------------------------------------------------------------------------
+# 3b. Model resolver order
+# ---------------------------------------------------------------------------
+
+class TestModelResolverOrder(unittest.TestCase):
+    """Tests for the _resolve_models() override-first catalog resolver."""
+
+    _ORDER = ("openai/gpt-5", "openai/o3")
+
+    def test_empty_inputs_use_resolver_order(self) -> None:
+        """No env overrides → picks gpt-5 as preferred and o3 as fallback."""
+        available = {"openai/gpt-5", "openai/o3"}
+        preferred, fallback = ra._resolve_models(
+            available=available,
+            catalog_ok=True,
+            env_model="",
+            env_fallback="",
+            order=self._ORDER,
+        )
+        self.assertEqual(preferred, "openai/gpt-5")
+        self.assertEqual(fallback, "openai/o3")
+
+    def test_explicit_primary_overrides_resolver(self) -> None:
+        """GITHUB_MODEL set → use it as preferred regardless of catalog."""
+        available = {"openai/gpt-5", "openai/o3", "openai/other"}
+        preferred, fallback = ra._resolve_models(
+            available=available,
+            catalog_ok=True,
+            env_model="openai/manual",
+            env_fallback="",
+            order=self._ORDER,
+        )
+        self.assertEqual(preferred, "openai/manual")
+
+    def test_explicit_fallback_overrides_resolver(self) -> None:
+        """GITHUB_FALLBACK_MODEL set → use it as fallback, primary still auto-resolved."""
+        available = {"openai/gpt-5", "openai/o3"}
+        preferred, fallback = ra._resolve_models(
+            available=available,
+            catalog_ok=True,
+            env_model="",
+            env_fallback="openai/manual-fb",
+            order=self._ORDER,
+        )
+        self.assertEqual(preferred, "openai/gpt-5")
+        self.assertEqual(fallback, "openai/manual-fb")
+
+    def test_auto_fallback_chooses_o3_when_gpt5_is_primary(self) -> None:
+        """Catalog returns both gpt-5 and o3, no overrides → preferred=gpt-5, fallback=o3."""
+        available = {"openai/gpt-5", "openai/o3"}
+        preferred, fallback = ra._resolve_models(
+            available=available,
+            catalog_ok=True,
+            env_model="",
+            env_fallback="",
+            order=self._ORDER,
+        )
+        self.assertEqual(preferred, "openai/gpt-5")
+        self.assertEqual(fallback, "openai/o3")
+        self.assertNotEqual(preferred, fallback)
+
+    def test_catalog_failure_falls_back_to_order_defaults(self) -> None:
+        """When catalog fails, use order[0] as preferred and order[1] as fallback."""
+        preferred, fallback = ra._resolve_models(
+            available=set(),
+            catalog_ok=False,
+            env_model="",
+            env_fallback="",
+            order=self._ORDER,
+        )
+        self.assertEqual(preferred, "openai/gpt-5")
+        self.assertEqual(fallback, "openai/o3")
 
 
 # ---------------------------------------------------------------------------
