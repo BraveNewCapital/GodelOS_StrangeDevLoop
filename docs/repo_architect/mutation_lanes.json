@@ -1,5 +1,4 @@
 {
-  "$schema": "docs/repo_architect/mutation_lanes.json",
   "description": "Machine-readable mutation lane definitions from GODELOS_REPO_IMPLEMENTATION_CHARTER §10.",
   "charter_source": "docs/architecture/GODELOS_REPO_IMPLEMENTATION_CHARTER.md",
   "charter_section": "§10 Repo-Architect Mutation Lanes",

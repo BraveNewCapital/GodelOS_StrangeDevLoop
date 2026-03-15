@@ -35,8 +35,8 @@ import repo_architect as ra  # noqa: E402
 def _make_git_root(tmp: str) -> pathlib.Path:
     root = pathlib.Path(tmp)
     subprocess.run(["git", "init", str(root)], capture_output=True, check=True)
-    subprocess.run(["git", "-C", str(root), "config", "user.email", "test@example.com"], capture_output=True)
-    subprocess.run(["git", "-C", str(root), "config", "user.name", "Test"], capture_output=True)
+    subprocess.run(["git", "-C", str(root), "config", "user.email", "test@example.com"], capture_output=True, check=True)
+    subprocess.run(["git", "-C", str(root), "config", "user.name", "Test"], capture_output=True, check=True)
     # Create an initial commit so HEAD exists and branch operations work
     (root / "README.md").write_text("test repo\n", encoding="utf-8")
     subprocess.run(["git", "-C", str(root), "add", "."], capture_output=True, check=True)
@@ -504,6 +504,15 @@ class TestModelConfiguration(unittest.TestCase):
             with patch.dict(os.environ, env, clear=False):
                 config = ra.build_config(ra.parse_args([]))
         self.assertEqual(config.github_fallback_model, "openai/gpt-5")
+
+    def test_build_config_rejects_invalid_issue_subsystem_env(self) -> None:
+        env = {
+            "REPO_ARCHITECT_SUBSYSTEM": "typo-subsystem",
+        }
+        with patch.object(ra, "discover_git_root", return_value=pathlib.Path("/tmp/repo")):
+            with patch.dict(os.environ, env, clear=False):
+                with self.assertRaises(ra.RepoArchitectError):
+                    ra.build_config(ra.parse_args([]))
 
     def test_enrich_uses_github_fallback_model_over_fallback_model(self) -> None:
         """github_fallback_model takes precedence over fallback_model in enrich_with_github_models."""
@@ -1610,6 +1619,8 @@ class TestDiagnoseGaps(unittest.TestCase):
         score_gaps = [g for g in gaps if "score" in g.issue_key or "degradation" in g.issue_key]
         self.assertTrue(len(score_gaps) >= 1)
         self.assertEqual(score_gaps[0].priority, "high")
+        self.assertNotIn("docs/repo_architect/top_risks.md", score_gaps[0].suggested_files)
+        self.assertIn(str(config.analysis_path.relative_to(config.git_root)), score_gaps[0].suggested_files)
 
     def test_score_above_threshold_no_score_gap(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

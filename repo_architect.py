@@ -727,7 +727,7 @@ def find_existing_github_issue(config: Config, fingerprint: str) -> Optional[Dic
 
     Returns the matching issue dict, or ``None`` if no match is found.
     Raises :class:`RepoArchitectError` for **any** failure during the lookup
-    (network, HTTP, JSON decode, unexpected response shape, etc.) so that
+    (network, HTTP, JSON decode, etc.) so that
     callers always receive a single normalised exception type and can decide
     whether to skip issue creation on dedupe failure.
     """
@@ -1185,6 +1185,7 @@ def diagnose_gaps(config: Config, analysis: Dict[str, Any], model_meta: Dict[str
     if score < 70:
         risk_factors = analysis.get("score_factors", {})
         risk_summary = "; ".join(f"{k}: {v}" for k, v in list(risk_factors.items())[:4]) if risk_factors else "see analysis"
+        analysis_rel_path = str(config.analysis_path.relative_to(config.git_root))
         add(ArchGap(
             subsystem="reporting",
             issue_key="architecture-score-degradation",
@@ -1194,11 +1195,10 @@ def diagnose_gaps(config: Config, analysis: Dict[str, Any], model_meta: Dict[str
             why_it_matters="A low architecture score indicates structural fragility that compounds over time.",
             scope="Address the top contributing risk factors. Do not attempt a full refactor in one PR.",
             suggested_files=[
-                str(config.analysis_path.relative_to(config.git_root)),
-                str(DEFAULT_REPORT_DIR / "top_risks.md"),
+                analysis_rel_path,
             ],
             implementation_notes=(
-                "Review `docs/repo_architect/top_risks.md` for the current risk breakdown. "
+                f"Review `{analysis_rel_path}` for the current risk breakdown. "
                 "Address the highest-weight factor first in an isolated PR."
             ),
             acceptance_criteria=[
@@ -1213,9 +1213,9 @@ def diagnose_gaps(config: Config, analysis: Dict[str, Any], model_meta: Dict[str
                 f"Improve architecture health score (currently {score}/100)",
                 "reporting",
                 f"Address top risk factors: {risk_summary[:100]}",
-                [str(DEFAULT_REPORT_DIR / "top_risks.md")],
+                [analysis_rel_path],
                 ["python repo_architect.py --mode report --allow-dirty"],
-                "Review top_risks.md, identify the primary contributing factor, and address it in a minimal targeted change.",
+                f"Review {analysis_rel_path}, identify the primary contributing factor, and address it in a minimal targeted change.",
             ),
             priority="high" if score < 50 else "medium",
             confidence=1.0,
@@ -3108,6 +3108,12 @@ def build_config(args: argparse.Namespace) -> Config:
     campaign_lanes: Optional[Tuple[str, ...]] = None
     if lanes_raw:
         campaign_lanes = tuple(l.strip() for l in lanes_raw.split(",") if l.strip())
+    issue_subsystem = args.issue_subsystem or os.environ.get("REPO_ARCHITECT_SUBSYSTEM")
+    if issue_subsystem and issue_subsystem not in SUBSYSTEM_LABELS:
+        raise RepoArchitectError(
+            f"Invalid REPO_ARCHITECT_SUBSYSTEM={issue_subsystem!r}. "
+            f"Expected one of: {', '.join(SUBSYSTEM_LABELS)}"
+        )
     return Config(
         git_root=git_root,
         agent_dir=agent_dir,
@@ -3136,7 +3142,7 @@ def build_config(args: argparse.Namespace) -> Config:
         campaign_lanes=campaign_lanes,
         dry_run=args.dry_run,
         max_issues=args.max_issues,
-        issue_subsystem=args.issue_subsystem or os.environ.get("REPO_ARCHITECT_SUBSYSTEM"),
+        issue_subsystem=issue_subsystem,
     )
 
 

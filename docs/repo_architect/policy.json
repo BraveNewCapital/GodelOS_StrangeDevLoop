@@ -1,5 +1,4 @@
 {
-  "$schema": "docs/repo_architect/policy.json",
   "description": "Machine-readable repo-architect policy derived from GODELOS_REPO_IMPLEMENTATION_CHARTER §15.",
   "charter_sources": [
     "docs/architecture/GODELOS_ARCHITECTURAL_CHARTER.md",
