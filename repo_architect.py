@@ -245,14 +245,14 @@ class IssueAction:
     action: str             # "created" | "updated" | "dry_run" | "error"
     issue_number: Optional[int]
     issue_url: Optional[str]
-    labels_applied: List[str]  # deterministic label set; applied via API on both create and update paths
+    labels_applied: List[str]  # labels *requested* by the orchestration layer (sent to GitHub API)
     dedupe_result: str      # "new" | "existing_open" | "lookup_failed" | "create_failed" | "n/a"
     fingerprint: str
     dry_run_path: Optional[str]
     gap_title: str
     gap_subsystem: str
     error: Optional[str] = None
-    labels_confirmed: Optional[List[str]] = None  # labels returned by GitHub after PATCH; proves relabel succeeded
+    labels_confirmed: Optional[List[str]] = None  # labels actually *confirmed* by GitHub API response; None when no API call was made (dry-run/error)
 
 
 def log(message: str, *, data: Optional[Dict[str, Any]] = None, json_mode: bool = False) -> None:

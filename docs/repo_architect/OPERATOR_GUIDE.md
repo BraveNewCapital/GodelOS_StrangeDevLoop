@@ -352,8 +352,8 @@ In dry-run mode (`--dry-run` flag or `dry_run: 'true'` workflow input), the syst
 | `action` | `created`, `updated`, `dry_run`, or `error` |
 | `issue_number` | GitHub Issue number (null for dry-run) |
 | `issue_url` | GitHub Issue URL |
-| `labels_applied` | Labels applied to the issue (on create via POST; on update via PATCH) |
-| `labels_confirmed` | Labels confirmed by GitHub API response (null for dry-run/error) |
+| `labels_applied` | Labels *requested* by the orchestration layer (deterministic set sent to the GitHub API) |
+| `labels_confirmed` | Labels actually *confirmed* by the GitHub API response after create/update (null for dry-run/error — use this as the source of truth for what labels are on the issue) |
 | `dedupe_result` | `new`, `existing_open`, `lookup_failed`, `create_failed`, or `n/a` |
 | `fingerprint` | 12-char deterministic fingerprint |
 | `dry_run_path` | Relative path to dry-run artifact (dry-run only) |

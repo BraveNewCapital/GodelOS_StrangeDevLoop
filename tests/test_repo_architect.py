@@ -2242,7 +2242,12 @@ class TestDedupeHardExceptionNormalization(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestLabelsConfirmed(unittest.TestCase):
-    """IssueAction.labels_confirmed must contain labels from the GitHub API response."""
+    """Verify the distinction between labels_applied (requested) and labels_confirmed (API proof).
+
+    labels_applied: deterministic set computed by the orchestration layer, always populated.
+    labels_confirmed: labels returned by the GitHub API after create/update, proving the
+    request succeeded.  Must be None for dry-run and error paths (no API call made).
+    """
 
     def _make_gap(self) -> ra.ArchGap:
         return ra.ArchGap(
