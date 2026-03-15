@@ -4,20 +4,20 @@
   "charter_source": "docs/architecture/GODELOS_REPO_IMPLEMENTATION_CHARTER.md",
   "charter_section": "§6 Dependency Direction Contract",
   "layer_order": [
-    "interface",
-    "agents",
-    "knowledge",
+    "runtime",
     "core",
-    "runtime"
+    "knowledge",
+    "agents",
+    "interface"
   ],
   "layer_descriptions": {
-    "interface": "External API surface, protocol handling, presentation",
-    "agents": "Agent orchestration, lifecycle, message routing",
-    "knowledge": "Knowledge substrate, persistent store adapters, semantic memory",
+    "runtime": "Process orchestration, scheduling, lifecycle, messaging, runtime state",
     "core": "Core cognitive processing, state management, operator logic",
-    "runtime": "Process orchestration, scheduling, lifecycle, messaging, runtime state"
+    "knowledge": "Knowledge substrate, persistent store adapters, semantic memory",
+    "agents": "Agent orchestration, lifecycle, message routing",
+    "interface": "External API surface, protocol handling, presentation"
   },
-  "allowed_direction": "interface → agents → knowledge → core → runtime (dependencies flow inward)",
+  "allowed_direction": "runtime → core → knowledge → agents → interface (dependencies flow outward from runtime)",
   "hard_prohibitions": [
     "interface importing deep internal concrete storage implementations directly",
     "knowledge adapters importing runtime orchestration logic",

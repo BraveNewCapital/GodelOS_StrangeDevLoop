@@ -1419,13 +1419,15 @@ class TestIssueSynthesisDeduplication(unittest.TestCase):
 
             with patch.object(ra, "find_existing_github_issue", return_value=fake_existing):
                 with patch.object(ra, "update_github_issue_api", return_value={"id": 1}) as mock_update:
-                    with patch.object(ra, "ensure_github_labels"):
-                        action = ra.synthesize_issue(config, gap, "run-001", dry_run=False)
+                    with patch.object(ra, "set_github_issue_labels", return_value={"id": 42}) as mock_labels:
+                        with patch.object(ra, "ensure_github_labels"):
+                            action = ra.synthesize_issue(config, gap, "run-001", dry_run=False)
 
         self.assertEqual(action.action, "updated")
         self.assertEqual(action.issue_number, 42)
         self.assertEqual(action.dedupe_result, "existing_open")
         mock_update.assert_called_once()
+        mock_labels.assert_called_once()
 
     def test_creates_new_issue_when_no_duplicate(self) -> None:
         """When no open issue with matching fingerprint exists, create a new one."""
@@ -1445,6 +1447,46 @@ class TestIssueSynthesisDeduplication(unittest.TestCase):
         self.assertEqual(action.issue_number, 99)
         self.assertEqual(action.dedupe_result, "new")
         mock_create.assert_called_once()
+
+    def test_create_failure_reports_create_failed(self) -> None:
+        """When issue creation fails, dedupe_result should be 'create_failed', not 'new'."""
+        gap = self._make_gap()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, github_token="fake-tok", github_repo="org/repo")
+
+            with patch.object(ra, "find_existing_github_issue", return_value=None):
+                with patch.object(ra, "create_github_issue_api", side_effect=ra.RepoArchitectError("403 forbidden")):
+                    with patch.object(ra, "ensure_github_labels"):
+                        action = ra.synthesize_issue(config, gap, "run-001", dry_run=False)
+
+        self.assertEqual(action.action, "error")
+        self.assertEqual(action.dedupe_result, "create_failed")
+        self.assertIn("403", action.error)
+
+    def test_existing_issue_path_patches_labels(self) -> None:
+        """When an existing issue is found, set_github_issue_labels must be called to PATCH labels."""
+        gap = self._make_gap()
+        fp = ra.issue_fingerprint(gap.subsystem, gap.issue_key)
+        fake_existing = {"number": 42, "html_url": "https://github.com/test/repo/issues/42",
+                         "body": f"<!-- arch-gap-fingerprint: {fp} -->"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, github_token="fake-tok", github_repo="org/repo")
+
+            with patch.object(ra, "find_existing_github_issue", return_value=fake_existing):
+                with patch.object(ra, "update_github_issue_api", return_value={"id": 1}):
+                    with patch.object(ra, "set_github_issue_labels", return_value={"id": 42}) as mock_labels:
+                        with patch.object(ra, "ensure_github_labels"):
+                            action = ra.synthesize_issue(config, gap, "run-001", dry_run=False)
+
+        self.assertEqual(action.action, "updated")
+        mock_labels.assert_called_once()
+        # The labels passed to PATCH should include the base labels
+        call_args = mock_labels.call_args
+        self.assertIn("arch-gap", call_args[0][2])
 
 
 # ---------------------------------------------------------------------------
@@ -1836,6 +1878,46 @@ class TestHigherLaneGapDetection(unittest.TestCase):
         higher_gaps = [g for g in gaps if g.issue_key in ("contract-repair", "agent-boundary")]
         self.assertEqual(len(higher_gaps), 0)
 
+    def test_agents_to_interface_is_allowed_per_charter(self) -> None:
+        """agents→interface follows §6 allowed direction and must NOT be flagged."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            analysis: Dict[str, Any] = {
+                "parse_error_files": [],
+                "cycles": [],
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 80,
+                "score_factors": {},
+                "local_import_graph": {
+                    "backend.agents.planner": ["backend.interface.api"],
+                },
+            }
+            gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
+        contract_gaps = [g for g in gaps if g.issue_key == "contract-repair"]
+        self.assertEqual(len(contract_gaps), 0, "agents→interface is allowed per §6; no contract-repair gap expected")
+
+    def test_interface_to_runtime_detected_as_violation(self) -> None:
+        """interface→runtime violates §6 direction and must be flagged."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            analysis: Dict[str, Any] = {
+                "parse_error_files": [],
+                "cycles": [],
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 80,
+                "score_factors": {},
+                "local_import_graph": {
+                    "backend.interface.api": ["backend.runtime.scheduler"],
+                },
+            }
+            gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
+        contract_gaps = [g for g in gaps if g.issue_key == "contract-repair"]
+        self.assertGreaterEqual(len(contract_gaps), 1, "interface→runtime should be a contract-repair gap")
+
 
 # ---------------------------------------------------------------------------
 # 22. _module_segments normalizer
@@ -1892,9 +1974,44 @@ class TestDedupeFailureHandling(unittest.TestCase):
             config = _make_config(root)
             config.github_token = "fake-token"
             config.github_repo = "owner/repo"
-            # Should raise because github_request will fail
-            with self.assertRaises(ra.RepoArchitectError):
-                ra.find_existing_github_issue(config, "abc123def456")
+            # Mock github_request to raise RepoArchitectError (simulates API failure)
+            with patch.object(ra, "github_request", side_effect=ra.RepoArchitectError("simulated 5xx")):
+                with self.assertRaises(ra.RepoArchitectError):
+                    ra.find_existing_github_issue(config, "abc123def456")
+
+    def test_find_existing_raises_on_network_error(self) -> None:
+        """URLError (network failure) should propagate as RepoArchitectError."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            config.github_token = "fake-token"
+            config.github_repo = "owner/repo"
+            with patch.object(ra, "github_request", side_effect=ra.RepoArchitectError("network error: timeout")):
+                with self.assertRaises(ra.RepoArchitectError):
+                    ra.find_existing_github_issue(config, "abc123def456")
+
+
+class TestGithubRequestErrorNormalization(unittest.TestCase):
+    """github_request must normalize both HTTPError and URLError into RepoArchitectError."""
+
+    def test_url_error_wrapped_as_repo_architect_error(self) -> None:
+        """URLError from network failure should raise RepoArchitectError, not bubble raw."""
+        import urllib.error
+        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("DNS lookup failed")):
+            with self.assertRaises(ra.RepoArchitectError) as ctx:
+                ra.github_request("fake-token", "/repos/test/repo")
+            self.assertIn("network error", str(ctx.exception).lower())
+
+    def test_http_error_wrapped_as_repo_architect_error(self) -> None:
+        """HTTPError should raise RepoArchitectError."""
+        import io
+        import urllib.error
+        body = io.BytesIO(b"rate limited")
+        exc = urllib.error.HTTPError("http://api.github.com", 429, "Too Many Requests", {}, body)
+        with patch("urllib.request.urlopen", side_effect=exc):
+            with self.assertRaises(ra.RepoArchitectError) as ctx:
+                ra.github_request("fake-token", "/repos/test/repo")
+            self.assertIn("429", str(ctx.exception))
 
 
 # ---------------------------------------------------------------------------

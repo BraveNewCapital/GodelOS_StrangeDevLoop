@@ -153,6 +153,8 @@ _ENTRYPOINT_CONSOLIDATION_CANDIDATES = 8
 _ENTRYPOINT_CONSOLIDATION_SNIPPETS = 5
 # Maximum number of file/evidence items shown inline in Copilot prompt or issue body sections
 _MAX_INLINE_FILE_DISPLAY = 5
+# Maximum number of violations shown in issue body for Lane 5/7 gaps
+_MAX_VIOLATIONS_DISPLAY = 5
 
 
 class RepoArchitectError(Exception):
@@ -243,8 +245,8 @@ class IssueAction:
     action: str             # "created" | "updated" | "skipped" | "dry_run" | "error"
     issue_number: Optional[int]
     issue_url: Optional[str]
-    labels_applied: List[str]
-    dedupe_result: str      # "new" | "existing_open" | "superseded" | "n/a"
+    labels_applied: List[str]  # deterministic label set; applied via API on both create and update paths
+    dedupe_result: str      # "new" | "existing_open" | "lookup_failed" | "create_failed" | "n/a"
     fingerprint: str
     dry_run_path: Optional[str]
     gap_title: str
@@ -419,6 +421,8 @@ def github_request(token: str, path: str, *, method: str = "GET", payload: Optio
     except urllib.error.HTTPError as exc:
         raw = exc.read().decode("utf-8", errors="replace")
         raise RepoArchitectError(f"GitHub API {method} {path} failed: {exc.code} {raw}") from exc
+    except urllib.error.URLError as exc:
+        raise RepoArchitectError(f"GitHub API {method} {path} network error: {exc.reason}") from exc
 
 
 def github_models_catalog(token: str) -> List[Dict[str, Any]]:
@@ -789,6 +793,20 @@ def update_github_issue_api(
     )
 
 
+def set_github_issue_labels(
+    config: Config, issue_number: int, labels: List[str]
+) -> Dict[str, Any]:
+    """PATCH labels on an existing GitHub Issue so they reflect the current computed set."""
+    if not config.github_token or not config.github_repo:
+        raise RepoArchitectError("Missing GITHUB_TOKEN or GITHUB_REPO for label update.")
+    return github_request(
+        config.github_token,
+        f"/repos/{config.github_repo}/issues/{issue_number}",
+        method="PATCH",
+        payload={"labels": labels},
+    )
+
+
 def synthesize_issue(
     config: Config, gap: ArchGap, run_id: str, dry_run: bool
 ) -> IssueAction:
@@ -871,6 +889,8 @@ def synthesize_issue(
         )
         try:
             update_github_issue_api(config, issue_number, comment)
+            # Ensure labels on the existing issue match the current computed set
+            set_github_issue_labels(config, issue_number, labels)
         except RepoArchitectError as exc:
             return IssueAction(
                 action="error", issue_number=issue_number, issue_url=issue_url,
@@ -890,7 +910,7 @@ def synthesize_issue(
     except RepoArchitectError as exc:
         return IssueAction(
             action="error", issue_number=None, issue_url=None,
-            labels_applied=labels, dedupe_result="new", fingerprint=fp,
+            labels_applied=labels, dedupe_result="create_failed", fingerprint=fp,
             dry_run_path=None, gap_title=gap.title, gap_subsystem=gap.subsystem,
             error=str(exc),
         )
@@ -1206,7 +1226,6 @@ def diagnose_gaps(config: Config, analysis: Dict[str, Any], model_meta: Dict[str
     # 6. Dependency direction violations — Lane 5 (Contract repair) ────────
     # Detect when modules import across architectural layer boundaries
     import_graph = analysis.get("local_import_graph", {})
-    _MAX_VIOLATIONS_DISPLAY = 5
     if import_graph:
         # Heuristic: interface → core or knowledge → runtime imports signal contract misalignment
         boundary_violations: List[str] = []
@@ -1217,9 +1236,13 @@ def diagnose_gaps(config: Config, analysis: Dict[str, Any], model_meta: Dict[str
             for tgt in targets:
                 tgt_parts = _module_segments(tgt)
                 # Detect cross-boundary imports per §6 Dependency Direction Contract
+                # Charter §6 direction: runtime → core → knowledge → agents → interface
+                # Violations: imports going backwards (e.g., interface→core, knowledge→runtime)
+                # §6.1 hard prohibitions: interface→deep-internals, knowledge→runtime, agents reaching through interface to runtime
                 if ("interface" in src_parts and "core" in tgt_parts) or \
+                   ("interface" in src_parts and "runtime" in tgt_parts) or \
                    ("knowledge" in src_parts and "runtime" in tgt_parts) or \
-                   ("agents" in src_parts and "interface" in tgt_parts):
+                   ("agents" in src_parts and "runtime" in tgt_parts):
                     boundary_violations.append(f"{src} → {tgt}")
         if boundary_violations:
             violation_files = [_module_to_path(v.split(" → ")[0], analysis) for v in boundary_violations[:_MAX_VIOLATIONS_DISPLAY]]

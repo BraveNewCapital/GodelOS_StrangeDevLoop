@@ -352,7 +352,7 @@ In dry-run mode (`--dry-run` flag or `dry_run: 'true'` workflow input), the syst
 | `action` | `created`, `updated`, `dry_run`, or `error` |
 | `issue_number` | GitHub Issue number (null for dry-run) |
 | `issue_url` | GitHub Issue URL |
-| `labels_applied` | Labels attached to the issue |
+| `labels_applied` | Labels applied to the issue (on create via POST; on update via PATCH) |
 | `dedupe_result` | `new`, `existing_open`, or `n/a` |
 | `fingerprint` | 12-char deterministic fingerprint |
 | `dry_run_path` | Relative path to dry-run artifact (dry-run only) |

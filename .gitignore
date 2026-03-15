@@ -1,6 +1,12 @@
 ### Test artifacts ###
 query_*test*.json
 
+### repo-architect dry-run outputs ###
+docs/repo_architect/issues/
+
+### repo-architect run artifacts ###
+.agent/
+
 ### Environments ###
 # Virtual environments
 .env
