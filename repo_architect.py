@@ -815,6 +815,20 @@ def set_github_issue_labels(
     )
 
 
+def _extract_confirmed_labels(api_response: Any) -> Optional[List[str]]:
+    """Extract label names from a GitHub API issue response (create or PATCH).
+
+    Returns a list of label name strings confirmed by the API, or ``None``
+    when the response shape is unexpected.
+    """
+    if not isinstance(api_response, dict):
+        return None
+    raw_labels = api_response.get("labels")
+    if not isinstance(raw_labels, list):
+        return None
+    return [lbl["name"] for lbl in raw_labels if isinstance(lbl, dict) and "name" in lbl]
+
+
 def synthesize_issue(
     config: Config, gap: ArchGap, run_id: str, dry_run: bool
 ) -> IssueAction:
@@ -907,16 +921,11 @@ def synthesize_issue(
                 error=str(exc),
             )
         # Extract confirmed labels from the GitHub PATCH response as proof of relabel
-        confirmed: Optional[List[str]] = None
-        if isinstance(patch_resp, dict):
-            raw_labels = patch_resp.get("labels")
-            if isinstance(raw_labels, list):
-                confirmed = [lbl["name"] for lbl in raw_labels if isinstance(lbl, dict) and "name" in lbl]
         return IssueAction(
             action="updated", issue_number=issue_number, issue_url=issue_url,
             labels_applied=labels, dedupe_result="existing_open", fingerprint=fp,
             dry_run_path=None, gap_title=gap.title, gap_subsystem=gap.subsystem,
-            labels_confirmed=confirmed,
+            labels_confirmed=_extract_confirmed_labels(patch_resp),
         )
 
     # No existing issue – create a new one
@@ -929,12 +938,6 @@ def synthesize_issue(
             dry_run_path=None, gap_title=gap.title, gap_subsystem=gap.subsystem,
             error=str(exc),
         )
-    # Extract confirmed labels from the create response
-    create_confirmed: Optional[List[str]] = None
-    if isinstance(issue, dict):
-        raw_labels = issue.get("labels")
-        if isinstance(raw_labels, list):
-            create_confirmed = [lbl["name"] for lbl in raw_labels if isinstance(lbl, dict) and "name" in lbl]
     return IssueAction(
         action="created",
         issue_number=issue.get("number"),
@@ -945,7 +948,7 @@ def synthesize_issue(
         dry_run_path=None,
         gap_title=gap.title,
         gap_subsystem=gap.subsystem,
-        labels_confirmed=create_confirmed,
+        labels_confirmed=_extract_confirmed_labels(issue),
     )
 
 

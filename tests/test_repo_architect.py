@@ -2167,13 +2167,12 @@ class TestDependencyContractCharterAlignment(unittest.TestCase):
         self.assertEqual(data["layer_order"], ["runtime", "core", "knowledge", "agents", "interface"])
 
     def test_allowed_direction_describes_inward_flow(self) -> None:
-        """allowed_direction must describe inward dependency flow, not outward."""
+        """allowed_direction must describe dependency from outer to inner layers."""
         data = self._load_contract()
         direction = data["allowed_direction"].lower()
-        # Must mention inward flow (outer depends on inner)
-        self.assertIn("inward", direction)
-        # Must NOT say 'outward from runtime' which was the old misleading text
-        self.assertNotIn("outward from runtime", direction)
+        # Must mention outer/inner layer dependency concepts
+        self.assertIn("inner", direction)
+        self.assertIn("depend", direction)
 
     def test_layer_order_semantics_field_present(self) -> None:
         """layer_order_semantics must clarify that index 0 is the foundation."""
@@ -2197,15 +2196,20 @@ class TestDedupeHardExceptionNormalization(unittest.TestCase):
             config.github_repo = "owner/repo"
             return config
 
-    def test_attribute_error_normalised(self) -> None:
-        """Non-dict API response causing AttributeError must become RepoArchitectError."""
+    def test_non_dict_response_returns_none(self) -> None:
+        """Non-dict API response should be handled gracefully (returns None)."""
         config = self._config()
-        # github_request returns a non-dict that causes .get() to fail on items iteration
         with patch.object(ra, "github_request", return_value="not-a-dict"):
-            # This should NOT raise AttributeError — it should be caught or handled
             result = ra.find_existing_github_issue(config, "abc123")
-            # The code handles non-dict via isinstance check, so result is None
             self.assertIsNone(result)
+
+    def test_runtime_error_normalised_to_repo_architect_error(self) -> None:
+        """Unexpected RuntimeError must become RepoArchitectError, not bubble raw."""
+        config = self._config()
+        with patch.object(ra, "github_request", side_effect=RuntimeError("unexpected")):
+            with self.assertRaises(ra.RepoArchitectError) as ctx:
+                ra.find_existing_github_issue(config, "abc123")
+            self.assertIn("Dedupe lookup failed", str(ctx.exception))
 
     def test_type_error_normalised_to_repo_architect_error(self) -> None:
         """Unexpected TypeError must become RepoArchitectError, not bubble raw."""

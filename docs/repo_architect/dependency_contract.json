@@ -17,7 +17,7 @@
     "agents": "Agent orchestration, lifecycle, message routing",
     "interface": "External API surface, protocol handling, presentation"
   },
-  "allowed_direction": "Dependencies flow inward: outer layers may depend on adjacent inner layers. interface → agents → knowledge → core → runtime. Reverse (inner importing outer) and skip-layer imports (e.g. interface → runtime) are violations.",
+  "allowed_direction": "Each layer may only depend on its adjacent inner layer. Dependency direction: interface depends-on agents depends-on knowledge depends-on core depends-on runtime. Reverse dependencies (inner importing outer) and skip-layer imports (e.g. interface importing runtime directly) are violations.",
   "hard_prohibitions": [
     "interface importing deep internal concrete storage implementations directly",
     "knowledge adapters importing runtime orchestration logic",
