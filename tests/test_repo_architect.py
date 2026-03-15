@@ -39,8 +39,8 @@ def _make_git_root(tmp: str) -> pathlib.Path:
     subprocess.run(["git", "-C", str(root), "config", "user.name", "Test"], capture_output=True)
     # Create an initial commit so HEAD exists and branch operations work
     (root / "README.md").write_text("test repo\n", encoding="utf-8")
-    subprocess.run(["git", "-C", str(root), "add", "."], capture_output=True)
-    subprocess.run(["git", "-C", str(root), "commit", "-m", "init"], capture_output=True)
+    subprocess.run(["git", "-C", str(root), "add", "."], capture_output=True, check=True)
+    subprocess.run(["git", "-C", str(root), "commit", "-m", "init"], capture_output=True, check=True)
     return root
 
 
@@ -762,8 +762,8 @@ class TestCampaignAggregation(unittest.TestCase):
                 # Give the campaign a lane that will always produce a plan (hygiene with debug prints)
                 # We need actual debug prints in the repo for hygiene to fire
                 (root / "noisy.py").write_text("print('debug')  # DEBUG\n", encoding="utf-8")
-                subprocess.run(["git", "-C", str(root), "add", "."], capture_output=True)
-                subprocess.run(["git", "-C", str(root), "commit", "-m", "add noisy file"], capture_output=True)
+                subprocess.run(["git", "-C", str(root), "add", "."], capture_output=True, check=True)
+                subprocess.run(["git", "-C", str(root), "commit", "-m", "add noisy file"], capture_output=True, check=True)
                 result = ra.run_campaign(config, ["hygiene", "report"], max_slices=3, stop_on_failure=True)
 
             # With stop_on_failure=True and a forced apply failure, should have stopped
@@ -777,8 +777,8 @@ class TestCampaignAggregation(unittest.TestCase):
             # Add multiple debug print files to give hygiene work to do
             for i in range(5):
                 (root / f"noisy{i}.py").write_text(f"print('x{i}')  # DEBUG\n", encoding="utf-8")
-            subprocess.run(["git", "-C", str(root), "add", "."], capture_output=True)
-            subprocess.run(["git", "-C", str(root), "commit", "-m", "add noisy files"], capture_output=True)
+            subprocess.run(["git", "-C", str(root), "add", "."], capture_output=True, check=True)
+            subprocess.run(["git", "-C", str(root), "commit", "-m", "add noisy files"], capture_output=True, check=True)
             config = _make_config(root, mode="campaign")
             result = ra.run_campaign(config, list(ra.MUTATION_LANE_ORDER), max_slices=1, stop_on_failure=False)
         self.assertLessEqual(result["slices_applied"], 1)
@@ -1731,8 +1731,8 @@ class TestRunIssueCycleOutputSchema(unittest.TestCase):
             root = _make_git_root(tmp)
             # Create conditions for multiple gaps: parse errors + cycles
             (root / "bad.py").write_text("def foo(\n", encoding="utf-8")
-            subprocess.run(["git", "-C", str(root), "add", "."], capture_output=True)
-            subprocess.run(["git", "-C", str(root), "commit", "-m", "bad files"], capture_output=True)
+            subprocess.run(["git", "-C", str(root), "add", "."], capture_output=True, check=True)
+            subprocess.run(["git", "-C", str(root), "commit", "-m", "bad files"], capture_output=True, check=True)
             config = _make_config(root, mode=ra.ISSUE_MODE, dry_run=True, max_issues=1)
             result = ra.run_issue_cycle(config)
         self.assertLessEqual(len(result["issue_actions"]), 1)
@@ -2352,6 +2352,88 @@ class TestGeneratedReportArtifactsGitignored(unittest.TestCase):
         # ls-files --error-unmatch returns non-zero when file is NOT tracked
         self.assertNotEqual(result.returncode, 0,
                             "runtime_inventory.md should not be tracked by git")
+
+
+# ---------------------------------------------------------------------------
+# 33. _agent_name helper
+# ---------------------------------------------------------------------------
+
+class TestAgentName(unittest.TestCase):
+    """Verify _agent_name correctly extracts the agent identifier segment."""
+
+    def test_standard_agent_module(self) -> None:
+        segs = ra._module_segments("backend.agents.planner.core")
+        self.assertEqual(ra._agent_name(segs), "planner")
+
+    def test_agent_at_boundary(self) -> None:
+        segs = ra._module_segments("backend.agents.executor")
+        self.assertEqual(ra._agent_name(segs), "executor")
+
+    def test_no_agents_segment(self) -> None:
+        segs = ra._module_segments("backend.core.engine")
+        self.assertIsNone(ra._agent_name(segs))
+
+    def test_agents_at_end_no_child(self) -> None:
+        """If 'agents' is the last segment, there's no agent name."""
+        segs = ("backend", "agents")
+        self.assertIsNone(ra._agent_name(segs))
+
+
+# ---------------------------------------------------------------------------
+# 34. Lane 7 same-agent-different-depth is NOT a violation
+# ---------------------------------------------------------------------------
+
+class TestLane7SameAgentNotFlagged(unittest.TestCase):
+    """Imports within the same agent at different depths must not be flagged."""
+
+    def _model_meta(self, used: bool = False) -> Dict[str, Any]:
+        return {
+            "used": used, "summary": None, "requested_model": None, "actual_model": None,
+            "primary_model": None, "fallback_model": None, "model_used": None,
+            "fallback_used": False, "fallback_reason": None, "fallback_occurred": False, "enabled": False,
+        }
+
+    def test_same_agent_different_depth_no_gap(self) -> None:
+        """backend.agents.foo → backend.agents.foo.utils is same agent, not a violation."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            analysis: Dict[str, Any] = {
+                "parse_error_files": [],
+                "cycles": [],
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 80,
+                "score_factors": {},
+                "local_import_graph": {
+                    "backend.agents.foo": ["backend.agents.foo.utils"],
+                },
+            }
+            gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
+        boundary_gaps = [g for g in gaps if g.issue_key == "agent-boundary"]
+        self.assertEqual(len(boundary_gaps), 0,
+                         "Same-agent import at different depth should NOT trigger agent-boundary gap")
+
+    def test_cross_agent_still_flagged(self) -> None:
+        """backend.agents.foo → backend.agents.bar.internal is a cross-agent violation."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            analysis: Dict[str, Any] = {
+                "parse_error_files": [],
+                "cycles": [],
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 80,
+                "score_factors": {},
+                "local_import_graph": {
+                    "backend.agents.foo.core": ["backend.agents.bar.internal"],
+                },
+            }
+            gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
+        boundary_gaps = [g for g in gaps if g.issue_key == "agent-boundary"]
+        self.assertGreaterEqual(len(boundary_gaps), 1,
+                                "Cross-agent import should still trigger agent-boundary gap")
 
 
 if __name__ == "__main__":

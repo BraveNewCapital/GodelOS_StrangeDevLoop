@@ -353,18 +353,19 @@ In dry-run mode (`--dry-run` flag or `dry_run: 'true'` workflow input), the syst
 | `issue_number` | GitHub Issue number (null for dry-run) |
 | `issue_url` | GitHub Issue URL |
 | `labels_applied` | Labels applied to the issue (on create via POST; on update via PATCH) |
-| `dedupe_result` | `new`, `existing_open`, or `n/a` |
+| `labels_confirmed` | Labels confirmed by GitHub API response (null for dry-run/error) |
+| `dedupe_result` | `new`, `existing_open`, `lookup_failed`, `create_failed`, or `n/a` |
 | `fingerprint` | 12-char deterministic fingerprint |
 | `dry_run_path` | Relative path to dry-run artifact (dry-run only) |
 | `gap_title` | Issue title |
 | `gap_subsystem` | Subsystem of the detected gap |
+| `error` | Error message (error action only) |
 
 ### Example output
 
 ```
 created issue #12 for workflow architectural drift
 updated existing issue #9 for reporting schema inconsistency
-skipped creation because matching open issue exists
 dry-run generated issue body at docs/repo_architect/issues/a1b2c3d4e5f6.md
 ```
 

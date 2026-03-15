@@ -242,7 +242,7 @@ class ArchGap:
 @dataclasses.dataclass
 class IssueAction:
     """Result of a single issue synthesis operation."""
-    action: str             # "created" | "updated" | "skipped" | "dry_run" | "error"
+    action: str             # "created" | "updated" | "dry_run" | "error"
     issue_number: Optional[int]
     issue_url: Optional[str]
     labels_applied: List[str]  # deterministic label set; applied via API on both create and update paths
@@ -1017,6 +1017,22 @@ def _module_to_path(identifier: str, analysis: Dict[str, Any]) -> str:
     return identifier.replace(".", "/") + ".py"
 
 
+def _agent_name(segments: Tuple[str, ...]) -> Optional[str]:
+    """Extract the agent identifier from module segments.
+
+    For segments like ``("backend", "agents", "foo", "utils")``, returns ``"foo"``
+    — the segment immediately after ``"agents"``.  Returns ``None`` if the
+    identifier has no ``"agents"`` segment or nothing follows it.
+    """
+    try:
+        idx = list(segments).index("agents")
+    except ValueError:
+        return None
+    if idx + 1 < len(segments):
+        return segments[idx + 1]
+    return None
+
+
 def diagnose_gaps(config: Config, analysis: Dict[str, Any], model_meta: Dict[str, Any]) -> List[ArchGap]:
     """Detect concrete architectural gaps from the current repository analysis.
 
@@ -1314,13 +1330,16 @@ def diagnose_gaps(config: Config, analysis: Dict[str, Any], model_meta: Dict[str
             if not isinstance(targets, list):
                 continue
             src_parts = _module_segments(src)
-            if "agents" in src_parts:
-                for tgt in targets:
-                    tgt_parts = _module_segments(tgt)
-                    # Agent reaching into another agent's internal module:
-                    # both are under "agents" but have different parent packages
-                    if "agents" in tgt_parts and src_parts[:-1] != tgt_parts[:-1]:
-                        agent_violations.append(f"{src} → {tgt}")
+            src_agent = _agent_name(src_parts)
+            if src_agent is None:
+                continue
+            for tgt in targets:
+                tgt_parts = _module_segments(tgt)
+                tgt_agent = _agent_name(tgt_parts)
+                # Only flag when both are under "agents" but belong to
+                # *different* named agents (e.g. foo → bar, not foo → foo.utils)
+                if tgt_agent is not None and src_agent != tgt_agent:
+                    agent_violations.append(f"{src} → {tgt}")
         if agent_violations:
             agent_files = [_module_to_path(v.split(" → ")[0], analysis) for v in agent_violations[:_MAX_VIOLATIONS_DISPLAY]]
             add(ArchGap(
@@ -1422,8 +1441,6 @@ def run_issue_cycle(config: Config) -> Dict[str, Any]:
             summary_lines.append(f"created issue #{a['issue_number']} — {title}")
         elif act == "updated":
             summary_lines.append(f"updated existing issue #{a['issue_number']} — {title}")
-        elif act == "skipped":
-            summary_lines.append(f"skipped (duplicate) — {title}")
         elif act == "dry_run":
             summary_lines.append(f"dry-run issue body written to {a.get('dry_run_path')} — {title}")
         else:

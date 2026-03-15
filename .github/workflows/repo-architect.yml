@@ -36,7 +36,19 @@ on:
         description: 'Issue mode: restrict gap detection to a subsystem (leave blank for all)'
         required: false
         default: ''
-        type: string
+        type: choice
+        options:
+          - ''
+          - workflow
+          - runtime
+          - reporting
+          - docs
+          - model-routing
+          - issue-orchestration
+          - core
+          - knowledge
+          - agents
+          - consciousness
       github_model:
         description: 'GitHub Models model id (overrides preferred model; leave blank to use catalog resolution)'
         required: false
