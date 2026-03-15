@@ -17,7 +17,19 @@
     "agents": "Agent orchestration, lifecycle, message routing",
     "interface": "External API surface, protocol handling, presentation"
   },
-  "allowed_direction": "Each layer may only depend on its adjacent inner layer. Dependency direction: interface depends-on agents depends-on knowledge depends-on core depends-on runtime. Reverse dependencies (inner importing outer) and skip-layer imports (e.g. interface importing runtime directly) are violations.",
+  "allowed_direction": "Dependencies flow from outer layers toward inner layers: interface depends-on agents depends-on knowledge depends-on core depends-on runtime. This is a conceptual directional flow per charter §6, not a licence for arbitrary imports. Reverse dependencies (inner layers importing outer layers) violate the contract. See hard_prohibitions for the specific §6.1 enforcement rules.",
+  "lane_5_enforcement": {
+    "description": "Lane 5 automated detection checks for the following backward imports that violate §6.1 hard prohibitions.",
+    "detected_violations": [
+      "interface → core (skip-layer backward import)",
+      "interface → runtime (skip-layer backward import)",
+      "knowledge → runtime (backward import per §6.1)",
+      "agents → runtime (backward import per §6.1)"
+    ],
+    "not_flagged": [
+      "agents → interface (allowed: follows outer-to-inner conceptual flow)"
+    ]
+  },
   "hard_prohibitions": [
     "interface importing deep internal concrete storage implementations directly",
     "knowledge adapters importing runtime orchestration logic",
