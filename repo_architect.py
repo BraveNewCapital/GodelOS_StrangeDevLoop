@@ -252,6 +252,7 @@ class IssueAction:
     gap_title: str
     gap_subsystem: str
     error: Optional[str] = None
+    labels_confirmed: Optional[List[str]] = None  # labels returned by GitHub after PATCH; proves relabel succeeded
 
 
 def log(message: str, *, data: Optional[Dict[str, Any]] = None, json_mode: bool = False) -> None:
@@ -725,20 +726,27 @@ def find_existing_github_issue(config: Config, fingerprint: str) -> Optional[Dic
     """Search open GitHub Issues for one containing the arch-gap fingerprint marker.
 
     Returns the matching issue dict, or ``None`` if no match is found.
-    Raises :class:`RepoArchitectError` when the search API call itself fails,
-    so callers can decide whether to skip issue creation on dedupe failure.
+    Raises :class:`RepoArchitectError` for **any** failure during the lookup
+    (network, HTTP, JSON decode, unexpected response shape, etc.) so that
+    callers always receive a single normalised exception type and can decide
+    whether to skip issue creation on dedupe failure.
     """
     if not config.github_token or not config.github_repo:
         return None
-    marker = f"arch-gap-fingerprint: {fingerprint}"
-    query = urllib.parse.urlencode({"q": f"repo:{config.github_repo} is:issue is:open {marker}", "per_page": "5"})
-    result = github_request(config.github_token, f"/search/issues?{query}")
-    items = result.get("items", []) if isinstance(result, dict) else []
-    for item in items:
-        body = item.get("body") or ""
-        if marker in body:
-            return item
-    return None
+    try:
+        marker = f"arch-gap-fingerprint: {fingerprint}"
+        query = urllib.parse.urlencode({"q": f"repo:{config.github_repo} is:issue is:open {marker}", "per_page": "5"})
+        result = github_request(config.github_token, f"/search/issues?{query}")
+        items = result.get("items", []) if isinstance(result, dict) else []
+        for item in items:
+            body = item.get("body") or ""
+            if marker in body:
+                return item
+        return None
+    except RepoArchitectError:
+        raise  # already normalised
+    except Exception as exc:
+        raise RepoArchitectError(f"Dedupe lookup failed: {exc}") from exc
 
 
 def ensure_github_labels(config: Config, label_names: Sequence[str]) -> None:
@@ -890,7 +898,7 @@ def synthesize_issue(
         try:
             update_github_issue_api(config, issue_number, comment)
             # Ensure labels on the existing issue match the current computed set
-            set_github_issue_labels(config, issue_number, labels)
+            patch_resp = set_github_issue_labels(config, issue_number, labels)
         except RepoArchitectError as exc:
             return IssueAction(
                 action="error", issue_number=issue_number, issue_url=issue_url,
@@ -898,10 +906,17 @@ def synthesize_issue(
                 dry_run_path=None, gap_title=gap.title, gap_subsystem=gap.subsystem,
                 error=str(exc),
             )
+        # Extract confirmed labels from the GitHub PATCH response as proof of relabel
+        confirmed: Optional[List[str]] = None
+        if isinstance(patch_resp, dict):
+            raw_labels = patch_resp.get("labels")
+            if isinstance(raw_labels, list):
+                confirmed = [lbl["name"] for lbl in raw_labels if isinstance(lbl, dict) and "name" in lbl]
         return IssueAction(
             action="updated", issue_number=issue_number, issue_url=issue_url,
             labels_applied=labels, dedupe_result="existing_open", fingerprint=fp,
             dry_run_path=None, gap_title=gap.title, gap_subsystem=gap.subsystem,
+            labels_confirmed=confirmed,
         )
 
     # No existing issue – create a new one
@@ -914,6 +929,12 @@ def synthesize_issue(
             dry_run_path=None, gap_title=gap.title, gap_subsystem=gap.subsystem,
             error=str(exc),
         )
+    # Extract confirmed labels from the create response
+    create_confirmed: Optional[List[str]] = None
+    if isinstance(issue, dict):
+        raw_labels = issue.get("labels")
+        if isinstance(raw_labels, list):
+            create_confirmed = [lbl["name"] for lbl in raw_labels if isinstance(lbl, dict) and "name" in lbl]
     return IssueAction(
         action="created",
         issue_number=issue.get("number"),
@@ -924,6 +945,7 @@ def synthesize_issue(
         dry_run_path=None,
         gap_title=gap.title,
         gap_subsystem=gap.subsystem,
+        labels_confirmed=create_confirmed,
     )
 
 

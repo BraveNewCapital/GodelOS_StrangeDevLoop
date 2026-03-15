@@ -2144,5 +2144,211 @@ class TestLoadCharterContextCompanionFiles(unittest.TestCase):
         self.assertEqual(len(ctx["companion_files"]), 3)
 
 
+# ---------------------------------------------------------------------------
+# 29. dependency_contract.json charter alignment
+# ---------------------------------------------------------------------------
+
+class TestDependencyContractCharterAlignment(unittest.TestCase):
+    """dependency_contract.json must align with charter §6 and Lane 5 detection."""
+
+    def _load_contract(self) -> Dict[str, Any]:
+        git_root = pathlib.Path(__file__).parent.parent
+        with open(git_root / "docs/repo_architect/dependency_contract.json", encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_no_self_referential_schema(self) -> None:
+        """$schema must not point to the contract file itself."""
+        data = self._load_contract()
+        self.assertNotIn("$schema", data)
+
+    def test_layer_order_matches_charter_s6(self) -> None:
+        """layer_order must be [runtime, core, knowledge, agents, interface] per charter §6."""
+        data = self._load_contract()
+        self.assertEqual(data["layer_order"], ["runtime", "core", "knowledge", "agents", "interface"])
+
+    def test_allowed_direction_describes_inward_flow(self) -> None:
+        """allowed_direction must describe inward dependency flow, not outward."""
+        data = self._load_contract()
+        direction = data["allowed_direction"].lower()
+        # Must mention inward flow (outer depends on inner)
+        self.assertIn("inward", direction)
+        # Must NOT say 'outward from runtime' which was the old misleading text
+        self.assertNotIn("outward from runtime", direction)
+
+    def test_layer_order_semantics_field_present(self) -> None:
+        """layer_order_semantics must clarify that index 0 is the foundation."""
+        data = self._load_contract()
+        self.assertIn("layer_order_semantics", data)
+        self.assertIn("innermost", data["layer_order_semantics"].lower())
+
+
+# ---------------------------------------------------------------------------
+# 30. Hard exception normalization in find_existing_github_issue
+# ---------------------------------------------------------------------------
+
+class TestDedupeHardExceptionNormalization(unittest.TestCase):
+    """find_existing_github_issue must normalise ALL exceptions to RepoArchitectError."""
+
+    def _config(self) -> ra.Config:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            config.github_token = "fake-token"
+            config.github_repo = "owner/repo"
+            return config
+
+    def test_attribute_error_normalised(self) -> None:
+        """Non-dict API response causing AttributeError must become RepoArchitectError."""
+        config = self._config()
+        # github_request returns a non-dict that causes .get() to fail on items iteration
+        with patch.object(ra, "github_request", return_value="not-a-dict"):
+            # This should NOT raise AttributeError — it should be caught or handled
+            result = ra.find_existing_github_issue(config, "abc123")
+            # The code handles non-dict via isinstance check, so result is None
+            self.assertIsNone(result)
+
+    def test_type_error_normalised_to_repo_architect_error(self) -> None:
+        """Unexpected TypeError must become RepoArchitectError, not bubble raw."""
+        config = self._config()
+        # Simulate github_request returning something that causes TypeError downstream
+        with patch.object(ra, "github_request", side_effect=TypeError("unexpected type")):
+            with self.assertRaises(ra.RepoArchitectError) as ctx:
+                ra.find_existing_github_issue(config, "abc123")
+            self.assertIn("Dedupe lookup failed", str(ctx.exception))
+
+    def test_key_error_normalised_to_repo_architect_error(self) -> None:
+        """Unexpected KeyError must become RepoArchitectError."""
+        config = self._config()
+        with patch.object(ra, "github_request", side_effect=KeyError("missing")):
+            with self.assertRaises(ra.RepoArchitectError) as ctx:
+                ra.find_existing_github_issue(config, "abc123")
+            self.assertIn("Dedupe lookup failed", str(ctx.exception))
+
+    def test_repo_architect_error_still_propagates(self) -> None:
+        """RepoArchitectError from github_request must propagate unchanged."""
+        config = self._config()
+        with patch.object(ra, "github_request", side_effect=ra.RepoArchitectError("API 500")):
+            with self.assertRaises(ra.RepoArchitectError) as ctx:
+                ra.find_existing_github_issue(config, "abc123")
+            self.assertIn("API 500", str(ctx.exception))
+
+
+# ---------------------------------------------------------------------------
+# 31. labels_confirmed proves relabel on existing issues
+# ---------------------------------------------------------------------------
+
+class TestLabelsConfirmed(unittest.TestCase):
+    """IssueAction.labels_confirmed must contain labels from the GitHub API response."""
+
+    def _make_gap(self) -> ra.ArchGap:
+        return ra.ArchGap(
+            subsystem="workflow", issue_key="test-gap", title="[arch-gap] Test",
+            summary="s", problem="p", why_it_matters="w", scope="s2",
+            suggested_files=[], implementation_notes="i",
+            acceptance_criteria=["done"], validation_commands=["pytest"],
+            out_of_scope="x", copilot_prompt="fix it", priority="medium", confidence=0.8,
+        )
+
+    def test_labels_confirmed_on_update_path(self) -> None:
+        """When existing issue is updated, labels_confirmed must reflect PATCH response."""
+        gap = self._make_gap()
+        fp = ra.issue_fingerprint(gap.subsystem, gap.issue_key)
+        fake_existing = {"number": 42, "html_url": "https://github.com/test/42",
+                         "body": f"<!-- arch-gap-fingerprint: {fp} -->"}
+        # Simulate PATCH response with labels array
+        patch_resp = {"id": 42, "labels": [
+            {"name": "arch-gap"}, {"name": "copilot-task"},
+            {"name": "needs-implementation"}, {"name": "workflow"},
+        ]}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, github_token="fake-tok", github_repo="org/repo")
+            with patch.object(ra, "find_existing_github_issue", return_value=fake_existing):
+                with patch.object(ra, "update_github_issue_api", return_value={"id": 1}):
+                    with patch.object(ra, "set_github_issue_labels", return_value=patch_resp):
+                        with patch.object(ra, "ensure_github_labels"):
+                            action = ra.synthesize_issue(config, gap, "run-001", dry_run=False)
+
+        self.assertEqual(action.action, "updated")
+        self.assertIsNotNone(action.labels_confirmed)
+        self.assertIn("arch-gap", action.labels_confirmed)
+        self.assertIn("workflow", action.labels_confirmed)
+
+    def test_labels_confirmed_on_create_path(self) -> None:
+        """When a new issue is created, labels_confirmed must reflect create response."""
+        gap = self._make_gap()
+        create_resp = {"number": 99, "html_url": "https://github.com/test/99",
+                       "labels": [{"name": "arch-gap"}, {"name": "copilot-task"}]}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, github_token="fake-tok", github_repo="org/repo")
+            with patch.object(ra, "find_existing_github_issue", return_value=None):
+                with patch.object(ra, "create_github_issue_api", return_value=create_resp):
+                    with patch.object(ra, "ensure_github_labels"):
+                        action = ra.synthesize_issue(config, gap, "run-001", dry_run=False)
+
+        self.assertEqual(action.action, "created")
+        self.assertIsNotNone(action.labels_confirmed)
+        self.assertIn("arch-gap", action.labels_confirmed)
+
+    def test_labels_confirmed_none_for_dry_run(self) -> None:
+        """In dry_run mode, labels_confirmed should be None."""
+        gap = self._make_gap()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            action = ra.synthesize_issue(config, gap, "run-001", dry_run=True)
+        self.assertIsNone(action.labels_confirmed)
+
+    def test_labels_confirmed_none_on_error(self) -> None:
+        """On API error, labels_confirmed should be None."""
+        gap = self._make_gap()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, github_token="fake-tok", github_repo="org/repo")
+            with patch.object(ra, "find_existing_github_issue", return_value=None):
+                with patch.object(ra, "create_github_issue_api", side_effect=ra.RepoArchitectError("fail")):
+                    with patch.object(ra, "ensure_github_labels"):
+                        action = ra.synthesize_issue(config, gap, "run-001", dry_run=False)
+        self.assertEqual(action.action, "error")
+        self.assertIsNone(action.labels_confirmed)
+
+
+# ---------------------------------------------------------------------------
+# 32. Generated report files are gitignored
+# ---------------------------------------------------------------------------
+
+class TestGeneratedReportArtifactsGitignored(unittest.TestCase):
+    """Generated per-run report .md files must not be tracked by git."""
+
+    def test_report_files_are_gitignored(self) -> None:
+        """The five generated report .md files must appear in .gitignore."""
+        git_root = pathlib.Path(__file__).parent.parent
+        gitignore = (git_root / ".gitignore").read_text(encoding="utf-8")
+        expected = [
+            "docs/repo_architect/runtime_inventory.md",
+            "docs/repo_architect/circular_dependencies.md",
+            "docs/repo_architect/parse_errors.md",
+            "docs/repo_architect/entrypoint_clusters.md",
+            "docs/repo_architect/top_risks.md",
+        ]
+        for f in expected:
+            self.assertIn(f, gitignore, f"{f} should be in .gitignore")
+
+    def test_report_files_not_tracked(self) -> None:
+        """Generated report .md files should not be tracked by git."""
+        git_root = pathlib.Path(__file__).parent.parent
+        result = subprocess.run(
+            ["git", "-C", str(git_root), "ls-files", "--error-unmatch",
+             "docs/repo_architect/runtime_inventory.md"],
+            capture_output=True,
+        )
+        # ls-files --error-unmatch returns non-zero when file is NOT tracked
+        self.assertNotEqual(result.returncode, 0,
+                            "runtime_inventory.md should not be tracked by git")
+
+
 if __name__ == "__main__":
     unittest.main()

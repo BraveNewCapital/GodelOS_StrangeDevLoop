@@ -1,5 +1,4 @@
 {
-  "$schema": "docs/repo_architect/dependency_contract.json",
   "description": "Machine-readable dependency direction contract from GODELOS_REPO_IMPLEMENTATION_CHARTER §6.",
   "charter_source": "docs/architecture/GODELOS_REPO_IMPLEMENTATION_CHARTER.md",
   "charter_section": "§6 Dependency Direction Contract",
@@ -10,6 +9,7 @@
     "agents",
     "interface"
   ],
+  "layer_order_semantics": "Layers are listed from innermost (runtime) to outermost (interface). Index 0 is the foundation; higher indices are further from the foundation.",
   "layer_descriptions": {
     "runtime": "Process orchestration, scheduling, lifecycle, messaging, runtime state",
     "core": "Core cognitive processing, state management, operator logic",
@@ -17,7 +17,7 @@
     "agents": "Agent orchestration, lifecycle, message routing",
     "interface": "External API surface, protocol handling, presentation"
   },
-  "allowed_direction": "runtime → core → knowledge → agents → interface (dependencies flow outward from runtime)",
+  "allowed_direction": "Dependencies flow inward: outer layers may depend on adjacent inner layers. interface → agents → knowledge → core → runtime. Reverse (inner importing outer) and skip-layer imports (e.g. interface → runtime) are violations.",
   "hard_prohibitions": [
     "interface importing deep internal concrete storage implementations directly",
     "knowledge adapters importing runtime orchestration logic",
