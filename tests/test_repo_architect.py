@@ -1620,7 +1620,10 @@ class TestDiagnoseGaps(unittest.TestCase):
         self.assertTrue(len(score_gaps) >= 1)
         self.assertEqual(score_gaps[0].priority, "high")
         self.assertNotIn("docs/repo_architect/top_risks.md", score_gaps[0].suggested_files)
-        self.assertIn(str(config.analysis_path.relative_to(config.git_root)), score_gaps[0].suggested_files)
+        analysis_rel_path = str(config.analysis_path.relative_to(config.git_root))
+        self.assertIn(analysis_rel_path, score_gaps[0].suggested_files)
+        self.assertIn(analysis_rel_path, score_gaps[0].implementation_notes)
+        self.assertNotIn("top_risks.md", score_gaps[0].implementation_notes)
 
     def test_score_above_threshold_no_score_gap(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
