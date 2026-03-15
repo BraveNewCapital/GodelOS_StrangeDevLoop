@@ -1,0 +1,61 @@
+{
+  "description": "Machine-readable dependency direction contract from GODELOS_REPO_IMPLEMENTATION_CHARTER §6.",
+  "charter_source": "docs/architecture/GODELOS_REPO_IMPLEMENTATION_CHARTER.md",
+  "charter_section": "§6 Dependency Direction Contract",
+  "layer_order": [
+    "runtime",
+    "core",
+    "knowledge",
+    "agents",
+    "interface"
+  ],
+  "layer_order_semantics": "Layers are listed from innermost (runtime) to outermost (interface). Index 0 is the foundation; higher indices are further from the foundation.",
+  "layer_descriptions": {
+    "runtime": "Process orchestration, scheduling, lifecycle, messaging, runtime state",
+    "core": "Core cognitive processing, state management, operator logic",
+    "knowledge": "Knowledge substrate, persistent store adapters, semantic memory",
+    "agents": "Agent orchestration, lifecycle, message routing",
+    "interface": "External API surface, protocol handling, presentation"
+  },
+  "allowed_direction": "Dependencies flow from outer layers toward inner layers: interface depends-on agents depends-on knowledge depends-on core depends-on runtime. This is a conceptual directional flow per charter §6, not a licence for arbitrary imports. Lane 5 automation enforces the concrete §6.1 hard prohibitions listed below; imports outside that set still require architectural review and may be treated as debt.",
+  "lane_5_enforcement": {
+    "description": "Lane 5 automated detection checks for the following backward imports that violate §6.1 hard prohibitions.",
+    "detected_violations": [
+      "interface → core (skip-layer backward import)",
+      "interface → runtime (skip-layer backward import)",
+      "knowledge → runtime (backward import per §6.1)",
+      "agents → runtime (backward import per §6.1)"
+    ],
+    "not_flagged": [
+      "agents → interface (not a current §6.1 hard-prohibition check in Lane 5; review manually if introduced)"
+    ]
+  },
+  "hard_prohibitions": [
+    "interface importing deep internal concrete storage implementations directly",
+    "knowledge adapters importing runtime orchestration logic",
+    "agent modules reaching through interface modules to access runtime internals",
+    "circular imports between backend/core and backend/runtime",
+    "circular imports between godelOS/core_kr interface and concrete store implementations"
+  ],
+  "circular_import_policy": {
+    "stance": "Any import cycle is presumed architectural debt",
+    "acceptable_responses": [
+      "dependency inversion",
+      "interface extraction",
+      "event-based decoupling",
+      "message boundary insertion",
+      "module split",
+      "relocation of misplaced logic"
+    ],
+    "forbidden": "Never patch cycles by adding local imports inside functions unless explicitly temporary, commented as debt, and tracked for removal"
+  },
+  "canonical_entrypoint": "backend/unified_server.py",
+  "ownership_hints": {
+    "backend/runtime/": "Runtime Kernel — process orchestration, scheduling, lifecycle",
+    "backend/core/": "Core Cognitive Engine — reasoning, state update, operator logic",
+    "godelOS/core_kr/": "Knowledge Substrate — persistent knowledge, semantic storage",
+    "backend/agents/": "Agent Framework — agent lifecycle, message routing, boundary enforcement",
+    "backend/interface/": "Interface Layer — external API surface",
+    "backend/consciousness/": "Consciousness Instrumentation — metrics, traces, self-observation"
+  }
+}

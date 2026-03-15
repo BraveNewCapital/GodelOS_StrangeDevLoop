@@ -1,0 +1,73 @@
+{
+  "description": "Machine-readable repo-architect policy derived from GODELOS_REPO_IMPLEMENTATION_CHARTER §15.",
+  "charter_sources": [
+    "docs/architecture/GODELOS_ARCHITECTURAL_CHARTER.md",
+    "docs/architecture/GODELOS_REPO_IMPLEMENTATION_CHARTER.md"
+  ],
+  "default_mode": "issue",
+  "modes": {
+    "issue": {
+      "description": "Default safe governance mode. Diagnoses gaps and opens/updates GitHub Issues with Copilot-ready prompts.",
+      "charter_basis": ["§14 Effective Gödel-Machine Program", "§15 Self-Modification Doctrine", "§20 Automation Policy"],
+      "permissions_required": ["issues:write", "models:read"],
+      "produces_code": false
+    },
+    "analyze": {
+      "description": "Build analysis and write .agent/ artifacts. No GitHub API calls.",
+      "charter_basis": ["§20 Automation Policy"],
+      "permissions_required": [],
+      "produces_code": false
+    },
+    "report": {
+      "description": "Refresh docs/repo_architect/ documentation reports.",
+      "charter_basis": ["Lane 0 (Report generation)"],
+      "permissions_required": [],
+      "produces_code": false
+    },
+    "mutate": {
+      "description": "Attempt one direct code mutation via charter-validated lanes.",
+      "charter_basis": ["§9 Self-Modification Contract", "§10 Mutation Lanes"],
+      "permissions_required": ["contents:write", "pull-requests:write", "models:read"],
+      "produces_code": true
+    },
+    "campaign": {
+      "description": "Run multiple mutation slices across charter-validated lanes.",
+      "charter_basis": ["§9 Self-Modification Contract", "§10 Mutation Lanes", "§11 Mutation Budget Policy"],
+      "permissions_required": ["contents:write", "pull-requests:write", "models:read"],
+      "produces_code": true
+    }
+  },
+  "canonical_entrypoint": "backend/unified_server.py",
+  "protected_paths": [
+    "docs/architecture/GODELOS_ARCHITECTURAL_CHARTER.md",
+    "docs/architecture/GODELOS_REPO_IMPLEMENTATION_CHARTER.md"
+  ],
+  "architectural_invariants": [
+    "No circular imports between backend/core and backend/runtime",
+    "No circular imports between godelOS/core_kr interface and concrete store implementations",
+    "Interface modules must not import deep internal concrete storage implementations directly",
+    "Knowledge adapters must not import runtime orchestration logic",
+    "Agent modules must not reach through interface modules to access runtime internals",
+    "Canonical runtime convergence toward backend/unified_server.py"
+  ],
+  "priority_order": [
+    "restore or preserve parse correctness",
+    "eliminate import cycles",
+    "reduce runtime entrypoint ambiguity",
+    "normalise knowledge substrate boundaries",
+    "isolate agent boundaries",
+    "add explicit machine-consciousness instrumentation seams",
+    "build toward durable Gödlø-P persistence semantics",
+    "progressively enable validated self-modification loops"
+  ],
+  "agent_instruction_contract": [
+    "Work only in one mutation lane at a time.",
+    "Preserve canonical runtime convergence toward backend/unified_server.py.",
+    "Break import cycles structurally, not cosmetically.",
+    "Do not widen coupling between runtime, core, knowledge, agents, and interface layers.",
+    "Do not bypass knowledge-store interfaces for persistent memory operations.",
+    "Do not make claims about consciousness without adding measurable instrumentation or evidence paths.",
+    "Prefer thin, verifiable PRs over broad rewrites.",
+    "Every PR must explain objective, architectural effect, validation, and next follow-up lane."
+  ]
+}

@@ -1,6 +1,19 @@
 ### Test artifacts ###
 query_*test*.json
 
+### repo-architect dry-run outputs ###
+docs/repo_architect/issues/
+
+### repo-architect generated reports (refreshed each run) ###
+docs/repo_architect/runtime_inventory.md
+docs/repo_architect/circular_dependencies.md
+docs/repo_architect/parse_errors.md
+docs/repo_architect/entrypoint_clusters.md
+docs/repo_architect/top_risks.md
+
+### repo-architect run artifacts ###
+.agent/
+
 ### Environments ###
 # Virtual environments
 .env

@@ -71,10 +71,73 @@ _MODEL_UNAVAILABLE_SIGNALS = frozenset({
 })
 # Canonical lane execution order for mutate / campaign modes
 MUTATION_LANE_ORDER: Tuple[str, ...] = ("parse_errors", "import_cycles", "entrypoint_consolidation", "hygiene", "report")
+# Issue-first mode (default safe operating mode per charter governance policy)
+ISSUE_MODE = "issue"
+# Modes that perform direct code mutation – retained as charter-validated secondary modes
+# (per GODELOS_REPO_IMPLEMENTATION_CHARTER §9–§10 self-modification lanes) but not the
+# default execution path.  Issue-first mode is the default safe path; mutation modes
+# require explicit opt-in via --mode mutate or --mode campaign.
+CHARTER_MUTATION_MODES: Tuple[str, ...] = ("mutate", "campaign")
+# Directory for dry-run issue artifacts
+ISSUE_REPORT_DIR = DEFAULT_REPORT_DIR / "issues"
+# Standard labels for the issue-first governance system
+ARCH_GAP_LABELS: Tuple[str, ...] = (
+    "arch-gap", "copilot-task", "needs-implementation",
+    "ready-for-validation", "blocked", "superseded",
+)
+SUBSYSTEM_LABELS: Tuple[str, ...] = (
+    "workflow", "runtime", "reporting", "docs",
+    "model-routing", "issue-orchestration",
+    "core", "knowledge", "agents", "consciousness",
+)
+# Priority levels for detected architectural gaps
+ISSUE_PRIORITY_LEVELS: Tuple[str, ...] = ("critical", "high", "medium", "low")
+# Charter-defined mutation lanes (§10 GODELOS_REPO_IMPLEMENTATION_CHARTER)
+# Maps lane number to (name, subsystem, description)
+CHARTER_LANE_MAP: Dict[int, Tuple[str, str, str]] = {
+    0: ("report", "reporting", "Report generation — architecture packets, inventories, risk docs"),
+    1: ("hygiene", "runtime", "Hygiene — remove debug prints, dead code, internal clutter"),
+    2: ("parse_errors", "runtime", "Parse repair — fix syntax errors, restore parsability"),
+    3: ("import_cycles", "runtime", "Circular dependency elimination — break import cycles structurally"),
+    4: ("entrypoint_consolidation", "runtime", "Entrypoint consolidation — reduce runtime duplication"),
+    5: ("contract_repair", "core", "Contract repair — normalise interfaces, repair adapter mismatches"),
+    6: ("runtime_extraction", "runtime", "Runtime extraction — move orchestration logic into runtime modules"),
+    7: ("agent_boundary", "agents", "Agent boundary enforcement — isolate agent state, use messages/interfaces"),
+    8: ("knowledge_normalisation", "knowledge", "Knowledge substrate normalisation — centralise persistent knowledge access"),
+    9: ("consciousness_instrumentation", "consciousness", "Consciousness instrumentation — metrics, traces, introspection paths"),
+}
+# Charter §14 Current Priority Order (GODELOS_REPO_IMPLEMENTATION_CHARTER)
+CHARTER_PRIORITY_ORDER: Tuple[str, ...] = (
+    "restore or preserve parse correctness",
+    "eliminate import cycles",
+    "reduce runtime entrypoint ambiguity",
+    "normalise knowledge substrate boundaries",
+    "isolate agent boundaries",
+    "add explicit machine-consciousness instrumentation seams",
+    "build toward durable Gödlø-P persistence semantics",
+    "progressively enable validated self-modification loops",
+)
+# Machine-readable companion files (§15 GODELOS_REPO_IMPLEMENTATION_CHARTER)
+CHARTER_COMPANION_FILES: Tuple[str, ...] = (
+    "docs/repo_architect/policy.json",
+    "docs/repo_architect/mutation_lanes.json",
+    "docs/repo_architect/dependency_contract.json",
+)
 # Canonical architectural charter files (relative to git root)
 CHARTER_PATHS: Tuple[str, ...] = (
     "docs/architecture/GODELOS_ARCHITECTURAL_CHARTER.md",
     "docs/architecture/GODELOS_REPO_IMPLEMENTATION_CHARTER.md",
+)
+# §16 Minimal Agent Instruction Contract (GODELOS_REPO_IMPLEMENTATION_CHARTER)
+AGENT_INSTRUCTION_CONTRACT: Tuple[str, ...] = (
+    "Work only in one mutation lane at a time.",
+    "Preserve canonical runtime convergence toward backend/unified_server.py.",
+    "Break import cycles structurally, not cosmetically.",
+    "Do not widen coupling between runtime, core, knowledge, agents, and interface layers.",
+    "Do not bypass knowledge-store interfaces for persistent memory operations.",
+    "Do not make claims about consciousness without adding measurable instrumentation or evidence paths.",
+    "Prefer thin, verifiable PRs over broad rewrites.",
+    "Every PR must explain objective, architectural effect, validation, and next follow-up lane.",
 )
 # Maximum characters from each charter file injected into model context
 _MAX_CHARTER_CHARS_PER_FILE = 3000
@@ -88,6 +151,10 @@ _ENTRYPOINT_CONSOLIDATION_THRESHOLD = 4
 # When building entrypoint snippets: consider this many candidates, send at most this many to model
 _ENTRYPOINT_CONSOLIDATION_CANDIDATES = 8
 _ENTRYPOINT_CONSOLIDATION_SNIPPETS = 5
+# Maximum number of file/evidence items shown inline in Copilot prompt or issue body sections
+_MAX_INLINE_FILE_DISPLAY = 5
+# Maximum number of violations shown in issue body for Lane 5/7 gaps
+_MAX_VIOLATIONS_DISPLAY = 5
 
 
 class RepoArchitectError(Exception):
@@ -124,6 +191,10 @@ class Config:
     github_fallback_model: Optional[str] = None
     # Explicit lane order override (None = use MUTATION_LANE_ORDER)
     campaign_lanes: Optional[Tuple[str, ...]] = None
+    # Issue-first mode options
+    dry_run: bool = False           # write issue bodies to disk but do not call GitHub API
+    max_issues: int = 1             # maximum issues to open/update per run in issue mode
+    issue_subsystem: Optional[str] = None  # target a specific subsystem (None = all)
 
 
 @dataclasses.dataclass
@@ -146,6 +217,42 @@ class PatchPlan:
     pr_title: str
     pr_body: str
     stable_branch_hint: str
+
+
+@dataclasses.dataclass
+class ArchGap:
+    """A concrete architectural or operational gap detected by the system."""
+    subsystem: str          # one of SUBSYSTEM_LABELS (e.g. "runtime", "workflow")
+    issue_key: str          # short deterministic slug (e.g. "import-cycles-backend")
+    title: str              # short human-readable title for the GitHub issue
+    summary: str            # 1-2 sentence description
+    problem: str            # detailed problem statement
+    why_it_matters: str     # justification
+    scope: str              # bounded scope description
+    suggested_files: List[str]   # repo-relative file paths relevant to the fix
+    implementation_notes: str    # guidance for implementer / Copilot
+    acceptance_criteria: List[str]
+    validation_commands: List[str]
+    out_of_scope: str
+    copilot_prompt: str     # ready-to-paste Copilot Chat / agent mode prompt
+    priority: str           # one of ISSUE_PRIORITY_LEVELS
+    confidence: float       # 0.0-1.0
+
+
+@dataclasses.dataclass
+class IssueAction:
+    """Result of a single issue synthesis operation."""
+    action: str             # "created" | "updated" | "dry_run" | "error"
+    issue_number: Optional[int]
+    issue_url: Optional[str]
+    labels_applied: List[str]  # labels *requested* by the orchestration layer (sent to GitHub API)
+    dedupe_result: str      # "new" | "existing_open" | "lookup_failed" | "create_failed" | "n/a"
+    fingerprint: str
+    dry_run_path: Optional[str]
+    gap_title: str
+    gap_subsystem: str
+    error: Optional[str] = None
+    labels_confirmed: Optional[List[str]] = None  # labels actually *confirmed* by GitHub API response; None when no API call was made (dry-run/error)
 
 
 def log(message: str, *, data: Optional[Dict[str, Any]] = None, json_mode: bool = False) -> None:
@@ -315,6 +422,8 @@ def github_request(token: str, path: str, *, method: str = "GET", payload: Optio
     except urllib.error.HTTPError as exc:
         raw = exc.read().decode("utf-8", errors="replace")
         raise RepoArchitectError(f"GitHub API {method} {path} failed: {exc.code} {raw}") from exc
+    except urllib.error.URLError as exc:
+        raise RepoArchitectError(f"GitHub API {method} {path} network error: {exc.reason}") from exc
 
 
 def github_models_catalog(token: str) -> List[Dict[str, Any]]:
@@ -554,6 +663,849 @@ def create_or_update_pull_request(config: Config, branch: str, title: str, body:
     return github_request(config.github_token, f"/repos/{config.github_repo}/pulls", method="POST", payload=payload)
 
 
+# -----------------------------------------------------------------------
+# Issue-first orchestration
+# -----------------------------------------------------------------------
+
+def issue_fingerprint(subsystem: str, issue_key: str) -> str:
+    """Return a deterministic 12-hex-char fingerprint for deduplication.
+
+    12 hex characters (48 bits) gives ~1-in-281-trillion collision probability
+    per pair, which is adequate for the bounded set of architectural gap types
+    per repository (typically ≤ 30 distinct gap keys).
+    """
+    canonical = f"{subsystem}:{issue_key}".lower().strip()
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:12]
+
+
+def render_issue_body(gap: ArchGap, config: Config, run_id: str) -> str:
+    """Render a structured GitHub issue body from an ArchGap."""
+    fp = issue_fingerprint(gap.subsystem, gap.issue_key)
+    generated_at = dt.datetime.now(dt.timezone.utc).isoformat()
+    criteria_md = "\n".join(f"- [ ] {c}" for c in gap.acceptance_criteria)
+    validation_md = "\n".join(f"```\n{v}\n```" for v in gap.validation_commands)
+    files_md = "\n".join(f"- `{f}`" for f in gap.suggested_files) if gap.suggested_files else "_See implementation notes._"
+    machine_meta = json.dumps({
+        "subsystem": gap.subsystem,
+        "priority": gap.priority,
+        "confidence": gap.confidence,
+        "mode": ISSUE_MODE,
+        "generated_at": generated_at,
+        "run_id": run_id,
+        "repo": config.github_repo or "unknown",
+        "issue_key": gap.issue_key,
+        "fingerprint": fp,
+    }, indent=2, sort_keys=True)
+
+    # Build without textwrap.dedent so embedded multi-line content (JSON, copilot prompt)
+    # does not interfere with whitespace stripping.
+    parts = [
+        "## Summary", "", gap.summary, "",
+        "## Problem", "", gap.problem, "",
+        "## Why it matters", "", gap.why_it_matters, "",
+        "## Scope", "", gap.scope, "",
+        "## Suggested files", "", files_md, "",
+        "## Implementation notes", "", gap.implementation_notes, "",
+        "## Copilot implementation prompt", "",
+        "> Paste the block below directly into **Copilot Chat** or **agent mode** to begin implementation.", "",
+        "```", gap.copilot_prompt, "```", "",
+        "## Acceptance criteria", "", criteria_md, "",
+        "## Validation", "", validation_md, "",
+        "## Out of scope", "", gap.out_of_scope, "",
+        "---",
+        f"<!-- arch-gap-fingerprint: {fp} -->",
+        "<details>",
+        "<summary>Machine metadata</summary>", "",
+        "```json", machine_meta, "```",
+        "</details>", "",
+    ]
+    return "\n".join(parts)
+
+
+def find_existing_github_issue(config: Config, fingerprint: str) -> Optional[Dict[str, Any]]:
+    """Search open GitHub Issues for one containing the arch-gap fingerprint marker.
+
+    Returns the matching issue dict, or ``None`` if no match is found.
+    Raises :class:`RepoArchitectError` for **any** failure during the lookup
+    (network, HTTP, JSON decode, etc.) so that
+    callers always receive a single normalised exception type and can decide
+    whether to skip issue creation on dedupe failure.
+    """
+    if not config.github_token or not config.github_repo:
+        return None
+    try:
+        marker = f"arch-gap-fingerprint: {fingerprint}"
+        query = urllib.parse.urlencode({"q": f"repo:{config.github_repo} is:issue is:open {marker}", "per_page": "5"})
+        result = github_request(config.github_token, f"/search/issues?{query}")
+        items = result.get("items", []) if isinstance(result, dict) else []
+        for item in items:
+            body = item.get("body") or ""
+            if marker in body:
+                return item
+        return None
+    except RepoArchitectError:
+        raise  # already normalised
+    except Exception as exc:
+        raise RepoArchitectError(f"Dedupe lookup failed: {exc}") from exc
+
+
+def ensure_github_labels(config: Config, label_names: Sequence[str]) -> None:
+    """Create any missing repo labels (best-effort; errors are non-fatal)."""
+    if not config.github_token or not config.github_repo:
+        return
+    # Palette: alternating colours for visibility
+    _COLOURS = ["0075ca", "e4e669", "d93f0b", "0052cc", "5319e7", "1d76db", "b60205", "006b75"]
+    try:
+        existing_raw = github_request(config.github_token, f"/repos/{config.github_repo}/labels?per_page=100")
+        existing = {item["name"] for item in existing_raw} if isinstance(existing_raw, list) else set()
+    except RepoArchitectError:
+        existing = set()
+    for i, name in enumerate(label_names):
+        if name in existing:
+            continue
+        colour = _COLOURS[i % len(_COLOURS)]
+        try:
+            github_request(
+                config.github_token,
+                f"/repos/{config.github_repo}/labels",
+                method="POST",
+                payload={"name": name, "color": colour},
+            )
+        except RepoArchitectError:
+            pass  # label already exists race or insufficient permissions
+
+
+def create_github_issue_api(
+    config: Config, title: str, body: str, labels: List[str]
+) -> Dict[str, Any]:
+    """Create a GitHub Issue and return the API response."""
+    if not config.github_token or not config.github_repo:
+        raise RepoArchitectError("Missing GITHUB_TOKEN or GITHUB_REPO for issue creation.")
+    payload: Dict[str, Any] = {"title": title, "body": body}
+    if labels:
+        payload["labels"] = labels
+    return github_request(config.github_token, f"/repos/{config.github_repo}/issues", method="POST", payload=payload)
+
+
+def update_github_issue_api(
+    config: Config, issue_number: int, comment: str
+) -> Dict[str, Any]:
+    """Add a comment to an existing GitHub Issue."""
+    if not config.github_token or not config.github_repo:
+        raise RepoArchitectError("Missing GITHUB_TOKEN or GITHUB_REPO for issue update.")
+    return github_request(
+        config.github_token,
+        f"/repos/{config.github_repo}/issues/{issue_number}/comments",
+        method="POST",
+        payload={"body": comment},
+    )
+
+
+def set_github_issue_labels(
+    config: Config, issue_number: int, labels: List[str]
+) -> Dict[str, Any]:
+    """PATCH labels on an existing GitHub Issue so they reflect the current computed set."""
+    if not config.github_token or not config.github_repo:
+        raise RepoArchitectError("Missing GITHUB_TOKEN or GITHUB_REPO for label update.")
+    return github_request(
+        config.github_token,
+        f"/repos/{config.github_repo}/issues/{issue_number}",
+        method="PATCH",
+        payload={"labels": labels},
+    )
+
+
+def _extract_confirmed_labels(api_response: Any) -> Optional[List[str]]:
+    """Extract label names from a GitHub API issue response (create or PATCH).
+
+    Returns a list of label name strings confirmed by the API, or ``None``
+    when the response shape is unexpected.
+    """
+    if not isinstance(api_response, dict):
+        return None
+    raw_labels = api_response.get("labels")
+    if not isinstance(raw_labels, list):
+        return None
+    return [lbl["name"] for lbl in raw_labels if isinstance(lbl, dict) and "name" in lbl]
+
+
+def synthesize_issue(
+    config: Config, gap: ArchGap, run_id: str, dry_run: bool
+) -> IssueAction:
+    """Synthesize one GitHub Issue for a detected ArchGap.
+
+    Behavior:
+    - Renders the full structured issue body.
+    - In dry_run mode: writes the body to disk under ISSUE_REPORT_DIR.
+    - In live mode: deduplicates against open issues then creates or updates.
+    """
+    fp = issue_fingerprint(gap.subsystem, gap.issue_key)
+    body = render_issue_body(gap, config, run_id)
+    labels: List[str] = ["arch-gap", "copilot-task", "needs-implementation"]
+    if gap.subsystem in SUBSYSTEM_LABELS:
+        labels.append(gap.subsystem)
+    if gap.priority in ("critical", "high"):
+        labels.append(f"priority:{gap.priority}")
+
+    if dry_run:
+        out_dir = config.git_root / ISSUE_REPORT_DIR
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"{fp}.md"
+        header = f"# {gap.title}\n\n_Dry-run preview — not submitted to GitHub._\n\n"
+        atomic_write_text(out_path, header + body)
+        return IssueAction(
+            action="dry_run",
+            issue_number=None,
+            issue_url=None,
+            labels_applied=labels,
+            dedupe_result="n/a",
+            fingerprint=fp,
+            dry_run_path=str(out_path.relative_to(config.git_root)),
+            gap_title=gap.title,
+            gap_subsystem=gap.subsystem,
+        )
+
+    if not config.github_token or not config.github_repo:
+        # No credentials: fall back to dry-run automatically
+        out_dir = config.git_root / ISSUE_REPORT_DIR
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"{fp}.md"
+        header = f"# {gap.title}\n\n_No GitHub credentials — saved locally only._\n\n"
+        atomic_write_text(out_path, header + body)
+        return IssueAction(
+            action="dry_run",
+            issue_number=None,
+            issue_url=None,
+            labels_applied=labels,
+            dedupe_result="n/a",
+            fingerprint=fp,
+            dry_run_path=str(out_path.relative_to(config.git_root)),
+            gap_title=gap.title,
+            gap_subsystem=gap.subsystem,
+        )
+
+    # Ensure required labels exist
+    ensure_github_labels(config, labels)
+
+    # Deduplication: search for an existing open issue with the same fingerprint
+    try:
+        existing = find_existing_github_issue(config, fp)
+    except RepoArchitectError as exc:
+        # Dedupe lookup failed — skip creation to avoid duplicates
+        log("Deduplication lookup failed; skipping issue creation to avoid duplicates",
+            data={"fingerprint": fp, "error": str(exc)},
+            json_mode=config.log_json)
+        return IssueAction(
+            action="error", issue_number=None, issue_url=None,
+            labels_applied=labels, dedupe_result="lookup_failed", fingerprint=fp,
+            dry_run_path=None, gap_title=gap.title, gap_subsystem=gap.subsystem,
+            error=f"Dedupe lookup failed: {exc}",
+        )
+    if existing:
+        issue_number = existing["number"]
+        issue_url = existing.get("html_url")
+        ts = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        comment = (
+            f"**repo-architect re-scan** ({ts}, run `{run_id}`): "
+            f"this gap is still detected. No new issue opened.\n\n"
+            f"Priority: `{gap.priority}` | Confidence: `{gap.confidence:.0%}`"
+        )
+        try:
+            update_github_issue_api(config, issue_number, comment)
+            # Ensure labels on the existing issue match the current computed set
+            patch_resp = set_github_issue_labels(config, issue_number, labels)
+        except RepoArchitectError as exc:
+            return IssueAction(
+                action="error", issue_number=issue_number, issue_url=issue_url,
+                labels_applied=labels, dedupe_result="existing_open", fingerprint=fp,
+                dry_run_path=None, gap_title=gap.title, gap_subsystem=gap.subsystem,
+                error=str(exc),
+            )
+        # Extract confirmed labels from the GitHub PATCH response as proof of relabel
+        return IssueAction(
+            action="updated", issue_number=issue_number, issue_url=issue_url,
+            labels_applied=labels, dedupe_result="existing_open", fingerprint=fp,
+            dry_run_path=None, gap_title=gap.title, gap_subsystem=gap.subsystem,
+            labels_confirmed=_extract_confirmed_labels(patch_resp),
+        )
+
+    # No existing issue – create a new one
+    try:
+        issue = create_github_issue_api(config, gap.title, body, labels)
+    except RepoArchitectError as exc:
+        return IssueAction(
+            action="error", issue_number=None, issue_url=None,
+            labels_applied=labels, dedupe_result="create_failed", fingerprint=fp,
+            dry_run_path=None, gap_title=gap.title, gap_subsystem=gap.subsystem,
+            error=str(exc),
+        )
+    return IssueAction(
+        action="created",
+        issue_number=issue.get("number"),
+        issue_url=issue.get("html_url"),
+        labels_applied=labels,
+        dedupe_result="new",
+        fingerprint=fp,
+        dry_run_path=None,
+        gap_title=gap.title,
+        gap_subsystem=gap.subsystem,
+        labels_confirmed=_extract_confirmed_labels(issue),
+    )
+
+
+def _build_copilot_prompt(gap_title: str, subsystem: str, scope: str,
+                          suggested_files: List[str], validation_commands: List[str],
+                          implementation_notes: str) -> str:
+    """Build a concrete Copilot Chat / agent-mode prompt for a detected gap."""
+    files_text = ", ".join(f"`{f}`" for f in suggested_files[:_MAX_INLINE_FILE_DISPLAY]) if suggested_files else "relevant files in the subsystem"
+    validation_text = " ".join(f"`{v}`" for v in validation_commands[:2]) if validation_commands else "run the test suite"
+    return textwrap.dedent(f"""\
+        You are implementing a fix for a detected architectural gap in this repository.
+
+        **Task:** {gap_title}
+        **Subsystem:** {subsystem}
+        **Scope:** {scope}
+
+        **Files likely involved:** {files_text}
+
+        **Implementation guidance:**
+        {implementation_notes}
+
+        **Requirements:**
+        - Make concrete changes to the repository (not just analysis or suggestions).
+        - Keep changes minimal and targeted to the described scope.
+        - Do not modify files outside the stated scope.
+        - Ensure all existing tests still pass after your changes.
+        - Run {validation_text} to verify your implementation.
+
+        Start by reading the files listed above, then implement the fix.
+        """).strip()
+
+
+def _module_segments(identifier: str) -> Tuple[str, ...]:
+    """Normalize a module name or file path to its constituent segments.
+
+    Handles both module names (``backend.core.foo``) and file paths
+    (``backend/core/foo.py``).  Always returns a tuple of directory-style
+    segments (no dots, no ``.py`` suffix).
+
+    Identifiers containing both dots and slashes are treated as file paths
+    (the slash takes precedence).
+    """
+    if "." in identifier and "/" not in identifier:
+        # Module name → split on dots
+        return tuple(identifier.split("."))
+    # File path → use pathlib
+    parts = pathlib.Path(identifier).parts
+    # Strip .py suffix from the last segment
+    if parts and parts[-1].endswith(".py"):
+        parts = parts[:-1] + (parts[-1][:-3],)
+    return parts
+
+
+def _module_to_path(identifier: str, analysis: Dict[str, Any]) -> str:
+    """Best-effort mapping of a module name to a repo-relative file path.
+
+    Falls back to ``module.replace('.', '/') + '.py'`` when the analysis
+    ``python_files`` data is unavailable or the module is not found.
+    """
+    py_files = analysis.get("python_files", [])
+    if py_files:
+        for info in py_files:
+            if isinstance(info, dict) and info.get("module") == identifier:
+                return info["path"]
+    # Fallback: replace dots with slashes
+    return identifier.replace(".", "/") + ".py"
+
+
+def _agent_name(segments: Tuple[str, ...]) -> Optional[str]:
+    """Extract the agent identifier from module segments.
+
+    For segments like ``("backend", "agents", "foo", "utils")``, returns ``"foo"``
+    — the segment immediately after ``"agents"``.  Returns ``None`` if the
+    identifier has no ``"agents"`` segment or nothing follows it.
+    """
+    try:
+        idx = list(segments).index("agents")
+    except ValueError:
+        return None
+    if idx + 1 < len(segments):
+        return segments[idx + 1]
+    return None
+
+
+def diagnose_gaps(config: Config, analysis: Dict[str, Any], model_meta: Dict[str, Any]) -> List[ArchGap]:
+    """Detect concrete architectural gaps from the current repository analysis.
+
+    Returns a prioritized list of ArchGap instances. At most one gap per
+    subsystem/issue_key pair is returned (dedup at source).
+    """
+    gaps: List[ArchGap] = []
+    seen: Set[str] = set()
+
+    def add(gap: ArchGap) -> None:
+        key = issue_fingerprint(gap.subsystem, gap.issue_key)
+        if key not in seen:
+            seen.add(key)
+            gaps.append(gap)
+
+    # 1. Parse errors ──────────────────────────────────────────────────────
+    parse_errors = analysis.get("parse_error_files", [])
+    if parse_errors:
+        files = parse_errors[:10]
+        add(ArchGap(
+            subsystem="runtime",
+            issue_key="parse-errors",
+            title=f"[arch-gap] Fix Python parse errors in {len(parse_errors)} file(s)",
+            summary=f"The repository contains {len(parse_errors)} Python file(s) with syntax errors that prevent import.",
+            problem=(
+                f"Files: {', '.join(files[:5])}{'…' if len(parse_errors) > 5 else ''}.\n"
+                "These parse errors break static analysis, test collection, and may crash runtime imports."
+            ),
+            why_it_matters="Parse errors in any imported module cause cascading ImportError failures at startup and block CI.",
+            scope=f"Fix syntax in up to {len(files)} files. No refactoring or logic changes.",
+            suggested_files=files,
+            implementation_notes=(
+                "Run `python -m py_compile <file>` on each listed file to see the exact error. "
+                "Correct the syntax and verify with `ast.parse`. Do not change logic — only fix syntax."
+            ),
+            acceptance_criteria=[
+                "All listed files pass `python -m py_compile` without errors.",
+                "No new parse errors are introduced.",
+                "`python -m pytest` collects without ImportError.",
+            ],
+            validation_commands=[
+                f"python -m py_compile {' '.join(files[:3])}",
+                "python -m pytest --co -q 2>&1 | head -20",
+            ],
+            out_of_scope="Logic changes, refactoring, adding new features.",
+            copilot_prompt=_build_copilot_prompt(
+                f"Fix Python parse errors in {len(parse_errors)} file(s)",
+                "runtime", f"Fix syntax errors in: {', '.join(files[:5])}",
+                files, [f"python -m py_compile {files[0]}", "python -m pytest --co -q"],
+                "Run py_compile on each file, fix the reported syntax error, verify with ast.parse.",
+            ),
+            priority="critical",
+            confidence=1.0,
+        ))
+
+    # 2. Import cycles ─────────────────────────────────────────────────────
+    cycles = analysis.get("cycles", [])
+    if cycles:
+        cycle_modules: List[str] = []
+        for c in cycles[:5]:
+            cycle_modules.extend(c)
+        cycle_modules = list(dict.fromkeys(cycle_modules))[:10]
+        # Map module names → file paths for suggested_files
+        cycle_files = [_module_to_path(m, analysis) for m in cycle_modules]
+        add(ArchGap(
+            subsystem="runtime",
+            issue_key="import-cycles",
+            title=f"[arch-gap] Break {len(cycles)} circular import cycle(s)",
+            summary=f"The codebase has {len(cycles)} circular import cycle(s) that degrade startup performance and complicate testing.",
+            problem=(
+                f"Example cycle: {' → '.join(cycles[0]) if cycles else 'see analysis'}.\n"
+                "Circular imports force the interpreter to partially execute modules, causing subtle "
+                "AttributeError and ImportError bugs."
+            ),
+            why_it_matters="Circular imports increase coupling, slow startup, and block modular testing.",
+            scope=f"Break the top {min(len(cycles), 3)} import cycle(s) using TYPE_CHECKING guards or lazy imports.",
+            suggested_files=cycle_files,
+            implementation_notes=(
+                "Use `from __future__ import annotations` + `if TYPE_CHECKING:` guards for type-only imports. "
+                "For runtime dependencies, introduce a separate interface module or use lazy imports."
+            ),
+            acceptance_criteria=[
+                "The targeted cycles no longer appear in `repo_architect.py` import graph.",
+                "All affected files pass `python -m py_compile`.",
+                "Existing tests continue to pass.",
+            ],
+            validation_commands=[
+                "python repo_architect.py --mode analyze --allow-dirty",
+                "python -m pytest -x -q",
+            ],
+            out_of_scope="Refactoring unrelated to the identified cycles.",
+            copilot_prompt=_build_copilot_prompt(
+                f"Break {len(cycles)} circular import cycle(s)",
+                "runtime", "Apply TYPE_CHECKING guards or lazy imports to the identified cycles",
+                cycle_files[:5],
+                ["python repo_architect.py --mode analyze --allow-dirty", "python -m pytest -x -q"],
+                "Use TYPE_CHECKING guards for type-only imports; introduce lazy imports for runtime deps.",
+            ),
+            priority="high",
+            confidence=0.95,
+        ))
+
+    # 3. Entrypoint fragmentation ──────────────────────────────────────────
+    ep_clusters = analysis.get("entrypoint_clusters", {})
+    ep_paths = analysis.get("entrypoint_paths", [])
+    backend_eps = ep_clusters.get("backend_servers", ep_paths)
+    if len(backend_eps) >= _ENTRYPOINT_CONSOLIDATION_THRESHOLD:
+        add(ArchGap(
+            subsystem="runtime",
+            issue_key="entrypoint-fragmentation",
+            title=f"[arch-gap] Consolidate {len(backend_eps)} backend server entrypoints",
+            summary=f"There are {len(backend_eps)} backend server entrypoints. The canonical entrypoint is unclear.",
+            problem=(
+                f"Entrypoints: {', '.join(backend_eps[:5])}.\n"
+                "Multiple entrypoints create ambiguity about the authoritative startup path, complicate "
+                "deployment configuration, and increase maintenance burden."
+            ),
+            why_it_matters="A fragmented entrypoint surface makes it hard to ensure consistent startup behaviour in CI and production.",
+            scope="Add `# DEPRECATED: prefer <canonical>` comments to non-canonical entrypoints. Do not delete files.",
+            suggested_files=list(backend_eps[:8]),
+            implementation_notes=(
+                "Identify the primary entrypoint (typically `backend/unified_server.py` or `main.py`). "
+                "Add a module-level `# DEPRECATED: prefer <canonical_path>` comment to each redundant entrypoint. "
+                "Update any README references."
+            ),
+            acceptance_criteria=[
+                "Canonical entrypoint is documented in README or a comment at the top of each deprecated file.",
+                "All deprecated files have a `# DEPRECATED:` comment.",
+                "No files are deleted in this change.",
+            ],
+            validation_commands=[
+                "python repo_architect.py --mode analyze --allow-dirty",
+                "grep -r 'DEPRECATED' backend/ --include='*.py' | head -20",
+            ],
+            out_of_scope="Deleting files, changing runtime behaviour, refactoring.",
+            copilot_prompt=_build_copilot_prompt(
+                f"Consolidate {len(backend_eps)} backend server entrypoints",
+                "runtime",
+                "Add DEPRECATED comments to non-canonical entrypoints",
+                list(backend_eps[:8]),
+                ["python repo_architect.py --mode analyze --allow-dirty"],
+                "Add `# DEPRECATED: prefer <canonical>` to each non-canonical entrypoint file.",
+            ),
+            priority="medium",
+            confidence=0.85,
+        ))
+
+    # 4. Architecture score degradation ────────────────────────────────────
+    score = analysis.get("architecture_score", 100)
+    if score < 70:
+        risk_factors = analysis.get("score_factors", {})
+        risk_summary = "; ".join(f"{k}: {v}" for k, v in list(risk_factors.items())[:4]) if risk_factors else "see analysis"
+        analysis_rel_path = str(config.analysis_path.relative_to(config.git_root))
+        add(ArchGap(
+            subsystem="reporting",
+            issue_key="architecture-score-degradation",
+            title=f"[arch-gap] Architecture health score degraded to {score}/100",
+            summary=f"The repository architecture score is {score}/100 (threshold: 70). Immediate attention required.",
+            problem=f"Score factors: {risk_summary}.",
+            why_it_matters="A low architecture score indicates structural fragility that compounds over time.",
+            scope="Address the top contributing risk factors. Do not attempt a full refactor in one PR.",
+            suggested_files=[
+                analysis_rel_path,
+            ],
+            implementation_notes=(
+                f"Review `{analysis_rel_path}` for the current risk breakdown. "
+                "Address the highest-weight factor first in an isolated PR."
+            ),
+            acceptance_criteria=[
+                "Architecture score improves by at least 5 points after addressing the primary factor.",
+                "No regressions in existing test suite.",
+            ],
+            validation_commands=[
+                "python repo_architect.py --mode report --allow-dirty",
+            ],
+            out_of_scope="Addressing all risk factors in one change.",
+            copilot_prompt=_build_copilot_prompt(
+                f"Improve architecture health score (currently {score}/100)",
+                "reporting",
+                f"Address top risk factors: {risk_summary[:100]}",
+                [analysis_rel_path],
+                ["python repo_architect.py --mode report --allow-dirty"],
+                f"Review {analysis_rel_path}, identify the primary contributing factor, and address it in a minimal targeted change.",
+            ),
+            priority="high" if score < 50 else "medium",
+            confidence=1.0,
+        ))
+
+    # 5. Workflow / docs drift (model-assisted, if available) ──────────────
+    if model_meta.get("used") and model_meta.get("summary"):
+        model_summary = model_meta["summary"]
+        # Emit a workflow gap only when the model summary mentions drift signals
+        drift_signals = ("drift", "outdated", "inconsistent", "mismatch", "stale", "broken", "missing")
+        if any(s in model_summary.lower() for s in drift_signals):
+            add(ArchGap(
+                subsystem="workflow",
+                issue_key="workflow-drift",
+                title="[arch-gap] Workflow / documentation drift detected",
+                summary="The model analysis identified potential drift between documentation/workflows and current repository state.",
+                problem=f"Model summary excerpt:\n\n> {model_summary[:500]}",
+                why_it_matters="Stale workflows and documentation mislead contributors and cause CI failures.",
+                scope="Update or align the identified workflow/documentation artefacts.",
+                suggested_files=[
+                    ".github/workflows/repo-architect.yml",
+                    "docs/repo_architect/OPERATOR_GUIDE.md",
+                    "README.md",
+                ],
+                implementation_notes=(
+                    "Review the model summary above, identify specific drift items, and update the relevant files. "
+                    "Do not make speculative changes — only address what is concretely identified."
+                ),
+                acceptance_criteria=[
+                    "Identified drift items are resolved.",
+                    "Documentation accurately reflects current behaviour.",
+                ],
+                validation_commands=[
+                    "python repo_architect.py --mode report --allow-dirty",
+                ],
+                out_of_scope="Rewriting documentation wholesale; unrelated improvements.",
+                copilot_prompt=_build_copilot_prompt(
+                    "Resolve workflow/documentation drift",
+                    "workflow",
+                    "Align documentation and workflows with current repository state",
+                    [".github/workflows/repo-architect.yml", "docs/repo_architect/OPERATOR_GUIDE.md"],
+                    ["python repo_architect.py --mode report --allow-dirty"],
+                    f"The model identified drift: {model_summary[:200]}. Locate the specific mismatch and fix it.",
+                ),
+                priority="medium",
+                confidence=0.7,
+            ))
+
+    # 6. Dependency direction violations — Lane 5 (Contract repair) ────────
+    # Detect when modules import across architectural layer boundaries
+    import_graph = analysis.get("local_import_graph", {})
+    if import_graph:
+        # Heuristic: interface → core or knowledge → runtime imports signal contract misalignment
+        boundary_violations: List[str] = []
+        for src, targets in import_graph.items():
+            if not isinstance(targets, list):
+                continue
+            src_parts = _module_segments(src)
+            for tgt in targets:
+                tgt_parts = _module_segments(tgt)
+                # Detect cross-boundary imports per §6 Dependency Direction Contract
+                # Charter §6 direction: runtime → core → knowledge → agents → interface
+                # Violations: imports going backwards (e.g., interface→core, knowledge→runtime)
+                # §6.1 hard prohibitions: interface→deep-internals, knowledge→runtime, agents reaching through interface to runtime
+                if ("interface" in src_parts and "core" in tgt_parts) or \
+                   ("interface" in src_parts and "runtime" in tgt_parts) or \
+                   ("knowledge" in src_parts and "runtime" in tgt_parts) or \
+                   ("agents" in src_parts and "runtime" in tgt_parts):
+                    boundary_violations.append(f"{src} → {tgt}")
+        if boundary_violations:
+            violation_files = [_module_to_path(v.split(" → ")[0], analysis) for v in boundary_violations[:_MAX_VIOLATIONS_DISPLAY]]
+            add(ArchGap(
+                subsystem="core",
+                issue_key="contract-repair",
+                title=f"[arch-gap] Repair {len(boundary_violations)} cross-boundary import(s) (Lane 5)",
+                summary=f"Detected {len(boundary_violations)} import(s) that violate the charter dependency direction contract.",
+                problem=(
+                    f"Violations: {'; '.join(boundary_violations[:_MAX_VIOLATIONS_DISPLAY])}.\n"
+                    "These imports cross architectural layer boundaries defined in §6 of the "
+                    "GODELOS_REPO_IMPLEMENTATION_CHARTER (dependency direction: runtime → core → knowledge → agents → interface)."
+                ),
+                why_it_matters="Cross-boundary imports increase coupling, hinder modular testing, and violate the charter dependency contract.",
+                scope="Repair the identified import violations using interface extraction or dependency inversion.",
+                suggested_files=violation_files,
+                implementation_notes=(
+                    "Introduce interface modules at layer boundaries. Use dependency inversion to reverse "
+                    "inappropriate imports. See §6 GODELOS_REPO_IMPLEMENTATION_CHARTER for the target direction."
+                ),
+                acceptance_criteria=[
+                    "The identified cross-boundary imports are removed or inverted.",
+                    "No new cross-boundary imports are introduced.",
+                    "Existing tests pass.",
+                ],
+                validation_commands=["python repo_architect.py --mode analyze --allow-dirty"],
+                out_of_scope="Refactoring unrelated to the identified boundary violations.",
+                copilot_prompt=_build_copilot_prompt(
+                    f"Repair {len(boundary_violations)} cross-boundary import(s)",
+                    "core", "Apply dependency inversion to fix cross-layer imports",
+                    violation_files,
+                    ["python repo_architect.py --mode analyze --allow-dirty", "python -m pytest -x -q"],
+                    "Introduce interface modules or use dependency inversion. Target direction: runtime → core → knowledge → agents → interface.",
+                ),
+                priority="medium",
+                confidence=0.75,
+            ))
+
+    # 7. Agent boundary violations — Lane 7 (Agent boundary enforcement) ───
+    # Detect when agent modules directly access other agents' internals
+    if import_graph:
+        agent_violations: List[str] = []
+        for src, targets in import_graph.items():
+            if not isinstance(targets, list):
+                continue
+            src_parts = _module_segments(src)
+            src_agent = _agent_name(src_parts)
+            if src_agent is None:
+                continue
+            for tgt in targets:
+                tgt_parts = _module_segments(tgt)
+                tgt_agent = _agent_name(tgt_parts)
+                # Only flag when both are under "agents" but belong to
+                # *different* named agents (e.g. foo → bar, not foo → foo.utils)
+                if tgt_agent is not None and src_agent != tgt_agent:
+                    agent_violations.append(f"{src} → {tgt}")
+        if agent_violations:
+            agent_files = [_module_to_path(v.split(" → ")[0], analysis) for v in agent_violations[:_MAX_VIOLATIONS_DISPLAY]]
+            add(ArchGap(
+                subsystem="agents",
+                issue_key="agent-boundary",
+                title=f"[arch-gap] Enforce agent boundaries for {len(agent_violations)} cross-agent import(s) (Lane 7)",
+                summary=f"Detected {len(agent_violations)} import(s) where agent modules reach into other agents' internals.",
+                problem=(
+                    f"Cross-agent imports: {'; '.join(agent_violations[:_MAX_VIOLATIONS_DISPLAY])}.\n"
+                    "Agents should communicate through explicit channels (§4.4 GODELOS_REPO_IMPLEMENTATION_CHARTER), "
+                    "not by reaching into each other's private internals."
+                ),
+                why_it_matters="Cross-agent coupling prevents independent testing, deployment, and evolution of agent modules.",
+                scope="Replace direct cross-agent imports with message-based or interface-mediated communication.",
+                suggested_files=agent_files,
+                implementation_notes=(
+                    "Identify the shared interface or message contract. Replace direct imports with "
+                    "message dispatch or shared interface modules."
+                ),
+                acceptance_criteria=[
+                    "No agent module directly imports another agent's internal modules.",
+                    "Cross-agent communication uses explicit interfaces or messages.",
+                ],
+                validation_commands=["python repo_architect.py --mode analyze --allow-dirty"],
+                out_of_scope="Refactoring agent internals; only addressing cross-agent coupling.",
+                copilot_prompt=_build_copilot_prompt(
+                    f"Enforce agent boundaries for {len(agent_violations)} cross-agent import(s)",
+                    "agents", "Replace direct cross-agent imports with interfaces or messages",
+                    agent_files,
+                    ["python repo_architect.py --mode analyze --allow-dirty", "python -m pytest -x -q"],
+                    "Replace direct cross-agent imports with message-based or shared-interface patterns per §4.4.",
+                ),
+                priority="medium",
+                confidence=0.7,
+            ))
+    if config.issue_subsystem:
+        gaps = [g for g in gaps if g.subsystem == config.issue_subsystem]
+
+    # Sort by priority
+    _priority_rank = {p: i for i, p in enumerate(ISSUE_PRIORITY_LEVELS)}
+    gaps.sort(key=lambda g: _priority_rank.get(g.priority, 99))
+    return gaps
+
+
+def run_issue_cycle(config: Config) -> Dict[str, Any]:
+    """Execute one issue-synthesis cycle.
+
+    Steps:
+      1. Build analysis and model enrichment (same as analyze/report modes).
+      2. Diagnose architectural gaps.
+      3. For each gap (up to max_issues): synthesize a GitHub Issue or dry-run artifact.
+      4. Emit a structured JSON result and write a step summary.
+    """
+    ensure_agent_dir(config.agent_dir)
+    state = load_state(config)
+    analysis = build_analysis(config.git_root)
+    charter_context = load_charter_context(config.git_root)
+    analysis["charter_context"] = charter_context
+    model_meta = enrich_with_github_models(config, analysis)
+    if model_meta.get("used") or model_meta.get("enabled"):
+        charter_context["applied"] = bool(charter_context.get("loaded_files"))
+    analysis["model_meta"] = model_meta
+    persist_analysis(config, analysis)
+
+    run_id = (
+        os.environ.get("REPO_ARCHITECT_BRANCH_SUFFIX")
+        or os.environ.get("GITHUB_RUN_ID")
+        or dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d%H%M%S")
+    )
+
+    gaps = diagnose_gaps(config, analysis, model_meta)
+    selected_gaps = gaps[: config.max_issues]
+
+    issue_actions: List[Dict[str, Any]] = []
+    for gap in selected_gaps:
+        action = synthesize_issue(config, gap, run_id, config.dry_run)
+        issue_actions.append(dataclasses.asdict(action))
+
+    artifact_files = [
+        str(config.analysis_path.relative_to(config.git_root)),
+        str(config.graph_path.relative_to(config.git_root)),
+    ]
+    for action in issue_actions:
+        if action.get("dry_run_path"):
+            artifact_files.append(action["dry_run_path"])
+
+    charter_meta = {
+        "loaded_files": charter_context.get("loaded_files", []),
+        "content_hash": charter_context.get("content_hash"),
+        "applied": charter_context.get("applied", False),
+    }
+
+    # Build summary log lines
+    summary_lines: List[str] = []
+    for a in issue_actions:
+        act = a["action"]
+        title = a["gap_title"]
+        if act == "created":
+            summary_lines.append(f"created issue #{a['issue_number']} — {title}")
+        elif act == "updated":
+            summary_lines.append(f"updated existing issue #{a['issue_number']} — {title}")
+        elif act == "dry_run":
+            summary_lines.append(f"dry-run issue body written to {a.get('dry_run_path')} — {title}")
+        else:
+            summary_lines.append(f"error synthesizing issue — {title}: {a.get('error')}")
+
+    result: Dict[str, Any] = {
+        "status": "issue_cycle_complete",
+        "mode": ISSUE_MODE,
+        "dry_run": config.dry_run,
+        "gaps_detected": len(gaps),
+        "gaps_selected": len(selected_gaps),
+        "issue_actions": issue_actions,
+        "summary": summary_lines,
+        "architecture_score": analysis["architecture_score"],
+        "requested_model": model_meta.get("requested_model"),
+        "actual_model": model_meta.get("actual_model"),
+        "primary_model": model_meta.get("primary_model"),
+        "fallback_model": model_meta.get("fallback_model"),
+        "model_used": model_meta.get("model_used"),
+        "fallback_used": model_meta.get("fallback_used", False),
+        "fallback_reason": model_meta.get("fallback_reason"),
+        "fallback_occurred": model_meta.get("fallback_occurred", False),
+        "artifact_files": artifact_files,
+        "repo_root": str(config.git_root),
+        "analysis_path": str(config.analysis_path),
+        "charter": charter_meta,
+        "github_models": model_meta,
+        # Fields kept for output schema compatibility
+        "lane": "none",
+        "lanes_active": [],
+        "branch": None,
+        "changed_files": [],
+        "validation": None,
+        "pull_request_url": None,
+        "no_safe_code_mutation_reason": None,
+        "roadmap": analysis.get("roadmap", []),
+        "graph_path": str(config.graph_path),
+        "roadmap_path": str(config.roadmap_path),
+        "metadata": {
+            "architecture_score": analysis["architecture_score"],
+            "model_meta": model_meta,
+            "report_path": str(config.report_path),
+        },
+    }
+
+    persist_manifest(config, artifact_files)
+    write_step_summary(config, result)
+
+    state["runs"] = int(state.get("runs", 0)) + 1
+    state["last_run_epoch"] = int(time.time())
+    state["last_outcome"] = result["status"]
+    state.setdefault("history", []).append({
+        "ts": state["last_run_epoch"],
+        "status": result["status"],
+        "architecture_score": result["architecture_score"],
+        "mode": config.mode,
+        "gaps_detected": len(gaps),
+        "issue_actions": [{"action": a["action"], "issue_number": a.get("issue_number")} for a in issue_actions],
+    })
+    state["history"] = state["history"][-100:]
+    save_state(config, state)
+    return result
+
+
 def set_branch_protection(config: Config) -> Dict[str, Any]:
     if not config.github_admin_token or not config.github_repo:
         raise RepoArchitectError("Need GITHUB_ADMIN_TOKEN and GITHUB_REPO for branch protection.")
@@ -789,13 +1741,14 @@ def build_analysis(root: pathlib.Path) -> Dict[str, Any]:
 # -----------------------------
 
 def load_charter_context(git_root: pathlib.Path) -> Dict[str, Any]:
-    """Load architectural charter files if present.
+    """Load architectural charter files and companion policy files if present.
 
     Returns a dict with:
       - loaded_files: list of relative paths that were successfully read
       - content_hash: hex digest of combined content (None if no files loaded)
       - applied: False initially; callers set True when charter was injected
       - content: truncated combined charter text for model injection
+      - companion_files: list of §15 companion file paths that exist
     """
     loaded_files: List[str] = []
     contents: List[str] = []
@@ -808,6 +1761,11 @@ def load_charter_context(git_root: pathlib.Path) -> Dict[str, Any]:
                 contents.append(f"### {rel}\n\n{text[:_MAX_CHARTER_CHARS_PER_FILE]}")
             except OSError:
                 pass
+    # §15 companion files — record existence for diagnostics
+    companion_files: List[str] = []
+    for rel in CHARTER_COMPANION_FILES:
+        if (git_root / rel).exists():
+            companion_files.append(rel)
     combined = "\n\n".join(contents)
     content_hash = hashlib.sha256(combined.encode("utf-8")).hexdigest()[:16] if combined else None
     return {
@@ -815,6 +1773,7 @@ def load_charter_context(git_root: pathlib.Path) -> Dict[str, Any]:
         "content_hash": content_hash,
         "applied": False,
         "content": combined,
+        "companion_files": companion_files,
     }
 
 
@@ -977,27 +1936,50 @@ def build_report_suite(analysis: Dict[str, Any], model_meta: Dict[str, Any]) -> 
 def write_step_summary(config: Config, result: Dict[str, Any]) -> None:
     if not config.step_summary_path:
         return
+    mode = result.get("mode", config.mode)
     summary = [
         f"# {APP_NAME} run summary",
         "",
-        f"- mode: `{result.get('mode', config.mode)}`",
+        f"- mode: `{mode}`",
         f"- status: `{result.get('status')}`",
-        f"- lane: `{result.get('lane', 'none')}`",
         f"- architecture score: **{result.get('architecture_score')}**",
-        f"- changed files: `{len(result.get('changed_files', []))}`",
     ]
-    if result.get("pull_request_url"):
-        summary.append(f"- pull request: {result['pull_request_url']}")
-    if result.get("branch"):
-        summary.append(f"- branch: `{result['branch']}`")
+
+    if mode == ISSUE_MODE:
+        summary.append(f"- gaps detected: `{result.get('gaps_detected', 0)}`")
+        summary.append(f"- issues processed: `{result.get('gaps_selected', 0)}`")
+        if result.get("dry_run"):
+            summary.append("- ⚠️ **dry-run mode** — no issues submitted to GitHub")
+        for action_d in result.get("issue_actions", []):
+            act = action_d.get("action", "?")
+            title = action_d.get("gap_title", "unknown")
+            num = action_d.get("issue_number")
+            url = action_d.get("issue_url")
+            dry_path = action_d.get("dry_run_path")
+            if act == "created" and url:
+                summary.append(f"- ✅ created [#{num}]({url}) — {title}")
+            elif act == "updated" and url:
+                summary.append(f"- 🔄 updated [#{num}]({url}) — {title}")
+            elif act == "dry_run":
+                summary.append(f"- 📄 dry-run: `{dry_path}` — {title}")
+            elif act == "error":
+                summary.append(f"- ❌ error: {action_d.get('error')} — {title}")
+    else:
+        summary.append(f"- lane: `{result.get('lane', 'none')}`")
+        summary.append(f"- changed files: `{len(result.get('changed_files', []))}`")
+        if result.get("pull_request_url"):
+            summary.append(f"- pull request: {result['pull_request_url']}")
+        if result.get("branch"):
+            summary.append(f"- branch: `{result['branch']}`")
+        if result.get("no_safe_code_mutation_reason"):
+            summary.append(f"- no safe mutation: {result['no_safe_code_mutation_reason']}")
+
     if result.get("requested_model"):
         summary.append(f"- model requested: `{result['requested_model']}`")
     if result.get("actual_model"):
         summary.append(f"- model used: `{result['actual_model']}`")
     if result.get("fallback_occurred"):
         summary.append(f"- ⚠️ fallback occurred: {result.get('fallback_reason', '')}")
-    if result.get("no_safe_code_mutation_reason"):
-        summary.append(f"- no safe mutation: {result['no_safe_code_mutation_reason']}")
     if result.get("github_models", {}).get("used"):
         summary += ["", "## Model summary", "", result["github_models"]["summary"]]
     config.step_summary_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1383,9 +2365,22 @@ def build_patch_plan(
 
     A report-only mutation is never produced when parse errors exist unless no
     safe code mutation can be made (reason is then surfaced explicitly).
+
+    Charter alignment: ``mutate`` and ``campaign`` modes implement the narrow,
+    validated self-modification lanes defined in GODELOS_REPO_IMPLEMENTATION_CHARTER
+    §9–§10.  They are retained as charter-sanctioned secondary modes.  The default
+    safe operating mode is ``issue`` (architectural governance via GitHub Issues).
     """
     if config.mode == "analyze":
         return None, "none", None
+
+    if config.mode in CHARTER_MUTATION_MODES:
+        log(
+            f"ℹ️  mode '{config.mode}' performs direct code mutation via charter-validated lanes "
+            "(§9–§10 GODELOS_REPO_IMPLEMENTATION_CHARTER).  "
+            "The default safe operating mode is --mode issue (architectural governance via GitHub Issues).",
+            json_mode=config.log_json,
+        )
 
     lanes = config.campaign_lanes if config.campaign_lanes else MUTATION_LANE_ORDER
     skipped_reasons: List[str] = []
@@ -1784,6 +2779,10 @@ def persist_manifest(config: Config, artifact_files: List[str]) -> None:
 
 
 def run_cycle(config: Config) -> Dict[str, Any]:
+    # Route issue mode to the dedicated issue cycle function
+    if config.mode == ISSUE_MODE:
+        return run_issue_cycle(config)
+
     ensure_agent_dir(config.agent_dir)
     state = load_state(config)
     analysis = build_analysis(config.git_root)
@@ -2110,6 +3109,12 @@ def build_config(args: argparse.Namespace) -> Config:
     campaign_lanes: Optional[Tuple[str, ...]] = None
     if lanes_raw:
         campaign_lanes = tuple(l.strip() for l in lanes_raw.split(",") if l.strip())
+    issue_subsystem = args.issue_subsystem or os.environ.get("REPO_ARCHITECT_SUBSYSTEM")
+    if issue_subsystem and issue_subsystem not in SUBSYSTEM_LABELS:
+        raise RepoArchitectError(
+            f"Invalid REPO_ARCHITECT_SUBSYSTEM={issue_subsystem!r}. "
+            f"Expected one of: {', '.join(SUBSYSTEM_LABELS)}"
+        )
     return Config(
         git_root=git_root,
         agent_dir=agent_dir,
@@ -2136,12 +3141,29 @@ def build_config(args: argparse.Namespace) -> Config:
         fallback_model=fallback,
         github_fallback_model=os.environ.get("GITHUB_FALLBACK_MODEL"),
         campaign_lanes=campaign_lanes,
+        dry_run=args.dry_run,
+        max_issues=args.max_issues,
+        issue_subsystem=issue_subsystem,
     )
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Single-file repo architect, PR bot, and MCP server.")
-    p.add_argument("--mode", choices=["analyze", "report", "mutate", "campaign"], default="report")
+    p = argparse.ArgumentParser(
+        description="repo-architect: architectural governance via GitHub Issues. "
+        "Inspects the repository, diagnoses gaps, and opens structured GitHub Issues "
+        "with Copilot-ready implementation prompts.",
+    )
+    p.add_argument(
+        "--mode",
+        choices=["analyze", "report", "issue", "mutate", "campaign"],
+        default="issue",
+        help=(
+            "Operating mode. 'issue' (default) is the safe governance mode: detects architectural gaps and "
+            "opens/updates GitHub Issues. 'analyze'/'report' are read-only. "
+            "'mutate'/'campaign' are charter-validated secondary modes that perform "
+            "narrow, validated code mutations per GODELOS_REPO_IMPLEMENTATION_CHARTER §9–§10."
+        ),
+    )
     p.add_argument("--report-path", default=str(DEFAULT_REPORT_PATH))
     p.add_argument("--mutation-budget", type=int, default=1)
     p.add_argument("--allow-dirty", action="store_true")
@@ -2156,11 +3178,19 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     p.add_argument("--preferred-model", default=None, help="Preferred GitHub Models model id")
     p.add_argument("--fallback-model", default=None, help="Fallback model if preferred is unavailable")
     p.add_argument("--log-json", action="store_true")
-    # Lane / campaign args
+    # Lane / campaign args (charter-validated secondary modes §9–§10)
     p.add_argument("--lane", default=None, help="Single lane to run in mutate mode (convenience alias for --lanes)")
     p.add_argument("--max-slices", type=int, default=3, help="Campaign: max mutation slices to attempt")
     p.add_argument("--lanes", default=None, help="Comma-separated lane order for mutate/campaign modes")
     p.add_argument("--stop-on-failure", action="store_true", help="Campaign: stop on first slice failure")
+    # Issue-first mode args
+    p.add_argument("--dry-run", action="store_true",
+                   help="Issue mode: write issue bodies to disk but do not call the GitHub Issues API.")
+    p.add_argument("--max-issues", type=int, default=1,
+                   help="Issue mode: maximum number of issues to open/update per run (default: 1).")
+    p.add_argument("--issue-subsystem", default=None,
+                   choices=SUBSYSTEM_LABELS,
+                   help="Issue mode: restrict gap detection to a specific subsystem.")
     return p.parse_args(argv)
 
 
@@ -2192,17 +3222,40 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return 0
 
         if args.daemon:
-            log("Starting daemon mode", data={"where": str(config.git_root), "host": "current machine or CI runner process", "interval_seconds": config.interval}, json_mode=config.log_json)
+            log(
+                "Starting daemon mode",
+                data={"where": str(config.git_root), "host": "current machine or CI runner process", "interval_seconds": config.interval, "mode": config.mode},
+                json_mode=config.log_json,
+            )
             while True:
                 try:
-                    res = run_cycle(config)
+                    if config.mode == ISSUE_MODE:
+                        res = run_issue_cycle(config)
+                    else:
+                        res = run_cycle(config)
                     log("Cycle complete", data=res, json_mode=config.log_json)
                 except Exception as exc:
                     log("Cycle failed", data={"error": str(exc), "trace": traceback.format_exc()}, json_mode=config.log_json)
                 time.sleep(config.interval)
             return 0
 
+        # Issue-first mode (new primary mode)
+        if config.mode == ISSUE_MODE:
+            result = run_issue_cycle(config)
+            # Emit human-readable summary to stderr
+            for line in result.get("summary", []):
+                log(line, json_mode=config.log_json)
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+
+        # Charter-validated campaign mode (secondary — requires explicit opt-in)
         if config.mode == "campaign":
+            log(
+                "ℹ️  'campaign' mode performs direct code mutation via charter-validated lanes "
+                "(§9–§10 GODELOS_REPO_IMPLEMENTATION_CHARTER).  "
+                "The default safe operating mode is --mode issue.",
+                json_mode=config.log_json,
+            )
             lanes_arg = list(config.campaign_lanes) if config.campaign_lanes else list(MUTATION_LANE_ORDER)
             result = run_campaign(config, lanes_arg, args.max_slices, args.stop_on_failure)
             print(json.dumps(result, indent=2, sort_keys=True))
