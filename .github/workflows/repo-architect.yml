@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Operating mode. ''issue'' (default safe governance mode). ''analyze''/''report'' are read-only. ''mutate''/''campaign'' are charter-validated secondary modes (§9–§10).'
+        description: 'Operating mode. ''issue'' (default safe governance mode). ''analyze'' is read-only. ''report''/''mutate''/''campaign'' are charter-validated mutation-capable modes (§9–§11).'
         required: true
         default: 'issue'
         type: choice
@@ -97,7 +97,7 @@ permissions:
 
 jobs:
   repo-architect-issue:
-    if: ${{ github.event.inputs.mode == '' || github.event.inputs.mode == 'issue' || github.event.inputs.mode == 'analyze' || github.event.inputs.mode == 'report' || github.event_name == 'schedule' }}
+    if: ${{ github.event.inputs.mode == '' || github.event.inputs.mode == 'issue' || github.event.inputs.mode == 'analyze' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -285,7 +285,7 @@ jobs:
   # Charter-validated mutation modes (§9–§10 GODELOS_REPO_IMPLEMENTATION_CHARTER)
   # Runs only for explicit mutate/campaign dispatch — elevated permissions required.
   repo-architect-mutate:
-    if: ${{ github.event.inputs.mode == 'mutate' || github.event.inputs.mode == 'campaign' }}
+    if: ${{ github.event.inputs.mode == 'report' || github.event.inputs.mode == 'mutate' || github.event.inputs.mode == 'campaign' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -312,7 +312,7 @@ jobs:
         run: |
           mkdir -p .agent docs/repo_architect docs/repo_architect/issues
 
-      - name: Run repo architect (mutation mode)
+      - name: Run repo architect (mutation-capable mode)
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPO: ${{ github.repository }}

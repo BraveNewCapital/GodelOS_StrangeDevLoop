@@ -893,7 +893,8 @@ def synthesize_issue(
     except RepoArchitectError as exc:
         # Dedupe lookup failed — skip creation to avoid duplicates
         log("Deduplication lookup failed; skipping issue creation to avoid duplicates",
-            data={"fingerprint": fp, "error": str(exc)})
+            data={"fingerprint": fp, "error": str(exc)},
+            json_mode=config.log_json)
         return IssueAction(
             action="error", issue_number=None, issue_url=None,
             labels_applied=labels, dedupe_result="lookup_failed", fingerprint=fp,

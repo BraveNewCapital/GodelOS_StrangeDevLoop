@@ -1474,6 +1474,24 @@ class TestIssueSynthesisDeduplication(unittest.TestCase):
         self.assertEqual(action.dedupe_result, "create_failed")
         self.assertIn("403", action.error)
 
+    def test_dedupe_lookup_failure_respects_json_log_mode(self) -> None:
+        """Dedupe-failure log line should honor config.log_json for consistent output mode."""
+        gap = self._make_gap()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, github_token="fake-tok", github_repo="org/repo", log_json=True)
+
+            with patch.object(ra, "find_existing_github_issue", side_effect=ra.RepoArchitectError("network timeout")):
+                with patch.object(ra, "ensure_github_labels"):
+                    with patch.object(ra, "log") as mock_log:
+                        action = ra.synthesize_issue(config, gap, "run-001", dry_run=False)
+
+        self.assertEqual(action.action, "error")
+        self.assertEqual(action.dedupe_result, "lookup_failed")
+        mock_log.assert_called_once()
+        self.assertTrue(mock_log.call_args.kwargs.get("json_mode"))
+
     def test_existing_issue_path_patches_labels(self) -> None:
         """When an existing issue is found, set_github_issue_labels must be called to PATCH labels."""
         gap = self._make_gap()

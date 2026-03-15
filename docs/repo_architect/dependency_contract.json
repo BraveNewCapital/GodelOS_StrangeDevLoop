@@ -17,7 +17,7 @@
     "agents": "Agent orchestration, lifecycle, message routing",
     "interface": "External API surface, protocol handling, presentation"
   },
-  "allowed_direction": "Dependencies flow from outer layers toward inner layers: interface depends-on agents depends-on knowledge depends-on core depends-on runtime. This is a conceptual directional flow per charter §6, not a licence for arbitrary imports. Reverse dependencies (inner layers importing outer layers) violate the contract. See hard_prohibitions for the specific §6.1 enforcement rules.",
+  "allowed_direction": "Dependencies flow from outer layers toward inner layers: interface depends-on agents depends-on knowledge depends-on core depends-on runtime. This is a conceptual directional flow per charter §6, not a licence for arbitrary imports. Lane 5 automation enforces the concrete §6.1 hard prohibitions listed below; imports outside that set still require architectural review and may be treated as debt.",
   "lane_5_enforcement": {
     "description": "Lane 5 automated detection checks for the following backward imports that violate §6.1 hard prohibitions.",
     "detected_violations": [
@@ -27,7 +27,7 @@
       "agents → runtime (backward import per §6.1)"
     ],
     "not_flagged": [
-      "agents → interface (allowed: follows outer-to-inner conceptual flow)"
+      "agents → interface (not a current §6.1 hard-prohibition check in Lane 5; review manually if introduced)"
     ]
   },
   "hard_prohibitions": [
