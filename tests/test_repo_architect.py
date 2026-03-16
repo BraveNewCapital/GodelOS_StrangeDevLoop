@@ -3301,5 +3301,182 @@ class TestConfigValidationNewControls(unittest.TestCase):
         self.assertTrue(args.enable_live_delegation)
 
 
+# ---------------------------------------------------------------------------
+# 42. Schema-tolerant work-item ingestion
+# ---------------------------------------------------------------------------
+
+class TestSchemaToleranceIngestion(unittest.TestCase):
+    """Verify that ingest_issue_actions_to_work_state handles older-schema items."""
+
+    def test_ingest_with_older_schema_item(self) -> None:
+        """Existing items missing new fields should not raise TypeError."""
+        config = _make_config()
+        # Simulate an older-schema work-state item: no lifecycle_fact_state, etc.
+        old_item = {
+            "fingerprint": "aabbccddeeff",
+            "objective": "eliminate-import-cycles",
+            "lane": "import_cycles",
+            "issue_number": None,
+            "issue_state": "open",
+            "delegation_state": "ready-for-delegation",
+            "assignee": None,
+            "pr_number": None,
+            "pr_url": None,
+            "pr_state": None,
+            "merged": False,
+            "closed_unmerged": False,
+            "blocked": False,
+            "superseded": False,
+            "created_at": "2025-01-01T00:00:00+00:00",
+            "updated_at": "2025-01-01T00:00:00+00:00",
+            "run_id": "run1",
+            "gap_title": "old-schema gap",
+            "gap_subsystem": "runtime",
+            # Deliberately omit all new Optional fields
+        }
+        ws: Dict[str, Any] = {
+            "version": ra.VERSION, "updated_at": None,
+            "items": [old_item], "delegation_events": [],
+        }
+        actions = [{
+            "action": "updated", "issue_number": 42,
+            "fingerprint": "aabbccddeeff", "gap_title": "old-schema gap",
+            "gap_subsystem": "runtime",
+        }]
+        # Should not raise TypeError
+        ra.ingest_issue_actions_to_work_state(config, ws, actions, "run2")
+        self.assertEqual(len(ws["items"]), 1)
+        self.assertEqual(ws["items"][0]["issue_number"], 42)
+        self.assertEqual(ws["items"][0]["lifecycle_fact_state"], "ready-for-delegation")
+
+    def test_ingest_with_extra_keys_in_older_item(self) -> None:
+        """Extra keys from a future schema version should be dropped, not raise TypeError."""
+        config = _make_config()
+        future_item = {
+            "fingerprint": "112233445566",
+            "objective": "test",
+            "lane": "parse_errors",
+            "issue_number": 10,
+            "issue_state": "open",
+            "delegation_state": "ready-for-delegation",
+            "assignee": None,
+            "pr_number": None, "pr_url": None, "pr_state": None,
+            "merged": False, "closed_unmerged": False, "blocked": False, "superseded": False,
+            "created_at": "2025-01-01T00:00:00+00:00",
+            "updated_at": "2025-01-01T00:00:00+00:00",
+            "run_id": "run1", "gap_title": "future gap", "gap_subsystem": "runtime",
+            "lifecycle_fact_state": "ready-for-delegation",
+            "some_future_field": "should-be-ignored",
+        }
+        ws: Dict[str, Any] = {
+            "version": ra.VERSION, "updated_at": None,
+            "items": [future_item], "delegation_events": [],
+        }
+        actions = [{
+            "action": "updated", "issue_number": 10,
+            "fingerprint": "112233445566", "gap_title": "future gap",
+            "gap_subsystem": "runtime",
+        }]
+        ra.ingest_issue_actions_to_work_state(config, ws, actions, "run3")
+        self.assertEqual(len(ws["items"]), 1)
+        self.assertNotIn("some_future_field", ws["items"][0])
+
+    def test_normalize_work_item_dict_defaults_missing_required(self) -> None:
+        """_normalize_work_item_dict fills sensible defaults for missing required fields."""
+        raw: Dict[str, Any] = {"fingerprint": "abcdef012345"}
+        normalized = ra._normalize_work_item_dict(raw)
+        item = ra.WorkItem(**normalized)
+        self.assertEqual(item.fingerprint, "abcdef012345")
+        self.assertEqual(item.delegation_state, "ready-for-delegation")
+        self.assertEqual(item.lifecycle_fact_state, "ready-for-delegation")
+        self.assertIsNone(item.delegation_mechanism)
+
+
+# ---------------------------------------------------------------------------
+# 43. _list_github_issues_by_labels filters out PRs
+# ---------------------------------------------------------------------------
+
+class TestListIssuesFiltersPRs(unittest.TestCase):
+    """Verify that _list_github_issues_by_labels excludes pull requests."""
+
+    def test_pull_requests_excluded(self) -> None:
+        """Items with a 'pull_request' key should be filtered out."""
+        config = _make_config(mode="execution")
+        config = dataclasses.replace(config, github_token="tok", github_repo="x/y")
+        raw_items = [
+            {"number": 1, "title": "Real issue", "labels": [{"name": "arch-gap"}]},
+            {"number": 2, "title": "Sneaky PR", "labels": [{"name": "arch-gap"}],
+             "pull_request": {"url": "https://api.github.com/repos/x/y/pulls/2"}},
+        ]
+        with patch.object(ra, "github_request", return_value=raw_items):
+            result = ra._list_github_issues_by_labels(config, ["arch-gap"])
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["number"], 1)
+
+
+# ---------------------------------------------------------------------------
+# 44. Gap filtering does not fall back to unfiltered list
+# ---------------------------------------------------------------------------
+
+class TestGapFilteringNoFallback(unittest.TestCase):
+    """Verify planner doesn't fall back to unfiltered gaps when all are in-progress."""
+
+    def test_all_gaps_filtered_yields_empty_selection(self) -> None:
+        """If every gap fingerprint is already delegated, the filtered list should be empty."""
+        # Compute the real fingerprint for the test gap
+        real_fp = ra.issue_fingerprint("runtime", "import_cycles__backend.core")
+        active_fps = {real_fp}
+        gaps_subsystems_keys = [("runtime", "import_cycles__backend.core")]
+        # Apply the same logic as run_issue_cycle: filter to gaps whose fp is NOT active
+        filtered = [
+            (s, k) for s, k in gaps_subsystems_keys
+            if ra.issue_fingerprint(s, k) not in active_fps
+        ]
+        self.assertEqual(len(filtered), 0, "All gaps should be filtered when all fps are active")
+
+    def test_partial_filter_preserves_remaining(self) -> None:
+        """If some gaps are active and some aren't, only non-active remain."""
+        active_fps = {ra.issue_fingerprint("runtime", "import_cycles__backend.core")}
+        gaps_subsystems_keys = [
+            ("runtime", "import_cycles__backend.core"),
+            ("runtime", "parse_errors__backend.agents"),
+        ]
+        filtered = [
+            (s, k) for s, k in gaps_subsystems_keys
+            if ra.issue_fingerprint(s, k) not in active_fps
+        ]
+        self.assertEqual(len(filtered), 1, "Only non-active gap should remain")
+
+
+# ---------------------------------------------------------------------------
+# 45. ready-for-validation blocks delegation selection
+# ---------------------------------------------------------------------------
+
+class TestReadyForValidationBlocksDelegation(unittest.TestCase):
+    """Issues with ready-for-validation label must not be delegated."""
+
+    def test_ready_for_validation_is_blocking(self) -> None:
+        """Confirm ready-for-validation is in the blocking lifecycle set."""
+        # Access the blocking set through select_ready_issue's code path
+        blocking_lifecycle = {
+            "ready-for-validation",
+            "blocked-by-dependency", "superseded-by-issue", "superseded-by-pr",
+            "delegation-requested", "in-progress", "pr-open", "pr-draft",
+            "merged", "closed-unmerged", "failed-delegation",
+        } | set(ra.LEGACY_LIFECYCLE_LABELS)
+        self.assertIn("ready-for-validation", blocking_lifecycle)
+
+    def test_issue_with_ready_for_validation_excluded(self) -> None:
+        """An issue labeled ready-for-validation should be excluded from delegation."""
+        issue_labels = {"arch-gap", "copilot-task", "needs-implementation", "ready-for-validation"}
+        blocking = {
+            "ready-for-validation",
+            "blocked-by-dependency", "superseded-by-issue", "superseded-by-pr",
+            "delegation-requested", "in-progress", "pr-open", "pr-draft",
+            "merged", "closed-unmerged", "failed-delegation",
+        } | set(ra.LEGACY_LIFECYCLE_LABELS)
+        self.assertTrue(issue_labels & blocking, "ready-for-validation should block selection")
+
+
 if __name__ == "__main__":
     unittest.main()

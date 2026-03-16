@@ -59,6 +59,7 @@ concurrency:
 permissions:
   contents: read
   issues: write
+  pull-requests: read
   models: read
 
 jobs:
@@ -77,6 +78,14 @@ jobs:
 
       - name: Ensure artifact directories exist
         run: mkdir -p .agent docs/repo_architect
+
+      - name: Restore durable work state from cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .agent/work_state.json
+          key: repo-architect-work-state-execution
+          restore-keys: |
+            repo-architect-work-state-
 
       - name: Run repo architect (execution mode)
         env:
@@ -103,6 +112,13 @@ jobs:
             --max-concurrent-delegated "$MAX_CONCURRENT_DELEGATED" \
             --stale-timeout-days "$STALE_TIMEOUT_DAYS" \
             $EXTRA_ARGS
+
+      - name: Save durable work state to cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .agent/work_state.json
+          key: repo-architect-work-state-execution-${{ github.run_id }}
 
       - name: Upload execution artifacts
         if: always()

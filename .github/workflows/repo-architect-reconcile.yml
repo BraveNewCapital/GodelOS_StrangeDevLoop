@@ -56,6 +56,14 @@ jobs:
       - name: Ensure artifact directories exist
         run: mkdir -p .agent docs/repo_architect
 
+      - name: Restore durable work state from cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .agent/work_state.json
+          key: repo-architect-work-state-reconcile
+          restore-keys: |
+            repo-architect-work-state-
+
       - name: Run repo architect (reconcile mode)
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -73,6 +81,13 @@ jobs:
             --stale-timeout-days "$STALE_TIMEOUT_DAYS" \
             --reconciliation-window-days "$RECONCILIATION_WINDOW_DAYS" \
             $EXTRA_ARGS
+
+      - name: Save durable work state to cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .agent/work_state.json
+          key: repo-architect-work-state-reconcile-${{ github.run_id }}
 
       - name: Upload reconciliation artifacts
         if: always()

@@ -4,14 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Operating mode. ''issue'' (default safe governance mode). ''execution'' selects one ready issue and delegates to Copilot. ''reconcile'' ingests PR outcomes. ''analyze'' is read-only. ''report''/''mutate''/''campaign'' are charter-validated mutation-capable modes (§9–§11).'
+        description: 'Operating mode. ''issue'' (default safe governance mode). ''analyze'' is read-only. ''report''/''mutate''/''campaign'' are charter-validated mutation-capable modes (§9–§11). For ''execution'' or ''reconcile'', use the dedicated workflows.'
         required: true
         default: 'issue'
         type: choice
         options:
           - issue
-          - execution
-          - reconcile
           - analyze
           - report
           - mutate
@@ -24,52 +22,6 @@ on:
         options:
           - 'false'
           - 'true'
-      enable_live_delegation:
-        description: 'Execution mode: actually delegate to Copilot via GitHub API (false = dry-run report only)'
-        required: false
-        default: 'false'
-        type: choice
-        options:
-          - 'false'
-          - 'true'
-      active_objective:
-        description: 'Execution mode: restrict issue selection to a specific objective (leave blank for any)'
-        required: false
-        default: ''
-        type: choice
-        options:
-          - ''
-          - restore-parse-correctness
-          - eliminate-import-cycles
-          - converge-runtime-structure
-          - normalise-knowledge-substrate
-          - isolate-agent-boundaries
-          - reduce-architecture-score-risk
-          - add-consciousness-instrumentation
-      lane_filter:
-        description: 'Execution mode: restrict issue selection to a specific charter lane (leave blank for any)'
-        required: false
-        default: ''
-        type: string
-      max_concurrent_delegated:
-        description: 'Execution mode: max number of issues simultaneously in-flight'
-        required: false
-        default: '1'
-        type: choice
-        options:
-          - '1'
-          - '2'
-          - '3'
-      stale_timeout_days:
-        description: 'Reconciliation: days before a delegated-but-PR-less item is marked stale'
-        required: false
-        default: '14'
-        type: string
-      reconciliation_window_days:
-        description: 'Reconciliation: days of PRs to consider during reconciliation'
-        required: false
-        default: '30'
-        type: string
       max_issues:
         description: 'Issue mode: maximum issues to open/update per run'
         required: false
@@ -171,6 +123,14 @@ jobs:
       - name: Ensure artifact directories exist
         run: |
           mkdir -p .agent docs/repo_architect docs/repo_architect/issues
+
+      - name: Restore durable work state from cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .agent/work_state.json
+          key: repo-architect-work-state-issue
+          restore-keys: |
+            repo-architect-work-state-
 
       - name: Resolve GitHub Models configuration
         env:
@@ -306,6 +266,13 @@ jobs:
           if [ -n "$MODEL" ]; then EXTRA_ARGS="$EXTRA_ARGS --github-model $MODEL"; fi
 
           python repo_architect.py --allow-dirty --mode "$MODE" --report-path "$REPORT_PATH" --mutation-budget "$MUTATION_BUDGET" $EXTRA_ARGS
+
+      - name: Save durable work state to cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .agent/work_state.json
+          key: repo-architect-work-state-issue-${{ github.run_id }}
 
       - name: Upload repo architect artifacts
         if: always()

@@ -1522,13 +1522,12 @@ def run_issue_cycle(config: Config) -> Dict[str, Any]:
     gaps = diagnose_gaps(config, analysis, model_meta)
     # Filter out gaps whose fingerprint is already actively in-progress/delegated
     if active_fps:
-        filtered_gaps = [
+        gaps = [
             g for g in gaps
             if issue_fingerprint(g.subsystem, g.issue_key) not in active_fps
         ]
-        if filtered_gaps:
-            gaps = filtered_gaps
-        # If all gaps are filtered, still proceed with original list so planner isn't blocked
+        # If all gaps are filtered out, return an empty selection — the planner
+        # must not re-raise issues for in-progress work.
     selected_gaps = gaps[: config.max_issues]
 
     issue_actions: List[Dict[str, Any]] = []
@@ -2153,6 +2152,57 @@ def save_work_state(config: Config, work_state: Dict[str, Any]) -> None:
     atomic_write_json(_work_state_path(config), work_state)
 
 
+def _normalize_work_item_dict(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize a persisted work-item dict so it matches the current WorkItem schema.
+
+    - Drops keys not present in the current WorkItem fields.
+    - Supplies sensible defaults for any newly-added required fields that are
+      missing in older-schema records.
+
+    This ensures ``WorkItem(**_normalize_work_item_dict(d))`` never raises
+    ``TypeError`` even when ``.agent/work_state.json`` was written by an older
+    version of repo_architect.
+    """
+    valid_fields: Dict[str, dataclasses.Field] = {  # type: ignore[type-arg]
+        f.name: f for f in dataclasses.fields(WorkItem)
+    }
+    # Defaults for required fields (no dataclass default) when missing from older schema
+    _required_defaults: Dict[str, Any] = {
+        "fingerprint": "",
+        "objective": "",
+        "lane": "unknown",
+        "issue_number": None,
+        "issue_state": "open",
+        "delegation_state": "ready-for-delegation",
+        "assignee": None,
+        "pr_number": None,
+        "pr_url": None,
+        "pr_state": None,
+        "merged": False,
+        "closed_unmerged": False,
+        "blocked": False,
+        "superseded": False,
+        "created_at": "",
+        "updated_at": "",
+        "run_id": "",
+        "gap_title": "",
+        "gap_subsystem": "runtime",
+    }
+    result: Dict[str, Any] = {}
+    for name, field in valid_fields.items():
+        if name in raw:
+            result[name] = raw[name]
+        elif field.default is not dataclasses.MISSING:
+            result[name] = field.default
+        elif field.default_factory is not dataclasses.MISSING:  # type: ignore[misc]
+            result[name] = field.default_factory()  # type: ignore[misc]
+        elif name in _required_defaults:
+            result[name] = _required_defaults[name]
+        else:
+            result[name] = None
+    return result
+
+
 def upsert_work_item(work_state: Dict[str, Any], item: WorkItem) -> None:
     """Insert or update a WorkItem in the work state, keyed by fingerprint."""
     items: List[Dict[str, Any]] = work_state.setdefault("items", [])
@@ -2197,7 +2247,11 @@ def baseline_dirty_guard(config: Config) -> None:
 def _list_github_issues_by_labels(
     config: Config, labels: Sequence[str], state: str = "open"
 ) -> List[Dict[str, Any]]:
-    """List GitHub issues that carry ALL of the given labels."""
+    """List GitHub issues that carry ALL of the given labels.
+
+    The GitHub ``/issues`` endpoint returns both issues and pull requests.
+    Pull requests are filtered out so callers only see real issues.
+    """
     if not config.github_token or not config.github_repo:
         return []
     try:
@@ -2207,7 +2261,10 @@ def _list_github_issues_by_labels(
             "per_page": "50",
         })
         result = github_request(config.github_token, f"/repos/{config.github_repo}/issues?{params}")
-        return result if isinstance(result, list) else []
+        if not isinstance(result, list):
+            return []
+        # GitHub /issues endpoint returns PRs too; filter them out
+        return [item for item in result if "pull_request" not in item]
     except RepoArchitectError:
         return []
 
@@ -2283,6 +2340,7 @@ def select_ready_issue(
 
     filtered: List[Tuple[Dict[str, Any], Optional[str], Optional[str]]] = []
     blocking_lifecycle = {
+        "ready-for-validation",
         "blocked-by-dependency", "superseded-by-issue", "superseded-by-pr",
         "delegation-requested", "in-progress", "pr-open", "pr-draft",
         "merged", "closed-unmerged", "failed-delegation",
@@ -2972,7 +3030,7 @@ def ingest_issue_actions_to_work_state(
             new_it["updated_at"] = now
             new_it["run_id"] = run_id
             new_it.setdefault("lifecycle_fact_state", "ready-for-delegation")
-            upsert_work_item(work_state, WorkItem(**new_it))
+            upsert_work_item(work_state, WorkItem(**_normalize_work_item_dict(new_it)))
         else:
             work_item = WorkItem(
                 fingerprint=fp,
