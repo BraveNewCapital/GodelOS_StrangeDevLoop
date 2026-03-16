@@ -2453,10 +2453,11 @@ def delegate_to_copilot(
             )
             try:
                 comment_resp = update_github_issue_api(config, issue_number, comment)
+                is_dict = isinstance(comment_resp, dict)
                 comment_evidence = {
-                    "id": comment_resp.get("id") if isinstance(comment_resp, dict) else None,
-                    "url": comment_resp.get("html_url") if isinstance(comment_resp, dict) else None,
-                    "posted": isinstance(comment_resp, dict) and bool(comment_resp.get("id")),
+                    "id": comment_resp.get("id") if is_dict else None,
+                    "url": comment_resp.get("html_url") if is_dict else None,
+                    "posted": is_dict and bool(comment_resp.get("id")),
                     "role": "pre-assignment-audit",
                 }
             except RepoArchitectError as exc:
