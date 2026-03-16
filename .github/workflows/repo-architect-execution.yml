@@ -1,0 +1,140 @@
+name: repo-architect-execution
+
+# Execution lane: select one ready issue and delegate it to Copilot.
+# Runs every 2 hours on a schedule, or on workflow_dispatch.
+# Uses a per-repository concurrency group to prevent duplicate delegations.
+
+on:
+  workflow_dispatch:
+    inputs:
+      enable_live_delegation:
+        description: 'Actually delegate to Copilot via GitHub API (false = dry-run report only)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+      active_objective:
+        description: 'Restrict issue selection to a specific objective (blank = any)'
+        required: false
+        default: ''
+        type: choice
+        options:
+          - ''
+          - restore-parse-correctness
+          - eliminate-import-cycles
+          - converge-runtime-structure
+          - normalise-knowledge-substrate
+          - isolate-agent-boundaries
+          - reduce-architecture-score-risk
+          - add-consciousness-instrumentation
+      lane_filter:
+        description: 'Restrict issue selection to a specific charter lane (blank = any)'
+        required: false
+        default: ''
+        type: string
+      max_concurrent_delegated:
+        description: 'Max number of issues simultaneously in-flight'
+        required: false
+        default: '1'
+        type: choice
+        options:
+          - '1'
+          - '2'
+          - '3'
+      stale_timeout_days:
+        description: 'Days before a delegated-but-PR-less item is marked stale'
+        required: false
+        default: '14'
+        type: string
+  schedule:
+    # Every 2 hours
+    - cron: '37 */2 * * *'
+
+concurrency:
+  group: repo-architect-execution-${{ github.repository }}
+  cancel-in-progress: false   # never cancel in-flight delegation runs
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+  models: read
+
+jobs:
+  execute:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Ensure artifact directories exist
+        run: mkdir -p .agent docs/repo_architect
+
+      - name: Restore durable work state from cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .agent/work_state.json
+          key: repo-architect-work-state-v1-execution
+          restore-keys: |
+            repo-architect-work-state-v1-
+
+      - name: Run repo architect (execution mode)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPO: ${{ github.repository }}
+          REPO_ARCHITECT_BRANCH_SUFFIX: ${{ github.run_id }}-${{ github.run_attempt }}
+          ENABLE_LIVE_DELEGATION: ${{ github.event.inputs.enable_live_delegation || 'false' }}
+          MAX_CONCURRENT_DELEGATED: ${{ github.event.inputs.max_concurrent_delegated || '1' }}
+          ACTIVE_OBJECTIVE: ${{ github.event.inputs.active_objective || '' }}
+          LANE_FILTER: ${{ github.event.inputs.lane_filter || '' }}
+          STALE_TIMEOUT_DAYS: ${{ github.event.inputs.stale_timeout_days || '14' }}
+        run: |
+          EXTRA_ARGS=""
+          if [ "$ENABLE_LIVE_DELEGATION" = "true" ]; then
+            EXTRA_ARGS="$EXTRA_ARGS --enable-live-delegation"
+          fi
+          if [ -n "$ACTIVE_OBJECTIVE" ]; then
+            EXTRA_ARGS="$EXTRA_ARGS --active-objective $ACTIVE_OBJECTIVE"
+          fi
+          if [ -n "$LANE_FILTER" ]; then
+            EXTRA_ARGS="$EXTRA_ARGS --lane-filter $LANE_FILTER"
+          fi
+          python repo_architect.py --allow-dirty --mode execution \
+            --max-concurrent-delegated "$MAX_CONCURRENT_DELEGATED" \
+            --stale-timeout-days "$STALE_TIMEOUT_DAYS" \
+            $EXTRA_ARGS
+
+      - name: Save durable work state to cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .agent/work_state.json
+          key: repo-architect-work-state-v1-execution-${{ github.run_id }}
+
+      - name: Upload execution artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: repo-architect-execution-${{ github.run_id }}
+          path: .agent
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Write workflow summary
+        if: always()
+        run: |
+          echo "## repo-architect execution run summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **mode**: \`execution\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **live delegation**: \`${{ github.event.inputs.enable_live_delegation || 'false' }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **active objective**: \`${{ github.event.inputs.active_objective || 'any' }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **run**: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY

@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Operating mode. ''issue'' (default safe governance mode). ''analyze'' is read-only. ''report''/''mutate''/''campaign'' are charter-validated mutation-capable modes (§9–§11).'
+        description: 'Operating mode. ''issue'' (default safe governance mode). ''analyze'' is read-only. ''report''/''mutate''/''campaign'' are charter-validated mutation-capable modes (§9–§11). For ''execution'' or ''reconcile'', use the dedicated workflows.'
         required: true
         default: 'issue'
         type: choice
@@ -84,6 +84,7 @@ on:
         default: 'parse_errors,import_cycles,entrypoint_consolidation,hygiene,report'
         type: string
   schedule:
+    # Planning: hourly gap detection and issue synthesis
     - cron: '17 * * * *'
 
 concurrency:
@@ -122,6 +123,14 @@ jobs:
       - name: Ensure artifact directories exist
         run: |
           mkdir -p .agent docs/repo_architect docs/repo_architect/issues
+
+      - name: Restore durable work state from cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .agent/work_state.json
+          key: repo-architect-work-state-v1-issue
+          restore-keys: |
+            repo-architect-work-state-v1-
 
       - name: Resolve GitHub Models configuration
         env:
@@ -257,6 +266,13 @@ jobs:
           if [ -n "$MODEL" ]; then EXTRA_ARGS="$EXTRA_ARGS --github-model $MODEL"; fi
 
           python repo_architect.py --allow-dirty --mode "$MODE" --report-path "$REPORT_PATH" --mutation-budget "$MUTATION_BUDGET" $EXTRA_ARGS
+
+      - name: Save durable work state to cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .agent/work_state.json
+          key: repo-architect-work-state-v1-issue-${{ github.run_id }}
 
       - name: Upload repo architect artifacts
         if: always()
