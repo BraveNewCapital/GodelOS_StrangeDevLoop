@@ -83,7 +83,11 @@ ISSUE_REPORT_DIR = DEFAULT_REPORT_DIR / "issues"
 # Standard labels for the issue-first governance system
 ARCH_GAP_LABELS: Tuple[str, ...] = (
     "arch-gap", "copilot-task", "needs-implementation",
-    "ready-for-validation", "blocked", "superseded",
+    "ready-for-validation",
+    "ready-for-delegation", "delegation-requested", "in-progress",
+    "pr-open", "pr-draft", "merged", "closed-unmerged", "stale",
+    "blocked-by-dependency", "superseded-by-issue", "superseded-by-pr",
+    "failed-delegation",
 )
 SUBSYSTEM_LABELS: Tuple[str, ...] = (
     "workflow", "runtime", "reporting", "docs",
@@ -164,19 +168,37 @@ WORK_STATE_FILE = "work_state.json"
 # New operating modes for the execution and reconciliation lanes
 EXECUTION_MODE = "execution"
 RECONCILE_MODE = "reconcile"
-# Lifecycle labels — document and drive issue → PR state transitions
+# Factual lifecycle labels — represent observed facts, not planning interpretations.
 LIFECYCLE_LABELS: Tuple[str, ...] = (
     "ready-for-delegation",
+    "delegation-requested",
     "in-progress",
     "pr-open",
+    "pr-draft",
     "merged",
-    "blocked",
-    "superseded",
+    "closed-unmerged",
+    "stale",
+    "blocked-by-dependency",
+    "superseded-by-issue",
+    "superseded-by-pr",
+    "failed-delegation",
+)
+# Backward-compatible legacy lifecycle labels still recognised for filtering.
+LEGACY_LIFECYCLE_LABELS: Tuple[str, ...] = ("blocked", "superseded")
+# Ranking used when reconciling multiple candidate PR matches.
+MATCH_CONFIDENCE_RANK: Dict[str, int] = {"exact": 3, "strong": 2, "weak": 1}
+# Priority order for PR linkage evidence.
+PR_MATCH_METHOD_PRIORITY: Tuple[str, ...] = (
+    "fingerprint_marker",
+    "linkage_block",
+    "branch_convention",
+    "closing_reference",
+    "issue_reference",
 )
 # Labels required for an issue to be eligible for execution selection
 EXECUTION_ELIGIBLE_LABELS: Tuple[str, ...] = ("arch-gap", "copilot-task", "needs-implementation")
 # GitHub Copilot coding agent assignee username
-COPILOT_AGENT_ASSIGNEE = "copilot"
+COPILOT_AGENT_ASSIGNEE = "copilot+gpt-5.3-codex"
 # Canonical architectural objectives aligned with charter §14 priority order
 OBJECTIVE_LABELS: Dict[str, str] = {
     "restore-parse-correctness": "Restore or preserve parse correctness (Lane 2)",
@@ -307,7 +329,7 @@ class WorkItem:
     lane: str                   # charter lane name (e.g. "import_cycles")
     issue_number: Optional[int]
     issue_state: str            # "open" | "closed"
-    delegation_state: str       # "pending" | "delegated" | "done" | "blocked" | "superseded"
+    delegation_state: str       # "ready-for-delegation" | "delegation-requested" | "delegation-confirmed" | "delegation-failed" | "delegation-unconfirmed"
     assignee: Optional[str]     # GitHub username delegated to (e.g. "copilot")
     pr_number: Optional[int]
     pr_url: Optional[str]
@@ -321,6 +343,18 @@ class WorkItem:
     run_id: str                 # workflow run provenance
     gap_title: str
     gap_subsystem: str
+    delegation_mechanism: Optional[str] = None
+    delegation_requested_at: Optional[str] = None
+    delegation_confirmed_at: Optional[str] = None
+    delegation_confirmation_evidence: Optional[Dict[str, Any]] = None
+    delegation_comment_url: Optional[str] = None
+    delegation_comment_id: Optional[int] = None
+    delegation_assignment_evidence: Optional[Dict[str, Any]] = None
+    pr_match_method: Optional[str] = None
+    pr_match_confidence: Optional[str] = None
+    pr_match_evidence: Optional[Dict[str, Any]] = None
+    lifecycle_fact_state: str = "ready-for-delegation"
+    lifecycle_inferred_state: Optional[str] = None
 
 
 def log(message: str, *, data: Optional[Dict[str, Any]] = None, json_mode: bool = False) -> None:
@@ -909,7 +943,7 @@ def synthesize_issue(
     """
     fp = issue_fingerprint(gap.subsystem, gap.issue_key)
     body = render_issue_body(gap, config, run_id)
-    labels: List[str] = ["arch-gap", "copilot-task", "needs-implementation"]
+    labels: List[str] = ["arch-gap", "copilot-task", "needs-implementation", "ready-for-delegation"]
     if gap.subsystem in SUBSYSTEM_LABELS:
         labels.append(gap.subsystem)
     if gap.priority in ("critical", "high"):
@@ -2109,7 +2143,7 @@ def load_work_state(config: Config) -> Dict[str, Any]:
     """
     return read_json(
         _work_state_path(config),
-        {"version": VERSION, "updated_at": None, "items": []},
+        {"version": VERSION, "updated_at": None, "items": [], "delegation_events": []},
     )
 
 
@@ -2128,6 +2162,19 @@ def upsert_work_item(work_state: Dict[str, Any], item: WorkItem) -> None:
             items[i] = item_dict
             return
     items.append(item_dict)
+
+
+def _iso_now() -> str:
+    return dt.datetime.now(dt.timezone.utc).isoformat()
+
+
+def append_delegation_event(work_state: Dict[str, Any], event: Dict[str, Any]) -> None:
+    """Append one delegation event to work state for auditability."""
+    events: List[Dict[str, Any]] = work_state.setdefault("delegation_events", [])
+    events.append(event)
+    # keep bounded history
+    if len(events) > 500:
+        work_state["delegation_events"] = events[-500:]
 
 
 def persist_analysis(config: Config, analysis: Dict[str, Any]) -> None:
@@ -2199,10 +2246,10 @@ def select_ready_issue(
 
     items: List[Dict[str, Any]] = work_state.get("items", [])
 
-    # Count currently in-flight items (delegated, not yet done)
+    # Count currently in-flight items (delegation requested/confirmed, not yet done)
     in_flight = [
         it for it in items
-        if it.get("delegation_state") == "delegated"
+        if it.get("delegation_state") in ("delegation-requested", "delegation-confirmed")
         and not it.get("merged")
         and not it.get("closed_unmerged")
     ]
@@ -2235,7 +2282,11 @@ def select_ready_issue(
     )
 
     filtered: List[Tuple[Dict[str, Any], Optional[str], Optional[str]]] = []
-    blocking_lifecycle = {"blocked", "superseded", "in-progress", "pr-open", "merged"}
+    blocking_lifecycle = {
+        "blocked-by-dependency", "superseded-by-issue", "superseded-by-pr",
+        "delegation-requested", "in-progress", "pr-open", "pr-draft",
+        "merged", "closed-unmerged", "failed-delegation",
+    } | set(LEGACY_LIFECYCLE_LABELS)
 
     for issue in candidate_issues:
         issue_labels: Set[str] = {
@@ -2317,121 +2368,193 @@ def delegate_to_copilot(
         lbl["name"] for lbl in issue.get("labels", []) if isinstance(lbl, dict)
     }
     subsystem = next((s for s in SUBSYSTEM_LABELS if s in issue_labels), "runtime")
-    now = dt.datetime.now(dt.timezone.utc).isoformat()
+    now = _iso_now()
+    delegation_mechanism = "assignment+comment"
+
+    linkage_block = (
+        "<!-- repo-architect-linkage\n"
+        f"issue_number: {issue_number}\n"
+        f"fingerprint: {fp}\n"
+        f"run_id: {run_id}\n"
+        f"lane: {lane}\n"
+        "-->"
+    )
+
+    assignment_evidence: Optional[Dict[str, Any]] = None
+    comment_evidence: Optional[Dict[str, Any]] = None
+    errors: List[str] = []
+    delegation_state = "delegation-requested"
+    lifecycle_fact_state = "delegation-requested"
+    delegation_confirmed_at: Optional[str] = None
+    delegation_confirmation_evidence: Dict[str, Any] = {}
 
     result: Dict[str, Any] = {
-        "action": "dry_run" if dry_run else "delegated",
+        "action": "dry_run" if dry_run else "delegation_requested",
         "issue_number": issue_number,
         "issue_url": issue_url,
         "issue_title": issue_title,
         "fingerprint": fp,
-        "assignee": COPILOT_AGENT_ASSIGNEE if not dry_run else None,
-        "labels_added": ["in-progress"],
+        "assignee": None,
+        "labels_added": ["delegation-requested", "in-progress"],
         "labels_removed": ["ready-for-delegation"],
         "dry_run": dry_run,
+        "delegation_mechanism": delegation_mechanism,
+        "delegation_assignment_evidence": None,
+        "delegation_comment_evidence": None,
+        "delegation_confirmation_evidence": None,
     }
 
     if dry_run:
         log(
-            f"[dry-run] Would delegate issue #{issue_number} "
+            f"[dry-run] Would request delegation for issue #{issue_number} "
             f"to @{COPILOT_AGENT_ASSIGNEE}: {issue_title}",
             json_mode=config.log_json,
         )
     else:
         if not config.github_token or not config.github_repo:
-            result["action"] = "error"
+            result["action"] = "delegation_failed"
             result["error"] = "Missing GITHUB_TOKEN or GITHUB_REPO for live delegation."
+            errors.append(result["error"])
+            delegation_state = "delegation-failed"
+            lifecycle_fact_state = "failed-delegation"
         else:
-            errors: List[str] = []
             # 1. Update lifecycle labels
-            new_labels = (issue_labels - {"ready-for-delegation"}) | {"in-progress"}
+            new_labels = (issue_labels - {"ready-for-delegation"}) | {"delegation-requested", "in-progress"}
             try:
                 ensure_github_labels(config, sorted(new_labels))
                 set_github_issue_labels(config, issue_number, sorted(new_labels))
             except RepoArchitectError as exc:
                 errors.append(f"label update: {exc}")
-            # 2. Assign to Copilot
+
+            # 2. Assign to Copilot agent
             try:
-                github_request(
+                assign_resp = github_request(
                     config.github_token,
                     f"/repos/{config.github_repo}/issues/{issue_number}/assignees",
                     method="POST",
                     payload={"assignees": [COPILOT_AGENT_ASSIGNEE]},
                 )
+                assignees = assign_resp.get("assignees", []) if isinstance(assign_resp, dict) else []
+                assignment_confirmed = any(
+                    isinstance(a, dict) and a.get("login") == COPILOT_AGENT_ASSIGNEE
+                    for a in assignees
+                )
+                assignment_evidence = {
+                    "confirmed": assignment_confirmed,
+                    "assignees": [a.get("login") for a in assignees if isinstance(a, dict)],
+                }
+                if assignment_confirmed:
+                    delegation_confirmation_evidence["assignment"] = assignment_evidence
             except RepoArchitectError as exc:
                 errors.append(f"assignment: {exc}")
-            # 3. Post delegation comment
+
+            # 3. Post delegation comment with machine linkage material
             comment = (
-                f"**repo-architect delegation** (run `{run_id}`): "
-                f"this issue has been selected for execution and assigned to "
-                f"`@{COPILOT_AGENT_ASSIGNEE}`.\n\n"
-                f"**Active objective**: `{config.active_objective or 'general'}`\n"
-                f"**Lane**: `{lane}`\n"
-                f"**Fingerprint**: `{fp}`\n\n"
-                f"When a PR is opened, repo-architect reconciliation will ingest its state "
-                f"and update this issue's lifecycle labels."
+                f"**repo-architect delegation request** (run `{run_id}`)\n\n"
+                f"- active objective: `{config.active_objective or 'general'}`\n"
+                f"- lane: `{lane}`\n"
+                f"- issue fingerprint: `{fp}`\n"
+                f"- target assignee: `@{COPILOT_AGENT_ASSIGNEE}`\n\n"
+                f"{linkage_block}\n\n"
+                "When opening a PR, include this exact linkage block (or the fingerprint marker) "
+                "in the PR body so reconciliation can match with exact confidence."
             )
             try:
-                update_github_issue_api(config, issue_number, comment)
+                comment_resp = update_github_issue_api(config, issue_number, comment)
+                comment_evidence = {
+                    "id": comment_resp.get("id") if isinstance(comment_resp, dict) else None,
+                    "url": comment_resp.get("html_url") if isinstance(comment_resp, dict) else None,
+                    "confirmed": isinstance(comment_resp, dict) and bool(comment_resp.get("id")),
+                }
+                if comment_evidence.get("confirmed"):
+                    delegation_confirmation_evidence["comment"] = comment_evidence
             except RepoArchitectError as exc:
                 errors.append(f"comment: {exc}")
-            if errors:
-                result["action"] = "partial"
-                result["errors"] = errors
-            result["assignee"] = COPILOT_AGENT_ASSIGNEE
 
-    # Record in work state
-    delegation_state = "pending" if dry_run else "delegated"
+            confirmation_count = len(delegation_confirmation_evidence)
+            if errors and confirmation_count == 0:
+                delegation_state = "delegation-failed"
+                lifecycle_fact_state = "failed-delegation"
+                result["action"] = "delegation_failed"
+            elif confirmation_count > 0:
+                delegation_state = "delegation-confirmed"
+                lifecycle_fact_state = "in-progress"
+                delegation_confirmed_at = now
+                result["action"] = "delegation_confirmed"
+                result["assignee"] = COPILOT_AGENT_ASSIGNEE
+            else:
+                delegation_state = "delegation-unconfirmed"
+                lifecycle_fact_state = "delegation-requested"
+                result["action"] = "delegation_unconfirmed"
+            if errors:
+                result["errors"] = errors
+    result["delegation_assignment_evidence"] = assignment_evidence
+    result["delegation_comment_evidence"] = comment_evidence
+    result["delegation_confirmation_evidence"] = delegation_confirmation_evidence or None
+
+    if dry_run:
+        delegation_state = "delegation-requested"
+        lifecycle_fact_state = "delegation-requested"
+
+    # Record a top-level delegation event for auditability.
+    append_delegation_event(
+        work_state,
+        {
+            "ts": now,
+            "run_id": run_id,
+            "issue_number": issue_number,
+            "issue_url": issue_url,
+            "fingerprint": fp,
+            "mechanism": delegation_mechanism,
+            "outcome": delegation_state,
+            "dry_run": dry_run,
+            "assignment_evidence": assignment_evidence,
+            "comment_evidence": comment_evidence,
+            "errors": errors or None,
+        },
+    )
+
+    # Record/update work item
     existing_item_dict: Optional[Dict[str, Any]] = None
     for it in work_state.get("items", []):
         if it.get("fingerprint") == fp:
             existing_item_dict = it
             break
 
-    if existing_item_dict:
-        work_item = WorkItem(
-            fingerprint=fp,
-            objective=existing_item_dict.get("objective") or config.active_objective or "",
-            lane=existing_item_dict.get("lane") or lane,
-            issue_number=issue_number,
-            issue_state=existing_item_dict.get("issue_state") or "open",
-            delegation_state=delegation_state,
-            assignee=COPILOT_AGENT_ASSIGNEE if not dry_run else existing_item_dict.get("assignee"),
-            pr_number=existing_item_dict.get("pr_number"),
-            pr_url=existing_item_dict.get("pr_url"),
-            pr_state=existing_item_dict.get("pr_state"),
-            merged=bool(existing_item_dict.get("merged")),
-            closed_unmerged=bool(existing_item_dict.get("closed_unmerged")),
-            blocked=bool(existing_item_dict.get("blocked")),
-            superseded=bool(existing_item_dict.get("superseded")),
-            created_at=existing_item_dict.get("created_at") or now,
-            updated_at=now,
-            run_id=run_id,
-            gap_title=issue_title,
-            gap_subsystem=subsystem,
-        )
-    else:
-        work_item = WorkItem(
-            fingerprint=fp,
-            objective=config.active_objective or "",
-            lane=lane,
-            issue_number=issue_number,
-            issue_state="open",
-            delegation_state=delegation_state,
-            assignee=COPILOT_AGENT_ASSIGNEE if not dry_run else None,
-            pr_number=None,
-            pr_url=None,
-            pr_state=None,
-            merged=False,
-            closed_unmerged=False,
-            blocked=False,
-            superseded=False,
-            created_at=now,
-            updated_at=now,
-            run_id=run_id,
-            gap_title=issue_title,
-            gap_subsystem=subsystem,
-        )
+    existing_requested_at = existing_item_dict.get("delegation_requested_at") if existing_item_dict else None
+    work_item = WorkItem(
+        fingerprint=fp,
+        objective=(existing_item_dict.get("objective") if existing_item_dict else None) or config.active_objective or "",
+        lane=(existing_item_dict.get("lane") if existing_item_dict else None) or lane,
+        issue_number=issue_number,
+        issue_state=(existing_item_dict.get("issue_state") if existing_item_dict else None) or "open",
+        delegation_state=delegation_state,
+        assignee=COPILOT_AGENT_ASSIGNEE if not dry_run else (existing_item_dict.get("assignee") if existing_item_dict else None),
+        pr_number=existing_item_dict.get("pr_number") if existing_item_dict else None,
+        pr_url=existing_item_dict.get("pr_url") if existing_item_dict else None,
+        pr_state=existing_item_dict.get("pr_state") if existing_item_dict else None,
+        merged=bool(existing_item_dict.get("merged")) if existing_item_dict else False,
+        closed_unmerged=bool(existing_item_dict.get("closed_unmerged")) if existing_item_dict else False,
+        blocked=bool(existing_item_dict.get("blocked")) if existing_item_dict else False,
+        superseded=bool(existing_item_dict.get("superseded")) if existing_item_dict else False,
+        created_at=(existing_item_dict.get("created_at") if existing_item_dict else None) or now,
+        updated_at=now,
+        run_id=run_id,
+        gap_title=issue_title,
+        gap_subsystem=subsystem,
+        delegation_mechanism=delegation_mechanism,
+        delegation_requested_at=existing_requested_at or now,
+        delegation_confirmed_at=delegation_confirmed_at,
+        delegation_confirmation_evidence=delegation_confirmation_evidence or None,
+        delegation_comment_url=(comment_evidence or {}).get("url"),
+        delegation_comment_id=(comment_evidence or {}).get("id"),
+        delegation_assignment_evidence=assignment_evidence,
+        pr_match_method=existing_item_dict.get("pr_match_method") if existing_item_dict else None,
+        pr_match_confidence=existing_item_dict.get("pr_match_confidence") if existing_item_dict else None,
+        pr_match_evidence=existing_item_dict.get("pr_match_evidence") if existing_item_dict else None,
+        lifecycle_fact_state=lifecycle_fact_state,
+        lifecycle_inferred_state=("execution-in-progress" if delegation_state == "delegation-confirmed" else None),
+    )
     upsert_work_item(work_state, work_item)
     return result
 
@@ -2465,8 +2588,30 @@ def _classify_pr(pr: Dict[str, Any]) -> str:
     return "open"
 
 
+def _extract_fingerprint_from_pr(pr: Dict[str, Any]) -> Optional[str]:
+    """Extract arch-gap fingerprint marker from PR body."""
+    body = pr.get("body") or ""
+    return _extract_fingerprint_from_body(body)
+
+
+def _extract_linkage_block(pr: Dict[str, Any]) -> Dict[str, str]:
+    """Parse repo-architect linkage block from PR body, if present."""
+    body = pr.get("body") or ""
+    m = re.search(r"<!--\s*repo-architect-linkage(.*?)-->", body, re.DOTALL | re.IGNORECASE)
+    if not m:
+        return {}
+    block = m.group(1)
+    pairs: Dict[str, str] = {}
+    for line in block.splitlines():
+        if ":" not in line:
+            continue
+        k, v = line.split(":", 1)
+        pairs[k.strip().lower()] = v.strip()
+    return pairs
+
+
 def _pr_mentions_issue(pr: Dict[str, Any], issue_number: int) -> bool:
-    """Return True if the PR body or title references the given issue number."""
+    """Return True if the PR body/title references the given issue number."""
     body = (pr.get("body") or "").lower()
     title = (pr.get("title") or "").lower()
     needle = f"#{issue_number}"
@@ -2477,6 +2622,126 @@ def _pr_mentions_issue(pr: Dict[str, Any], issue_number: int) -> bool:
         if pat in body:
             return True
     return False
+
+
+def _pr_branch_matches_issue(pr: Dict[str, Any], issue_number: int, fingerprint: str) -> bool:
+    """Return True if PR head branch suggests linkage to issue/fingerprint."""
+    head = pr.get("head", {}) if isinstance(pr.get("head"), dict) else {}
+    ref = (head.get("ref") or "").lower()
+    return (
+        f"issue-{issue_number}" in ref
+        or f"/{issue_number}" in ref
+        or fingerprint in ref
+    )
+
+
+def _evaluate_pr_linkage(pr: Dict[str, Any], issue_number: int, fingerprint: str) -> Optional[Dict[str, Any]]:
+    """Evaluate PR linkage evidence in priority order.
+
+    Returns an evidence dict with fields:
+    - method: one of PR_MATCH_METHOD_PRIORITY
+    - confidence: exact|strong|weak
+    - evidence: machine-readable details
+    """
+    # 1) explicit fingerprint marker in PR body
+    pr_fp = _extract_fingerprint_from_pr(pr)
+    if pr_fp and pr_fp == fingerprint:
+        return {
+            "method": "fingerprint_marker",
+            "confidence": "exact",
+            "evidence": {"fingerprint": pr_fp},
+        }
+
+    # 2) explicit linkage block metadata in PR body
+    linkage = _extract_linkage_block(pr)
+    if linkage:
+        linkage_issue = linkage.get("issue_number")
+        linkage_fp = linkage.get("fingerprint")
+        if (linkage_issue and linkage_issue == str(issue_number)) or (linkage_fp and linkage_fp == fingerprint):
+            return {
+                "method": "linkage_block",
+                "confidence": "exact",
+                "evidence": linkage,
+            }
+
+    # 3) branch naming convention linked to issue/fingerprint
+    if _pr_branch_matches_issue(pr, issue_number, fingerprint):
+        head = pr.get("head", {}) if isinstance(pr.get("head"), dict) else {}
+        return {
+            "method": "branch_convention",
+            "confidence": "strong",
+            "evidence": {"branch": head.get("ref")},
+        }
+
+    # 4) closing keywords / linked issue references
+    body = (pr.get("body") or "").lower()
+    closing_patterns = (
+        f"closes #{issue_number}", f"fixes #{issue_number}", f"resolves #{issue_number}",
+        f"closes {issue_number}", f"fixes {issue_number}", f"resolves {issue_number}",
+    )
+    for pat in closing_patterns:
+        if pat in body:
+            return {
+                "method": "closing_reference",
+                "confidence": "strong",
+                "evidence": {"pattern": pat},
+            }
+
+    # 5) fallback text mention of #issue_number in title/body
+    if _pr_mentions_issue(pr, issue_number):
+        return {
+            "method": "issue_reference",
+            "confidence": "weak",
+            "evidence": {"issue_number": issue_number},
+        }
+    return None
+
+
+def _best_pr_match(prs: List[Dict[str, Any]], issue_number: int, fingerprint: str) -> Optional[Dict[str, Any]]:
+    """Select strongest PR match and keep ambiguity evidence."""
+    candidates: List[Dict[str, Any]] = []
+    state_rank = {"merged": 4, "open": 3, "draft": 2, "closed_unmerged": 1}
+    method_rank = {m: i for i, m in enumerate(PR_MATCH_METHOD_PRIORITY[::-1], start=1)}
+    for pr in prs:
+        linkage = _evaluate_pr_linkage(pr, issue_number, fingerprint)
+        if not linkage:
+            continue
+        pr_state = _classify_pr(pr)
+        confidence = linkage["confidence"]
+        candidates.append({
+            "pr": pr,
+            "method": linkage["method"],
+            "confidence": confidence,
+            "evidence": linkage["evidence"],
+            "confidence_rank": MATCH_CONFIDENCE_RANK.get(confidence, 0),
+            "method_rank": method_rank.get(linkage["method"], 0),
+            "state_rank": state_rank.get(pr_state, 0),
+            "pr_state": pr_state,
+            "updated_at": pr.get("updated_at") or "",
+        })
+    if not candidates:
+        return None
+
+    candidates.sort(
+        key=lambda c: (
+            c["confidence_rank"],
+            c["method_rank"],
+            c["state_rank"],
+            c["updated_at"],
+        ),
+        reverse=True,
+    )
+    best = candidates[0]
+    best["ambiguous_matches"] = [
+        {
+            "pr_number": c["pr"].get("number"),
+            "method": c["method"],
+            "confidence": c["confidence"],
+        }
+        for c in candidates[1:]
+        if c["confidence_rank"] == best["confidence_rank"] and c["method_rank"] == best["method_rank"]
+    ]
+    return best
 
 
 def _update_issue_lifecycle_labels_for_pr(
@@ -2493,15 +2758,17 @@ def _update_issue_lifecycle_labels_for_pr(
     except RepoArchitectError:
         return
     current = {lbl["name"] for lbl in issue_data.get("labels", []) if isinstance(lbl, dict)}
-    new_labels = current - set(LIFECYCLE_LABELS)
+    new_labels = current - set(LIFECYCLE_LABELS) - set(LEGACY_LIFECYCLE_LABELS)
     if pr_class == "merged":
         new_labels.add("merged")
     elif pr_class == "closed_unmerged":
-        new_labels.add("superseded")
-    elif pr_class in ("open", "draft"):
+        new_labels.add("closed-unmerged")
+    elif pr_class == "draft":
+        new_labels.add("pr-draft")
+    elif pr_class == "open":
         new_labels.add("pr-open")
     elif pr_class == "stale":
-        new_labels.add("blocked")
+        new_labels.add("stale")
     try:
         ensure_github_labels(config, sorted(new_labels))
         set_github_issue_labels(config, issue_number, sorted(new_labels))
@@ -2552,20 +2819,29 @@ def reconcile_pr_state(
         if item.get("merged") or item.get("closed_unmerged"):
             continue
 
-        matching = [pr for pr in recent_prs if _pr_mentions_issue(pr, int(issue_number))]
-        if not matching:
+        fingerprint = item.get("fingerprint") or ""
+        best_match = _best_pr_match(recent_prs, int(issue_number), fingerprint)
+        if not best_match:
             # Check for stale (delegated with no PR for too long)
             updated_str = item.get("updated_at")
-            if item.get("delegation_state") == "delegated" and updated_str:
+            if item.get("delegation_state") in ("delegation-requested", "delegation-confirmed", "delegation-unconfirmed") and updated_str:
                 try:
                     updated_at = dt.datetime.fromisoformat(updated_str.replace("Z", "+00:00"))
                     if updated_at < stale_cutoff and item.get("pr_state") != "stale":
                         new_item = dict(item)
                         new_item["pr_state"] = "stale"
+                        new_item["lifecycle_fact_state"] = "stale"
+                        new_item["lifecycle_inferred_state"] = "needs-attention"
                         new_item["updated_at"] = now
                         items[i] = new_item
                         updated += 1
-                        details.append({"issue": issue_number, "pr_state": "stale"})
+                        details.append({
+                            "issue": issue_number,
+                            "pr_state": "stale",
+                            "pr_match_method": None,
+                            "pr_match_confidence": None,
+                            "pr_match_evidence": {"reason": "no_pr_match_within_window"},
+                        })
                         if not config.dry_run:
                             _update_issue_lifecycle_labels_for_pr(
                                 config, int(issue_number), "stale"
@@ -2574,32 +2850,46 @@ def reconcile_pr_state(
                     pass
             continue
 
-        prs_found += len(matching)
-        merged_pr = next((pr for pr in matching if pr.get("merged_at")), None)
-        open_pr = next(
-            (pr for pr in matching if pr.get("state") == "open" and not pr.get("merged_at")),
-            None,
-        )
-        closed_pr = next(
-            (pr for pr in matching if pr.get("state") == "closed" and not pr.get("merged_at")),
-            None,
-        )
-        best_pr = merged_pr or open_pr or closed_pr or matching[0]
-        pr_class = _classify_pr(best_pr)
+        best_pr = best_match["pr"]
+        pr_class = best_match["pr_state"]
+        prs_found += 1
 
         new_item = dict(item)
+        existing_conf = MATCH_CONFIDENCE_RANK.get(str(item.get("pr_match_confidence") or "").lower(), 0)
+        new_conf = MATCH_CONFIDENCE_RANK.get(best_match["confidence"], 0)
+        # Never overwrite a stronger existing match with weaker evidence.
+        if existing_conf > new_conf and item.get("pr_number"):
+            continue
         new_item["pr_number"] = best_pr.get("number")
         new_item["pr_url"] = best_pr.get("html_url")
         new_item["pr_state"] = pr_class
+        new_item["pr_match_method"] = best_match["method"]
+        new_item["pr_match_confidence"] = best_match["confidence"]
+        new_item["pr_match_evidence"] = {
+            "selected_pr_number": best_pr.get("number"),
+            "method": best_match["method"],
+            "confidence": best_match["confidence"],
+            "evidence": best_match["evidence"],
+            "ambiguous_matches": best_match.get("ambiguous_matches", []),
+        }
         new_item["updated_at"] = now
         if pr_class == "merged":
             new_item["merged"] = True
-            new_item["delegation_state"] = "done"
+            new_item["delegation_state"] = "delegation-confirmed"
+            new_item["lifecycle_fact_state"] = "merged"
+            new_item["lifecycle_inferred_state"] = "completed"
         elif pr_class == "closed_unmerged":
             new_item["closed_unmerged"] = True
-            new_item["delegation_state"] = "done"
-        elif pr_class in ("open", "draft"):
-            new_item["delegation_state"] = "delegated"
+            new_item["lifecycle_fact_state"] = "closed-unmerged"
+            new_item["lifecycle_inferred_state"] = "needs-replanning"
+        elif pr_class == "draft":
+            new_item["delegation_state"] = "delegation-confirmed"
+            new_item["lifecycle_fact_state"] = "pr-draft"
+            new_item["lifecycle_inferred_state"] = "in-progress"
+        elif pr_class == "open":
+            new_item["delegation_state"] = "delegation-confirmed"
+            new_item["lifecycle_fact_state"] = "pr-open"
+            new_item["lifecycle_inferred_state"] = "in-progress"
 
         if new_item != item:
             items[i] = new_item
@@ -2610,6 +2900,10 @@ def reconcile_pr_state(
                 "pr_state": pr_class,
                 "old_delegation": item.get("delegation_state"),
                 "new_delegation": new_item.get("delegation_state"),
+                "pr_match_method": best_match["method"],
+                "pr_match_confidence": best_match["confidence"],
+                "pr_match_evidence": best_match["evidence"],
+                "ambiguous_matches": best_match.get("ambiguous_matches", []),
             })
             if not config.dry_run:
                 _update_issue_lifecycle_labels_for_pr(config, int(issue_number), pr_class)
@@ -2660,6 +2954,7 @@ def ingest_issue_actions_to_work_state(
             new_it["issue_state"] = "open"
             new_it["updated_at"] = now
             new_it["run_id"] = run_id
+            new_it.setdefault("lifecycle_fact_state", "ready-for-delegation")
             upsert_work_item(work_state, WorkItem(**new_it))
         else:
             work_item = WorkItem(
@@ -2668,7 +2963,7 @@ def ingest_issue_actions_to_work_state(
                 lane="unknown",
                 issue_number=issue_number,
                 issue_state="open",
-                delegation_state="pending",
+                delegation_state="ready-for-delegation",
                 assignee=None,
                 pr_number=None,
                 pr_url=None,
@@ -2682,6 +2977,7 @@ def ingest_issue_actions_to_work_state(
                 run_id=run_id,
                 gap_title=gap_title,
                 gap_subsystem=gap_subsystem,
+                lifecycle_fact_state="ready-for-delegation",
             )
             upsert_work_item(work_state, work_item)
 
@@ -2695,7 +2991,9 @@ def _active_fingerprints_in_work_state(work_state: Dict[str, Any]) -> Set[str]:
         it["fingerprint"]
         for it in work_state.get("items", [])
         if it.get("fingerprint")
-        and it.get("delegation_state") in ("pending", "delegated")
+        and it.get("delegation_state") in (
+            "delegation-requested", "delegation-confirmed", "delegation-unconfirmed"
+        )
         and not it.get("merged")
         and not it.get("closed_unmerged")
     }
@@ -2740,12 +3038,16 @@ def run_execution_cycle(config: Config) -> Dict[str, Any]:
     delegation_result = delegate_to_copilot(config, selected, work_state, run_id)
     save_work_state(config, work_state)
 
-    summary_line = (
-        f"[dry-run] " if not config.enable_live_delegation else ""
-    ) + (
-        f"delegated issue #{selected.get('number')} "
-        f"— {selected.get('title', '')}"
-    )
+    if not config.enable_live_delegation:
+        summary_line = (
+            f"[dry-run] delegation requested for issue #{selected.get('number')} "
+            f"— {selected.get('title', '')}"
+        )
+    else:
+        summary_line = (
+            f"{delegation_result.get('action', 'delegation_requested')} issue "
+            f"#{selected.get('number')} — {selected.get('title', '')}"
+        )
     log(summary_line, json_mode=config.log_json)
 
     result: Dict[str, Any] = {

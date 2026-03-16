@@ -2486,11 +2486,11 @@ class TestWorkStateIngestion(unittest.TestCase):
         defaults: Dict[str, Any] = dict(
             fingerprint=fp, objective="eliminate-import-cycles",
             lane="import_cycles", issue_number=42, issue_state="open",
-            delegation_state="pending", assignee=None,
+            delegation_state="ready-for-delegation", assignee=None,
             pr_number=None, pr_url=None, pr_state=None,
             merged=False, closed_unmerged=False, blocked=False, superseded=False,
             created_at=now, updated_at=now, run_id="run123",
-            gap_title="Test gap", gap_subsystem="runtime",
+            gap_title="Test gap", gap_subsystem="runtime", lifecycle_fact_state="ready-for-delegation",
         )
         defaults.update(kwargs)
         return ra.WorkItem(**defaults)
@@ -2514,10 +2514,10 @@ class TestWorkStateIngestion(unittest.TestCase):
         ws: Dict[str, Any] = {"version": ra.VERSION, "updated_at": None, "items": []}
         item = self._make_work_item()
         ra.upsert_work_item(ws, item)
-        updated = self._make_work_item(delegation_state="delegated")
+        updated = self._make_work_item(delegation_state="delegation-confirmed")
         ra.upsert_work_item(ws, updated)
         self.assertEqual(len(ws["items"]), 1)
-        self.assertEqual(ws["items"][0]["delegation_state"], "delegated")
+        self.assertEqual(ws["items"][0]["delegation_state"], "delegation-confirmed")
 
     def test_save_and_reload_work_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2603,7 +2603,7 @@ class TestSelectReadyIssue(unittest.TestCase):
         ws: Dict[str, Any] = {
             "items": [{
                 "fingerprint": "aabb001122cc",
-                "delegation_state": "delegated",
+                "delegation_state": "delegation-confirmed",
                 "merged": False, "closed_unmerged": False,
                 "lane": "import_cycles", "issue_number": 5,
             }]
@@ -2618,7 +2618,7 @@ class TestSelectReadyIssue(unittest.TestCase):
         ws: Dict[str, Any] = {
             "items": [{
                 "fingerprint": fp,
-                "delegation_state": "delegated",
+                "delegation_state": "delegation-confirmed",
                 "merged": False, "closed_unmerged": False,
                 "lane": "import_cycles", "issue_number": 1,
             }]
@@ -2628,7 +2628,7 @@ class TestSelectReadyIssue(unittest.TestCase):
             github_token="tok", github_repo="x/y", max_concurrent_delegated=5
         )
         # The issue's fingerprint is in-flight, so it should be blocked
-        in_flight = [it for it in ws["items"] if it.get("delegation_state") == "delegated"
+        in_flight = [it for it in ws["items"] if it.get("delegation_state") == "delegation-confirmed"
                      and not it.get("merged") and not it.get("closed_unmerged")]
         blocked_fps = {it["fingerprint"] for it in in_flight}
         body = issue.get("body") or ""
@@ -2640,7 +2640,7 @@ class TestSelectReadyIssue(unittest.TestCase):
         config = self._make_config_exec(
             github_token="tok", github_repo="x/y"
         )
-        blocking = {"blocked", "superseded", "in-progress", "pr-open", "merged"}
+        blocking = {"blocked-by-dependency", "superseded-by-issue", "superseded-by-pr", "in-progress", "pr-open", "pr-draft", "merged"}
         issue_labels = {"arch-gap", "copilot-task", "needs-implementation", "in-progress"}
         self.assertTrue(issue_labels & blocking, "in-progress should block selection")
 
@@ -2667,13 +2667,13 @@ class TestSelectReadyIssue(unittest.TestCase):
     def test_active_fingerprints_in_work_state(self) -> None:
         ws: Dict[str, Any] = {
             "items": [
-                {"fingerprint": "aaa", "delegation_state": "delegated",
+                {"fingerprint": "aaa", "delegation_state": "delegation-confirmed",
                  "merged": False, "closed_unmerged": False},
-                {"fingerprint": "bbb", "delegation_state": "pending",
+                {"fingerprint": "bbb", "delegation_state": "delegation-requested",
                  "merged": False, "closed_unmerged": False},
                 {"fingerprint": "ccc", "delegation_state": "done",
                  "merged": True, "closed_unmerged": False},
-                {"fingerprint": "ddd", "delegation_state": "delegated",
+                {"fingerprint": "ddd", "delegation_state": "delegation-confirmed",
                  "merged": True, "closed_unmerged": False},
             ]
         }
@@ -2705,7 +2705,7 @@ class TestDelegationDryRun(unittest.TestCase):
         }
 
     def test_dry_run_does_not_mutate_state_action(self) -> None:
-        """Dry-run delegation records 'pending' delegation_state and 'dry_run' action."""
+        """Dry-run delegation records requested state and dry-run action."""
         config = _make_config(mode="execution")
         # enable_live_delegation defaults to False → dry_run=True
         self.assertFalse(config.enable_live_delegation)
@@ -2715,10 +2715,11 @@ class TestDelegationDryRun(unittest.TestCase):
         self.assertEqual(result["action"], "dry_run")
         self.assertTrue(result["dry_run"])
         self.assertIsNone(result["assignee"])
-        # Work state should be updated with pending state
+        # Work state should be updated with delegation-requested state
         self.assertEqual(len(ws["items"]), 1)
-        self.assertEqual(ws["items"][0]["delegation_state"], "pending")
+        self.assertEqual(ws["items"][0]["delegation_state"], "delegation-requested")
         self.assertEqual(ws["items"][0]["fingerprint"], "aabbccddeeff")
+        self.assertEqual(ws["items"][0]["lifecycle_fact_state"], "delegation-requested")
 
     def test_dry_run_no_credentials_still_records(self) -> None:
         """Dry-run works even without GitHub credentials."""
@@ -2731,14 +2732,59 @@ class TestDelegationDryRun(unittest.TestCase):
         self.assertEqual(len(ws["items"]), 1)
 
     def test_live_mode_missing_credentials_returns_error(self) -> None:
-        """Live delegation with no GitHub credentials returns error action."""
+        """Live delegation with no GitHub credentials returns failed delegation action."""
         config = _make_config(mode="execution")
         config = dataclasses.replace(config, enable_live_delegation=True)
         ws: Dict[str, Any] = {"items": []}
         issue = self._make_issue()
         result = ra.delegate_to_copilot(config, issue, ws, run_id="run-live")
-        self.assertEqual(result["action"], "error")
+        self.assertEqual(result["action"], "delegation_failed")
         self.assertIn("GITHUB_TOKEN", result.get("error", ""))
+        self.assertEqual(ws["items"][0]["delegation_state"], "delegation-failed")
+
+    def test_live_mode_assignment_and_comment_confirmed(self) -> None:
+        """Live delegation should be confirmed when assignment+comment evidence exists."""
+        config = dataclasses.replace(
+            _make_config(mode="execution"),
+            enable_live_delegation=True,
+            github_token="tok",
+            github_repo="owner/repo",
+        )
+        ws: Dict[str, Any] = {"items": []}
+        issue = self._make_issue()
+
+        def _fake_github_request(token: str, path: str, *, method: str = "GET", payload: Any = None) -> Dict[str, Any]:
+            if path.endswith("/assignees"):
+                return {"assignees": [{"login": ra.COPILOT_AGENT_ASSIGNEE}]}
+            return {}
+
+        with patch.object(ra, "github_request", side_effect=_fake_github_request), \
+                patch.object(ra, "set_github_issue_labels", return_value={}), \
+                patch.object(ra, "ensure_github_labels", return_value=None), \
+                patch.object(ra, "update_github_issue_api", return_value={"id": 123, "html_url": "https://github.com/c"}):
+            result = ra.delegate_to_copilot(config, issue, ws, run_id="run-live-ok")
+        self.assertEqual(result["action"], "delegation_confirmed")
+        self.assertEqual(ws["items"][0]["delegation_state"], "delegation-confirmed")
+        self.assertIsNotNone(ws["items"][0]["delegation_confirmed_at"])
+        self.assertTrue(ws["delegation_events"], "Delegation event should be recorded")
+
+    def test_live_mode_unconfirmed_when_no_confirmation_evidence(self) -> None:
+        """If API calls return no proof, delegation should be unconfirmed not confirmed."""
+        config = dataclasses.replace(
+            _make_config(mode="execution"),
+            enable_live_delegation=True,
+            github_token="tok",
+            github_repo="owner/repo",
+        )
+        ws: Dict[str, Any] = {"items": []}
+        issue = self._make_issue()
+        with patch.object(ra, "github_request", return_value={"assignees": []}), \
+                patch.object(ra, "set_github_issue_labels", return_value={}), \
+                patch.object(ra, "ensure_github_labels", return_value=None), \
+                patch.object(ra, "update_github_issue_api", return_value={}):
+            result = ra.delegate_to_copilot(config, issue, ws, run_id="run-live-unconfirmed")
+        self.assertEqual(result["action"], "delegation_unconfirmed")
+        self.assertEqual(ws["items"][0]["delegation_state"], "delegation-unconfirmed")
 
     def test_upsert_updates_existing_work_item(self) -> None:
         """A second delegation call updates the existing work item rather than inserting."""
@@ -2777,6 +2823,9 @@ class TestPRReconciliation(unittest.TestCase):
             "draft": draft,
             "body": body,
             "merged_at": merged_at,
+            "head": {"ref": f"feature/issue-{number}"},
+            "created_at": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
+            "updated_at": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
         }
 
     def test_classify_pr_merged(self) -> None:
@@ -2804,6 +2853,54 @@ class TestPRReconciliation(unittest.TestCase):
         pr = self._make_pr(11, body="closes 55")
         self.assertTrue(ra._pr_mentions_issue(pr, 55))
 
+    def test_reconcile_linkage_by_fingerprint_marker(self) -> None:
+        pr = self._make_pr(12, body="<!-- arch-gap-fingerprint: aabbccddeeff -->")
+        match = ra._evaluate_pr_linkage(pr, issue_number=42, fingerprint="aabbccddeeff")
+        self.assertIsNotNone(match)
+        self.assertEqual(match["method"], "fingerprint_marker")
+        self.assertEqual(match["confidence"], "exact")
+
+    def test_reconcile_linkage_by_explicit_linkage_block(self) -> None:
+        body = (
+            "<!-- repo-architect-linkage\n"
+            "issue_number: 42\n"
+            "fingerprint: aabbccddeeff\n"
+            "-->"
+        )
+        pr = self._make_pr(13, body=body)
+        match = ra._evaluate_pr_linkage(pr, issue_number=42, fingerprint="aabbccddeeff")
+        self.assertIsNotNone(match)
+        self.assertEqual(match["method"], "linkage_block")
+        self.assertEqual(match["confidence"], "exact")
+
+    def test_reconcile_linkage_by_branch_convention(self) -> None:
+        pr = self._make_pr(14, body="no refs")
+        pr["head"]["ref"] = "repo-architect/issue-42-aabbccddeeff"
+        match = ra._evaluate_pr_linkage(pr, issue_number=42, fingerprint="aabbccddeeff")
+        self.assertIsNotNone(match)
+        self.assertEqual(match["method"], "branch_convention")
+        self.assertEqual(match["confidence"], "strong")
+
+    def test_reconcile_fallback_issue_reference(self) -> None:
+        pr = self._make_pr(15, body="related to #42")
+        match = ra._evaluate_pr_linkage(pr, issue_number=42, fingerprint="aabbccddeeff")
+        self.assertIsNotNone(match)
+        self.assertEqual(match["method"], "issue_reference")
+        self.assertEqual(match["confidence"], "weak")
+
+    def test_reconcile_ambiguous_multiple_prs_prefers_exact(self) -> None:
+        exact = self._make_pr(16, body="<!-- arch-gap-fingerprint: aabbccddeeff -->")
+        weak = self._make_pr(17, body="mentions #42 only")
+        best = ra._best_pr_match([weak, exact], issue_number=42, fingerprint="aabbccddeeff")
+        self.assertIsNotNone(best)
+        self.assertEqual(best["pr"]["number"], 16)
+        self.assertEqual(best["confidence"], "exact")
+
+    def test_reconcile_no_match(self) -> None:
+        pr = self._make_pr(18, body="unrelated body")
+        match = ra._evaluate_pr_linkage(pr, issue_number=99, fingerprint="ffffffffffff")
+        self.assertIsNone(match)
+
     def test_reconcile_empty_work_state(self) -> None:
         config = _make_config(mode="reconcile")
         ws: Dict[str, Any] = {"items": []}
@@ -2812,12 +2909,12 @@ class TestPRReconciliation(unittest.TestCase):
         self.assertEqual(result["updated"], 0)
 
     def test_reconcile_marks_merged(self) -> None:
-        """An item linked to a merged PR should get merged=True and delegation_state=done."""
+        """An item linked to a merged PR should get merged=True and factual merged lifecycle state."""
         config = _make_config(mode="reconcile")
         ws: Dict[str, Any] = {
             "items": [{
                 "fingerprint": "aabb", "issue_number": 42, "lane": "import_cycles",
-                "delegation_state": "delegated", "merged": False, "closed_unmerged": False,
+                "delegation_state": "delegation-confirmed", "merged": False, "closed_unmerged": False,
                 "blocked": False, "superseded": False,
                 "pr_number": None, "pr_url": None, "pr_state": None,
                 "updated_at": "2025-01-01T00:00:00+00:00",
@@ -2833,7 +2930,8 @@ class TestPRReconciliation(unittest.TestCase):
             result = ra.reconcile_pr_state(config, ws)
         self.assertEqual(result["updated"], 1)
         self.assertTrue(ws["items"][0]["merged"])
-        self.assertEqual(ws["items"][0]["delegation_state"], "done")
+        self.assertEqual(ws["items"][0]["lifecycle_fact_state"], "merged")
+        self.assertEqual(ws["items"][0]["pr_match_method"], "closing_reference")
 
     def test_reconcile_marks_stale(self) -> None:
         """A delegated item with no PR and old updated_at should be marked stale."""
@@ -2842,7 +2940,7 @@ class TestPRReconciliation(unittest.TestCase):
         ws: Dict[str, Any] = {
             "items": [{
                 "fingerprint": "ccdd", "issue_number": 77, "lane": "parse_errors",
-                "delegation_state": "delegated", "merged": False, "closed_unmerged": False,
+                "delegation_state": "delegation-confirmed", "merged": False, "closed_unmerged": False,
                 "blocked": False, "superseded": False,
                 "pr_number": None, "pr_url": None, "pr_state": None,
                 "updated_at": old_date,
@@ -2865,7 +2963,7 @@ class TestPRReconciliation(unittest.TestCase):
         ws: Dict[str, Any] = {
             "items": [{
                 "fingerprint": "eeff00", "issue_number": 88, "lane": "hygiene",
-                "delegation_state": "delegated", "merged": False, "closed_unmerged": False,
+                "delegation_state": "delegation-confirmed", "merged": False, "closed_unmerged": False,
                 "blocked": False, "superseded": False,
                 "pr_number": None, "pr_url": None, "pr_state": None,
                 "updated_at": recent_date,
@@ -2884,7 +2982,7 @@ class TestPRReconciliation(unittest.TestCase):
         ws2: Dict[str, Any] = {
             "items": [{
                 "fingerprint": "eeff00", "issue_number": 88, "lane": "hygiene",
-                "delegation_state": "delegated", "merged": False, "closed_unmerged": False,
+                "delegation_state": "delegation-confirmed", "merged": False, "closed_unmerged": False,
                 "blocked": False, "superseded": False,
                 "pr_number": None, "pr_url": None, "pr_state": None,
                 "updated_at": recent_date,
@@ -2905,7 +3003,7 @@ class TestPRReconciliation(unittest.TestCase):
         ws: Dict[str, Any] = {
             "items": [{
                 "fingerprint": "eeff", "issue_number": 10,
-                "delegation_state": "done", "merged": True, "closed_unmerged": False,
+                "delegation_state": "delegation-confirmed", "merged": True, "closed_unmerged": False,
                 "pr_state": "merged", "updated_at": "2025-01-01T00:00:00+00:00",
                 "objective": "", "lane": "hygiene", "assignee": None,
                 "pr_number": 5, "pr_url": None, "blocked": False, "superseded": False,
@@ -2916,6 +3014,40 @@ class TestPRReconciliation(unittest.TestCase):
         with patch.object(ra, "_list_prs_for_repo", return_value=[]):
             result = ra.reconcile_pr_state(config, ws)
         self.assertEqual(result["updated"], 0, "Already-merged items should not be re-updated")
+
+    def test_closed_unmerged_not_auto_superseded(self) -> None:
+        """Closed-unmerged should stay factual, not be auto-labelled as superseded."""
+        config = _make_config(mode="reconcile")
+        ws: Dict[str, Any] = {"items": [{
+            "fingerprint": "aa11bb22cc33", "issue_number": 42, "lane": "runtime",
+            "delegation_state": "delegation-confirmed", "merged": False, "closed_unmerged": False,
+            "blocked": False, "superseded": False, "pr_number": None, "pr_url": None, "pr_state": None,
+            "updated_at": "2025-01-01T00:00:00+00:00", "objective": "", "assignee": None,
+            "created_at": "2025-01-01T00:00:00+00:00", "run_id": "r5",
+            "gap_title": "x", "gap_subsystem": "runtime", "issue_state": "open",
+        }]}
+        closed_pr = self._make_pr(201, state="closed", body="fixes #42", merged_at=None)
+        with patch.object(ra, "_list_prs_for_repo", return_value=[closed_pr]):
+            ra.reconcile_pr_state(config, ws)
+        self.assertEqual(ws["items"][0]["lifecycle_fact_state"], "closed-unmerged")
+        self.assertNotEqual(ws["items"][0]["lifecycle_fact_state"], "superseded-by-pr")
+
+    def test_stale_not_auto_blocked_dependency(self) -> None:
+        """Stale state should not be encoded as blocked-by-dependency without explicit evidence."""
+        config = _make_config(mode="reconcile")
+        old = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=30)).isoformat()
+        ws: Dict[str, Any] = {"items": [{
+            "fingerprint": "f0f0f0f0f0f0", "issue_number": 9, "lane": "runtime",
+            "delegation_state": "delegation-confirmed", "merged": False, "closed_unmerged": False,
+            "blocked": False, "superseded": False, "pr_number": None, "pr_url": None, "pr_state": None,
+            "updated_at": old, "objective": "", "assignee": None,
+            "created_at": old, "run_id": "r6", "gap_title": "x", "gap_subsystem": "runtime",
+            "issue_state": "open",
+        }]}
+        with patch.object(ra, "_list_prs_for_repo", return_value=[]):
+            ra.reconcile_pr_state(config, ws)
+        self.assertEqual(ws["items"][0]["lifecycle_fact_state"], "stale")
+        self.assertNotEqual(ws["items"][0]["lifecycle_fact_state"], "blocked-by-dependency")
 
     def test_run_reconciliation_cycle_no_items(self) -> None:
         """run_reconciliation_cycle with empty work state returns complete status."""
@@ -2932,7 +3064,11 @@ class TestLifecycleLabelTransitions(unittest.TestCase):
     """Verify lifecycle label sets are correct and transitions are deterministic."""
 
     def test_lifecycle_labels_present(self) -> None:
-        expected = {"ready-for-delegation", "in-progress", "pr-open", "merged", "blocked", "superseded"}
+        expected = {
+            "ready-for-delegation", "delegation-requested", "in-progress", "pr-open", "pr-draft",
+            "merged", "closed-unmerged", "stale", "blocked-by-dependency",
+            "superseded-by-issue", "superseded-by-pr", "failed-delegation",
+        }
         self.assertEqual(set(ra.LIFECYCLE_LABELS), expected)
 
     def test_execution_eligible_labels_present(self) -> None:
@@ -2957,7 +3093,7 @@ class TestLifecycleLabelTransitions(unittest.TestCase):
         self.assertNotIn("pr-open", new_labels)
 
     def test_copilot_assignee_constant(self) -> None:
-        self.assertEqual(ra.COPILOT_AGENT_ASSIGNEE, "copilot")
+        self.assertEqual(ra.COPILOT_AGENT_ASSIGNEE, "copilot+gpt-5.3-codex")
 
 
 # ---------------------------------------------------------------------------
@@ -2998,7 +3134,7 @@ class TestPlannerSkipsInProgress(unittest.TestCase):
             ws: Dict[str, Any] = {
                 "items": [{
                     "fingerprint": fp,
-                    "delegation_state": "delegated",
+                    "delegation_state": "delegation-confirmed",
                     "merged": False, "closed_unmerged": False,
                 }]
             }

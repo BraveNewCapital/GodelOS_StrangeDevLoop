@@ -195,14 +195,14 @@ python repo_architect.py --mode issue --allow-dirty --max-issues 3
 
 1. Loads durable work state.
 2. Runs lightweight PR reconciliation to refresh issue states.
-3. Selects at most one issue that is ready for delegation (eligible labels + not blocked/in-progress).
-4. Delegates to Copilot: applies `in-progress` label, assigns to `@copilot`, posts delegation comment.
-5. Records the delegation in work state.
+3. Selects at most one issue that is ready for delegation (eligible labels + not already in factual terminal/in-progress states).
+4. Requests delegation to Copilot by assignment + machine-linkage comment.
+5. Records delegation events with explicit outcomes in work state (`delegation-requested`, `delegation-confirmed`, `delegation-failed`, `delegation-unconfirmed`).
 
 ### Selection rules
 
 - Issue must have all of: `arch-gap`, `copilot-task`, `needs-implementation`
-- Issue must NOT have: `blocked`, `superseded`, `in-progress`, `pr-open`, `merged`
+- Issue must NOT have: `delegation-requested`, `in-progress`, `pr-open`, `pr-draft`, `merged`, `closed-unmerged`, `failed-delegation`, `blocked-by-dependency`, `superseded-by-issue`, `superseded-by-pr`
 - Fingerprint must not already be delegated
 - At most one issue per charter lane at a time
 - Respects `MAX_CONCURRENT_DELEGATED` limit (default: 1)
@@ -250,11 +250,14 @@ python repo_architect.py --mode execution --allow-dirty --lane-filter import_cyc
 
 In live mode, the execution lane:
 
-1. Applies `in-progress` label and removes `ready-for-delegation`.
-2. Assigns the issue to `@copilot` (GitHub Copilot coding agent username).
-3. Posts a delegation comment with the active objective, lane, and fingerprint.
+1. Applies factual lifecycle labels: `delegation-requested` + `in-progress`.
+2. Assigns the issue to `@copilot+gpt-5.3-codex`.
+3. Posts a delegation comment containing a machine linkage block (`repo-architect-linkage`) and fingerprint marker.
+4. Records per-mechanism evidence from GitHub API responses:
+   - assignment evidence (assignee list confirmation)
+   - comment evidence (comment id/url confirmation)
 
-GitHub Copilot coding agent is automatically triggered when an issue is assigned to `@copilot`. It reads the issue body (including the Copilot implementation prompt) and opens a PR. The reconciliation lane then detects this PR and updates the work state.
+Delegation is only considered **confirmed** when at least one reliable mechanism is confirmed by API response. Label changes alone are not treated as proof of execution.
 
 ---
 
@@ -264,7 +267,12 @@ GitHub Copilot coding agent is automatically triggered when an issue is assigned
 
 1. Loads durable work state.
 2. Fetches all recent PRs from the repository.
-3. For each tracked issue, detects linked PRs (by `#issue_number` reference in PR body/title).
+3. For each tracked issue, detects linked PRs using evidence order:
+   1) explicit fingerprint marker in PR body
+   2) explicit `repo-architect-linkage` block in PR body
+   3) branch naming convention tied to issue/fingerprint
+   4) closing keywords / linked references
+   5) fallback `#issue_number` mention
 4. Updates item state: `merged`, `closed_unmerged`, `open`, `draft`, `stale`.
 5. Updates lifecycle labels on the GitHub Issue.
 6. Saves updated work state.
@@ -299,10 +307,11 @@ python repo_architect.py --mode reconcile --allow-dirty --stale-timeout-days 7 -
 ### How issues and PRs feed the next planning cycle
 
 After reconciliation:
-- Issues with `merged` PRs are marked `done` in work state → planner can generate follow-on work.
-- Issues with `open` PRs are blocked from re-delegation → planner skips them.
-- Issues with `stale` status are flagged → operator can review or unblock.
-- Issues with `closed_unmerged` PRs are marked done (superseded) → planner can re-raise if still needed.
+- Issues with `merged` PRs are marked factually merged.
+- Issues with `open`/`draft` PRs are marked `pr-open` / `pr-draft`.
+- Issues with no match past timeout are marked `stale` (not implicitly blocked-by-dependency).
+- Issues with `closed_unmerged` PRs remain factual `closed-unmerged` (not automatically superseded).
+- Planning may infer priority/deprioritisation, but factual and inferred states are stored separately.
 
 ---
 
@@ -316,6 +325,15 @@ The work state is stored in `.agent/work_state.json` (gitignored, refreshed each
 {
   "version": "2.1.0",
   "updated_at": "2026-01-01T00:00:00+00:00",
+  "delegation_events": [
+    {
+      "ts": "2026-01-01T00:01:02+00:00",
+      "issue_number": 42,
+      "fingerprint": "a1b2c3d4e5f6",
+      "mechanism": "assignment+comment",
+      "outcome": "delegation-confirmed"
+    }
+  ],
   "items": [
     {
       "fingerprint": "a1b2c3d4e5f6",
@@ -323,8 +341,8 @@ The work state is stored in `.agent/work_state.json` (gitignored, refreshed each
       "lane": "import_cycles",
       "issue_number": 42,
       "issue_state": "open",
-      "delegation_state": "delegated",
-      "assignee": "copilot",
+      "delegation_state": "delegation-confirmed",
+      "assignee": "copilot+gpt-5.3-codex",
       "pr_number": 101,
       "pr_url": "https://github.com/org/repo/pull/101",
       "pr_state": "merged",
@@ -332,6 +350,18 @@ The work state is stored in `.agent/work_state.json` (gitignored, refreshed each
       "closed_unmerged": false,
       "blocked": false,
       "superseded": false,
+      "delegation_mechanism": "assignment+comment",
+      "delegation_requested_at": "2026-01-01T00:01:00+00:00",
+      "delegation_confirmed_at": "2026-01-01T00:01:02+00:00",
+      "delegation_confirmation_evidence": {"assignment": {"confirmed": true}},
+      "delegation_comment_url": "https://github.com/org/repo/issues/42#issuecomment-123",
+      "delegation_comment_id": 123,
+      "delegation_assignment_evidence": {"assignees": ["copilot+gpt-5.3-codex"], "confirmed": true},
+      "pr_match_method": "fingerprint_marker",
+      "pr_match_confidence": "exact",
+      "pr_match_evidence": {"fingerprint": "a1b2c3d4e5f6"},
+      "lifecycle_fact_state": "merged",
+      "lifecycle_inferred_state": "completed",
       "created_at": "2026-01-01T00:00:00+00:00",
       "updated_at": "2026-01-02T00:00:00+00:00",
       "run_id": "12345678-1",
@@ -342,6 +372,8 @@ The work state is stored in `.agent/work_state.json` (gitignored, refreshed each
 }
 ```
 
+`delegation_events[]` is an append-only audit log of each delegation attempt with mechanism and outcome evidence.
+
 ### Field reference
 
 | Field | Type | Description |
@@ -351,7 +383,7 @@ The work state is stored in `.agent/work_state.json` (gitignored, refreshed each
 | `lane` | string | Charter lane name |
 | `issue_number` | int\|null | GitHub Issue number |
 | `issue_state` | string | `open` or `closed` |
-| `delegation_state` | string | `pending`, `delegated`, `done`, `blocked`, or `superseded` |
+| `delegation_state` | string | `ready-for-delegation`, `delegation-requested`, `delegation-confirmed`, `delegation-unconfirmed`, `delegation-failed` |
 | `assignee` | string\|null | GitHub username delegated to |
 | `pr_number` | int\|null | Linked PR number |
 | `pr_url` | string\|null | Linked PR URL |
@@ -360,6 +392,18 @@ The work state is stored in `.agent/work_state.json` (gitignored, refreshed each
 | `closed_unmerged` | bool | Whether the linked PR was closed without merging |
 | `blocked` | bool | Whether the item is manually blocked |
 | `superseded` | bool | Whether the item has been superseded |
+| `delegation_mechanism` | string\|null | Delegation mechanism used (`assignment+comment`) |
+| `delegation_requested_at` | ISO-8601\|null | Delegation request timestamp |
+| `delegation_confirmed_at` | ISO-8601\|null | Delegation confirmation timestamp |
+| `delegation_confirmation_evidence` | object\|null | Confirmed mechanism evidence map |
+| `delegation_comment_url` | string\|null | URL of delegation comment (if created) |
+| `delegation_comment_id` | int\|null | GitHub comment id for delegation comment |
+| `delegation_assignment_evidence` | object\|null | Assignment API evidence payload |
+| `pr_match_method` | string\|null | PR linkage method used |
+| `pr_match_confidence` | string\|null | `exact`, `strong`, or `weak` |
+| `pr_match_evidence` | object\|null | Evidence payload proving PR linkage |
+| `lifecycle_fact_state` | string | Factual lifecycle state label |
+| `lifecycle_inferred_state` | string\|null | Optional planning interpretation (separate from facts) |
 | `created_at` | ISO-8601 | Creation timestamp |
 | `updated_at` | ISO-8601 | Last update timestamp |
 | `run_id` | string | Workflow run provenance |
@@ -370,27 +414,26 @@ The work state is stored in `.agent/work_state.json` (gitignored, refreshed each
 
 ## Label Lifecycle
 
-Labels transition deterministically through the following states:
+Labels represent factual observed states; planning interpretations are separate:
 
 ```
 [created]
-    └─ arch-gap + copilot-task + needs-implementation
-    └─ [optional] ready-for-delegation   (added by planner on first synthesis)
+    └─ arch-gap + copilot-task + needs-implementation + ready-for-delegation
 
 [selected for execution]
-    └─ in-progress                       (removes ready-for-delegation)
+    └─ delegation-requested + in-progress  (removes ready-for-delegation)
 
 [PR opened]
-    └─ pr-open                           (removes in-progress)
+    └─ pr-open or pr-draft                 (removes execution labels)
 
 [PR merged]
     └─ merged                            (removes pr-open)
 
 [PR closed unmerged]
-    └─ superseded                        (removes pr-open)
+    └─ closed-unmerged                   (factual terminal state)
 
 [stale: delegated > STALE_TIMEOUT_DAYS with no PR]
-    └─ blocked                           (flags for operator review)
+    └─ stale                             (does not imply dependency block)
 ```
 
 ### All labels used by repo-architect
@@ -401,11 +444,17 @@ Labels transition deterministically through the following states:
 | `copilot-task` | Base | Ready for Copilot to implement |
 | `needs-implementation` | Base | Awaiting a code PR |
 | `ready-for-delegation` | Lifecycle | Ready for execution selection |
+| `delegation-requested` | Lifecycle | Delegation has been requested |
 | `in-progress` | Lifecycle | Currently delegated to Copilot |
 | `pr-open` | Lifecycle | PR exists and is open |
+| `pr-draft` | Lifecycle | PR exists and is draft |
 | `merged` | Lifecycle | PR has merged |
-| `blocked` | Lifecycle | Stale or manually blocked |
-| `superseded` | Lifecycle | PR closed unmerged or issue replaced |
+| `closed-unmerged` | Lifecycle | PR closed without merge |
+| `stale` | Lifecycle | No linked PR within stale timeout |
+| `blocked-by-dependency` | Lifecycle | Explicit dependency block only |
+| `superseded-by-issue` | Lifecycle | Explicit superseding issue only |
+| `superseded-by-pr` | Lifecycle | Explicit superseding PR only |
+| `failed-delegation` | Lifecycle | Delegation attempt failed with no confirmation |
 | `priority:critical` | Priority | Critical priority (applied automatically) |
 | `priority:high` | Priority | High priority (applied automatically) |
 | Subsystem labels | Subsystem | `runtime`, `core`, `agents`, etc. |
@@ -417,7 +466,7 @@ Labels transition deterministically through the following states:
 In dry-run mode (`--dry-run` flag, or `ENABLE_LIVE_DELEGATION=false` for execution mode), the system operates without GitHub API side-effects:
 
 - **Issue mode dry-run**: writes issue bodies to `docs/repo_architect/issues/<fingerprint>.md` instead of calling the Issues API.
-- **Execution mode dry-run** (default): reports which issue would be delegated but does not assign labels, assignees, or post comments. Work state is still updated with `delegation_state: pending`.
+- **Execution mode dry-run** (default): reports which issue would be delegated but does not assign labels, assignees, or post comments. Work state records `delegation_state: delegation-requested` with `dry_run: true` event evidence.
 - **Reconcile mode dry-run**: reads PR state but does not update lifecycle labels on issues.
 
 ---
@@ -459,7 +508,7 @@ These groups ensure that:
 
 ### Automated (via execution lane)
 
-1. Execution lane selects the issue and assigns it to `@copilot`.
+1. Execution lane selects the issue and assigns it to `@copilot+gpt-5.3-codex`.
 2. GitHub Copilot coding agent is triggered automatically on assignment.
 3. Copilot reads the issue body and opens a PR.
 4. Reconciliation lane detects the PR and updates work state + lifecycle labels.
@@ -654,7 +703,7 @@ Each gap has a deterministic 12-hex-character fingerprint derived from `subsyste
 On each run:
 - If a matching **open** issue exists → add a re-scan comment (no new issue).
 - If no matching issue exists → create a new one.
-- If the fingerprint is already tracked as `delegated` in work state → the planner skips it (no duplicate issue).
+- If the fingerprint is already tracked as `delegation-requested`/`delegation-confirmed` in work state → the planner skips it (no duplicate issue).
 
 ---
 
@@ -697,4 +746,3 @@ The implementation charter (§15) requires machine-readable policy files that en
 | [`dependency_contract.json`](dependency_contract.json) | §6 | Layer order, allowed dependency direction, hard prohibitions, circular import policy, ownership hints |
 
 Agents should consume these files before proposing code changes. The constants `CHARTER_COMPANION_FILES`, `CHARTER_PRIORITY_ORDER`, and `AGENT_INSTRUCTION_CONTRACT` in `repo_architect.py` encode the same data as Python tuples for runtime use.
-
