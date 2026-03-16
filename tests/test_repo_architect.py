@@ -2742,8 +2742,8 @@ class TestDelegationDryRun(unittest.TestCase):
         self.assertIn("GITHUB_TOKEN", result.get("error", ""))
         self.assertEqual(ws["items"][0]["delegation_state"], "delegation-failed")
 
-    def test_live_mode_assignment_and_comment_confirmed(self) -> None:
-        """Live delegation should be confirmed when assignment+comment evidence exists."""
+    def test_live_mode_assignment_confirmed(self) -> None:
+        """Live delegation confirmed when assignment API confirms assignee."""
         config = dataclasses.replace(
             _make_config(mode="execution"),
             enable_live_delegation=True,
@@ -2764,12 +2764,47 @@ class TestDelegationDryRun(unittest.TestCase):
                 patch.object(ra, "update_github_issue_api", return_value={"id": 123, "html_url": "https://github.com/c"}):
             result = ra.delegate_to_copilot(config, issue, ws, run_id="run-live-ok")
         self.assertEqual(result["action"], "delegation_confirmed")
+        self.assertEqual(result["delegation_mechanism"], "assignment",
+                         "Mechanism must be assignment (sole trigger)")
         self.assertEqual(ws["items"][0]["delegation_state"], "delegation-confirmed")
         self.assertIsNotNone(ws["items"][0]["delegation_confirmed_at"])
         self.assertTrue(ws["delegation_events"], "Delegation event should be recorded")
+        # Assignment evidence is the sole confirmation basis
+        self.assertTrue(result["delegation_assignment_evidence"]["confirmed"])
+        # Comment evidence is audit-only, not part of confirmation
+        if result.get("delegation_comment_evidence"):
+            self.assertEqual(result["delegation_comment_evidence"]["role"],
+                             "pre-assignment-audit")
 
-    def test_live_mode_unconfirmed_when_no_confirmation_evidence(self) -> None:
-        """If API calls return no proof, delegation should be unconfirmed not confirmed."""
+    def test_live_mode_confirmed_even_without_audit_comment(self) -> None:
+        """Delegation confirmed when assignment succeeds even if audit comment fails."""
+        config = dataclasses.replace(
+            _make_config(mode="execution"),
+            enable_live_delegation=True,
+            github_token="tok",
+            github_repo="owner/repo",
+        )
+        ws: Dict[str, Any] = {"items": []}
+        issue = self._make_issue()
+
+        def _fake_github_request(token: str, path: str, *, method: str = "GET", payload: Any = None) -> Dict[str, Any]:
+            if path.endswith("/assignees"):
+                return {"assignees": [{"login": ra.COPILOT_AGENT_ASSIGNEE}]}
+            return {}
+
+        # Audit comment fails — but assignment succeeds, so delegation is confirmed
+        with patch.object(ra, "github_request", side_effect=_fake_github_request), \
+                patch.object(ra, "set_github_issue_labels", return_value={}), \
+                patch.object(ra, "ensure_github_labels", return_value=None), \
+                patch.object(ra, "update_github_issue_api",
+                             side_effect=ra.RepoArchitectError("comment failed")):
+            result = ra.delegate_to_copilot(config, issue, ws, run_id="run-no-comment")
+        self.assertEqual(result["action"], "delegation_confirmed",
+                         "Assignment is the sole trigger; comment failure does not block")
+        self.assertEqual(ws["items"][0]["delegation_state"], "delegation-confirmed")
+
+    def test_live_mode_unconfirmed_when_assignment_not_confirmed(self) -> None:
+        """If assignment API returns empty assignees, delegation is unconfirmed."""
         config = dataclasses.replace(
             _make_config(mode="execution"),
             enable_live_delegation=True,
@@ -2781,10 +2816,40 @@ class TestDelegationDryRun(unittest.TestCase):
         with patch.object(ra, "github_request", return_value={"assignees": []}), \
                 patch.object(ra, "set_github_issue_labels", return_value={}), \
                 patch.object(ra, "ensure_github_labels", return_value=None), \
-                patch.object(ra, "update_github_issue_api", return_value={}):
+                patch.object(ra, "update_github_issue_api", return_value={"id": 456, "html_url": "https://x"}):
             result = ra.delegate_to_copilot(config, issue, ws, run_id="run-live-unconfirmed")
         self.assertEqual(result["action"], "delegation_unconfirmed")
         self.assertEqual(ws["items"][0]["delegation_state"], "delegation-unconfirmed")
+
+    def test_live_mode_comment_posted_before_assignment(self) -> None:
+        """Audit comment must be posted before assignment (Copilot reads context at assignment time)."""
+        config = dataclasses.replace(
+            _make_config(mode="execution"),
+            enable_live_delegation=True,
+            github_token="tok",
+            github_repo="owner/repo",
+        )
+        ws: Dict[str, Any] = {"items": []}
+        issue = self._make_issue()
+        call_order: List[str] = []
+
+        def _fake_github_request(token: str, path: str, *, method: str = "GET", payload: Any = None) -> Dict[str, Any]:
+            if path.endswith("/assignees"):
+                call_order.append("assignment")
+                return {"assignees": [{"login": ra.COPILOT_AGENT_ASSIGNEE}]}
+            return {}
+
+        def _fake_comment(config: Any, issue_number: int, comment: str) -> Dict[str, Any]:
+            call_order.append("comment")
+            return {"id": 789, "html_url": "https://github.com/c"}
+
+        with patch.object(ra, "github_request", side_effect=_fake_github_request), \
+                patch.object(ra, "set_github_issue_labels", return_value={}), \
+                patch.object(ra, "ensure_github_labels", return_value=None), \
+                patch.object(ra, "update_github_issue_api", side_effect=_fake_comment):
+            ra.delegate_to_copilot(config, issue, ws, run_id="run-order")
+        self.assertEqual(call_order, ["comment", "assignment"],
+                         "Audit comment must be posted before assignment")
 
     def test_upsert_updates_existing_work_item(self) -> None:
         """A second delegation call updates the existing work item rather than inserting."""

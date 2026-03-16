@@ -248,16 +248,23 @@ python repo_architect.py --mode execution --allow-dirty --lane-filter import_cyc
 
 ### How Copilot execution is triggered
 
-In live mode, the execution lane:
+GitHub Copilot coding agent is triggered **by issue assignment**.  At the moment of assignment, Copilot receives the issue body and all comments that already exist on the issue.  Copilot does **not** react to issue comments posted after assignment.
+
+In live mode, the execution lane performs these steps **in order**:
 
 1. Applies factual lifecycle labels: `delegation-requested` + `in-progress`.
-2. Assigns the issue to `@copilot+gpt-5.3-codex`.
-3. Posts a delegation comment containing a machine linkage block (`repo-architect-linkage`) and fingerprint marker.
-4. Records per-mechanism evidence from GitHub API responses:
-   - assignment evidence (assignee list confirmation)
-   - comment evidence (comment id/url confirmation)
+2. Posts a **pre-assignment audit comment** containing a machine linkage block (`repo-architect-linkage`) and fingerprint marker.  Because this comment is posted before assignment, Copilot will receive it as part of the issue context.
+3. Assigns the issue to `@copilot+gpt-5.3-codex` — **this is the sole execution trigger**.
 
-Delegation is only considered **confirmed** when at least one reliable mechanism is confirmed by API response. Label changes alone are not treated as proof of execution.
+Delegation is considered **confirmed** when the assignment API response lists the target assignee.  The audit comment is recorded for traceability but is **not** part of the confirmation contract.  Label changes alone are never treated as proof of execution.
+
+### Workflow approval gate
+
+When Copilot opens a PR, the associated GitHub Actions workflows are **not triggered by default** unless:
+- A user with **write access** approves the workflow run, or
+- The repository settings explicitly allow automatic workflow runs from Copilot / first-time contributors.
+
+Operators should ensure that the repository's **Actions → General → Fork pull request workflows** setting (or equivalent) is configured to match the desired level of automation.  Until a workflow run is approved, CI checks will not appear on the Copilot PR.
 
 ---
 
@@ -330,7 +337,7 @@ The work state is stored in `.agent/work_state.json` (gitignored, refreshed each
       "ts": "2026-01-01T00:01:02+00:00",
       "issue_number": 42,
       "fingerprint": "a1b2c3d4e5f6",
-      "mechanism": "assignment+comment",
+      "mechanism": "assignment",
       "outcome": "delegation-confirmed"
     }
   ],
@@ -350,7 +357,7 @@ The work state is stored in `.agent/work_state.json` (gitignored, refreshed each
       "closed_unmerged": false,
       "blocked": false,
       "superseded": false,
-      "delegation_mechanism": "assignment+comment",
+      "delegation_mechanism": "assignment",
       "delegation_requested_at": "2026-01-01T00:01:00+00:00",
       "delegation_confirmed_at": "2026-01-01T00:01:02+00:00",
       "delegation_confirmation_evidence": {"assignment": {"confirmed": true}},
@@ -392,12 +399,12 @@ The work state is stored in `.agent/work_state.json` (gitignored, refreshed each
 | `closed_unmerged` | bool | Whether the linked PR was closed without merging |
 | `blocked` | bool | Whether the item is manually blocked |
 | `superseded` | bool | Whether the item has been superseded |
-| `delegation_mechanism` | string\|null | Delegation mechanism used (`assignment+comment`) |
+| `delegation_mechanism` | string\|null | Delegation mechanism used (`assignment` — the sole trigger) |
 | `delegation_requested_at` | ISO-8601\|null | Delegation request timestamp |
-| `delegation_confirmed_at` | ISO-8601\|null | Delegation confirmation timestamp |
-| `delegation_confirmation_evidence` | object\|null | Confirmed mechanism evidence map |
-| `delegation_comment_url` | string\|null | URL of delegation comment (if created) |
-| `delegation_comment_id` | int\|null | GitHub comment id for delegation comment |
+| `delegation_confirmed_at` | ISO-8601\|null | Delegation confirmation timestamp (from assignment API) |
+| `delegation_confirmation_evidence` | object\|null | Assignment confirmation evidence (sole basis for confirmation) |
+| `delegation_comment_url` | string\|null | URL of pre-assignment audit comment (not a trigger) |
+| `delegation_comment_id` | int\|null | GitHub comment id for pre-assignment audit comment |
 | `delegation_assignment_evidence` | object\|null | Assignment API evidence payload |
 | `pr_match_method` | string\|null | PR linkage method used |
 | `pr_match_confidence` | string\|null | `exact`, `strong`, or `weak` |
@@ -466,7 +473,7 @@ Labels represent factual observed states; planning interpretations are separate:
 In dry-run mode (`--dry-run` flag, or `ENABLE_LIVE_DELEGATION=false` for execution mode), the system operates without GitHub API side-effects:
 
 - **Issue mode dry-run**: writes issue bodies to `docs/repo_architect/issues/<fingerprint>.md` instead of calling the Issues API.
-- **Execution mode dry-run** (default): reports which issue would be delegated but does not assign labels, assignees, or post comments. Work state records `delegation_state: delegation-requested` with `dry_run: true` event evidence.
+- **Execution mode dry-run** (default): reports which issue would be delegated but does not assign labels, assignees, or post comments. Work state records `delegation_state: delegation-requested` with `dry_run: true` event evidence.  No assignment is made, so no Copilot agent is triggered.
 - **Reconcile mode dry-run**: reads PR state but does not update lifecycle labels on issues.
 
 ---
@@ -508,11 +515,14 @@ These groups ensure that:
 
 ### Automated (via execution lane)
 
-1. Execution lane selects the issue and assigns it to `@copilot+gpt-5.3-codex`.
-2. GitHub Copilot coding agent is triggered automatically on assignment.
-3. Copilot reads the issue body and opens a PR.
-4. Reconciliation lane detects the PR and updates work state + lifecycle labels.
-5. Next planning run sees the in-progress state and skips re-raising the issue.
+1. Execution lane selects the issue and posts a pre-assignment audit comment with linkage material.
+2. Execution lane assigns the issue to `@copilot+gpt-5.3-codex` — **this is the sole execution trigger**.
+3. GitHub Copilot coding agent receives the issue body + all existing comments (including the linkage material) and opens a PR.
+4. A user with write access may need to **approve the workflow run** on the Copilot PR before CI checks execute (see [Workflow approval gate](#workflow-approval-gate)).
+5. Reconciliation lane detects the PR and updates work state + lifecycle labels.
+6. Next planning run sees the in-progress state and skips re-raising the issue.
+
+> **Note:** `@copilot` comments on issues after assignment are for human-readable audit only.  Copilot does not react to post-assignment issue comments.  To iterate on an in-progress PR, use PR review comments instead.
 
 ---
 

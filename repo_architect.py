@@ -2351,8 +2351,16 @@ def delegate_to_copilot(
 
     Live mode (config.enable_live_delegation is True):
         - Adds 'in-progress' label, removes 'ready-for-delegation'.
-        - Assigns the issue to COPILOT_AGENT_ASSIGNEE ("copilot").
-        - Posts a delegation comment.
+        - Posts a pre-assignment audit comment with machine linkage material
+          (Copilot receives the issue body + all existing comments at the
+          moment of assignment, so the linkage comment must precede it).
+        - Assigns the issue to COPILOT_AGENT_ASSIGNEE — this is the sole
+          execution trigger for the Copilot coding agent.
+
+    Delegation confirmation is based exclusively on the assignment API
+    response.  The audit comment is recorded for traceability but is NOT
+    part of the confirmation contract — Copilot does not react to
+    post-assignment issue comments.
 
     Always records the delegation event in work_state.
     """
@@ -2369,7 +2377,8 @@ def delegate_to_copilot(
     }
     subsystem = next((s for s in SUBSYSTEM_LABELS if s in issue_labels), "runtime")
     now = _iso_now()
-    delegation_mechanism = "assignment+comment"
+    # Assignment is the sole execution trigger; the comment is audit-only.
+    delegation_mechanism = "assignment"
 
     linkage_block = (
         "<!-- repo-architect-linkage\n"
@@ -2426,7 +2435,36 @@ def delegate_to_copilot(
             except RepoArchitectError as exc:
                 errors.append(f"label update: {exc}")
 
-            # 2. Assign to Copilot agent
+            # 2. Post pre-assignment audit comment with machine linkage
+            #    material.  Copilot receives the issue body + all existing
+            #    comments at the moment of assignment, so the linkage
+            #    comment must be posted BEFORE the assignment call.
+            comment = (
+                f"**repo-architect delegation** (run `{run_id}`)\n\n"
+                f"- active objective: `{config.active_objective or 'general'}`\n"
+                f"- lane: `{lane}`\n"
+                f"- issue fingerprint: `{fp}`\n"
+                f"- target assignee: `@{COPILOT_AGENT_ASSIGNEE}`\n\n"
+                f"{linkage_block}\n\n"
+                "When opening a PR, include this exact linkage block (or the fingerprint marker) "
+                "in the PR body so reconciliation can match with exact confidence.\n\n"
+                "_This comment is posted before assignment so the Copilot coding agent "
+                "receives it as part of the issue context._"
+            )
+            try:
+                comment_resp = update_github_issue_api(config, issue_number, comment)
+                comment_evidence = {
+                    "id": comment_resp.get("id") if isinstance(comment_resp, dict) else None,
+                    "url": comment_resp.get("html_url") if isinstance(comment_resp, dict) else None,
+                    "posted": isinstance(comment_resp, dict) and bool(comment_resp.get("id")),
+                    "role": "pre-assignment-audit",
+                }
+            except RepoArchitectError as exc:
+                errors.append(f"audit comment: {exc}")
+
+            # 3. Assign to Copilot agent — this is the sole execution trigger.
+            #    Confirmation is based exclusively on whether the assignment
+            #    API response lists the target assignee.
             try:
                 assign_resp = github_request(
                     config.github_token,
@@ -2448,40 +2486,18 @@ def delegate_to_copilot(
             except RepoArchitectError as exc:
                 errors.append(f"assignment: {exc}")
 
-            # 3. Post delegation comment with machine linkage material
-            comment = (
-                f"**repo-architect delegation request** (run `{run_id}`)\n\n"
-                f"- active objective: `{config.active_objective or 'general'}`\n"
-                f"- lane: `{lane}`\n"
-                f"- issue fingerprint: `{fp}`\n"
-                f"- target assignee: `@{COPILOT_AGENT_ASSIGNEE}`\n\n"
-                f"{linkage_block}\n\n"
-                "When opening a PR, include this exact linkage block (or the fingerprint marker) "
-                "in the PR body so reconciliation can match with exact confidence."
-            )
-            try:
-                comment_resp = update_github_issue_api(config, issue_number, comment)
-                comment_evidence = {
-                    "id": comment_resp.get("id") if isinstance(comment_resp, dict) else None,
-                    "url": comment_resp.get("html_url") if isinstance(comment_resp, dict) else None,
-                    "confirmed": isinstance(comment_resp, dict) and bool(comment_resp.get("id")),
-                }
-                if comment_evidence.get("confirmed"):
-                    delegation_confirmation_evidence["comment"] = comment_evidence
-            except RepoArchitectError as exc:
-                errors.append(f"comment: {exc}")
-
-            confirmation_count = len(delegation_confirmation_evidence)
-            if errors and confirmation_count == 0:
-                delegation_state = "delegation-failed"
-                lifecycle_fact_state = "failed-delegation"
-                result["action"] = "delegation_failed"
-            elif confirmation_count > 0:
+            # Delegation confirmation is based solely on assignment evidence.
+            # The audit comment is NOT part of the confirmation contract.
+            if assignment_evidence and assignment_evidence.get("confirmed"):
                 delegation_state = "delegation-confirmed"
                 lifecycle_fact_state = "in-progress"
                 delegation_confirmed_at = now
                 result["action"] = "delegation_confirmed"
                 result["assignee"] = COPILOT_AGENT_ASSIGNEE
+            elif errors and not assignment_evidence:
+                delegation_state = "delegation-failed"
+                lifecycle_fact_state = "failed-delegation"
+                result["action"] = "delegation_failed"
             else:
                 delegation_state = "delegation-unconfirmed"
                 lifecycle_fact_state = "delegation-requested"
