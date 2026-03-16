@@ -156,6 +156,38 @@ _MAX_INLINE_FILE_DISPLAY = 5
 # Maximum number of violations shown in issue body for Lane 5/7 gaps
 _MAX_VIOLATIONS_DISPLAY = 5
 
+# ---------------------------------------------------------------------------
+# Closed-loop execution / memory lane constants
+# ---------------------------------------------------------------------------
+# Durable work-state file stored in .agent/ (gitignored alongside other artifacts)
+WORK_STATE_FILE = "work_state.json"
+# New operating modes for the execution and reconciliation lanes
+EXECUTION_MODE = "execution"
+RECONCILE_MODE = "reconcile"
+# Lifecycle labels — document and drive issue → PR state transitions
+LIFECYCLE_LABELS: Tuple[str, ...] = (
+    "ready-for-delegation",
+    "in-progress",
+    "pr-open",
+    "merged",
+    "blocked",
+    "superseded",
+)
+# Labels required for an issue to be eligible for execution selection
+EXECUTION_ELIGIBLE_LABELS: Tuple[str, ...] = ("arch-gap", "copilot-task", "needs-implementation")
+# GitHub Copilot coding agent assignee username
+COPILOT_AGENT_ASSIGNEE = "copilot"
+# Canonical architectural objectives aligned with charter §14 priority order
+OBJECTIVE_LABELS: Dict[str, str] = {
+    "restore-parse-correctness": "Restore or preserve parse correctness (Lane 2)",
+    "eliminate-import-cycles": "Eliminate import cycles (Lane 3)",
+    "converge-runtime-structure": "Converge runtime entrypoint structure (Lane 4)",
+    "normalise-knowledge-substrate": "Normalise knowledge substrate boundaries (Lane 8)",
+    "isolate-agent-boundaries": "Isolate agent boundaries (Lane 7)",
+    "reduce-architecture-score-risk": "Reduce architecture score risk (Lanes 0–9)",
+    "add-consciousness-instrumentation": "Add consciousness instrumentation (Lane 9)",
+}
+
 
 class RepoArchitectError(Exception):
     pass
@@ -195,6 +227,14 @@ class Config:
     dry_run: bool = False           # write issue bodies to disk but do not call GitHub API
     max_issues: int = 1             # maximum issues to open/update per run in issue mode
     issue_subsystem: Optional[str] = None  # target a specific subsystem (None = all)
+    # Closed-loop execution / reconciliation options
+    work_state_path: Optional[pathlib.Path] = None   # path to durable work state JSON; defaults to agent_dir/WORK_STATE_FILE
+    enable_live_delegation: bool = False    # False = dry-run only; True = actually assign/label on GitHub
+    max_concurrent_delegated: int = 1       # max number of issues simultaneously delegated
+    active_objective: Optional[str] = None  # restrict execution selection to this objective key
+    lane_filter: Optional[str] = None       # restrict execution selection to this lane name
+    stale_timeout_days: int = 14            # days before a delegated-but-PR-less item is marked stale
+    reconciliation_window_days: int = 30    # days of PRs to consider during reconciliation
 
 
 @dataclasses.dataclass
@@ -253,6 +293,34 @@ class IssueAction:
     gap_subsystem: str
     error: Optional[str] = None
     labels_confirmed: Optional[List[str]] = None  # labels actually *confirmed* by GitHub API response; None when no API call was made (dry-run/error)
+
+
+@dataclasses.dataclass
+class WorkItem:
+    """Durable record of a single unit of work tracked through planning → execution → PR → reconciliation.
+
+    Stored in .agent/work_state.json (gitignored). The work state is the memory lane:
+    it feeds back into future planning passes to prevent duplicate/overlapping issues.
+    """
+    fingerprint: str            # 12-hex deterministic fingerprint (from issue_fingerprint())
+    objective: str              # active objective at time of creation (e.g. "eliminate-import-cycles")
+    lane: str                   # charter lane name (e.g. "import_cycles")
+    issue_number: Optional[int]
+    issue_state: str            # "open" | "closed"
+    delegation_state: str       # "pending" | "delegated" | "done" | "blocked" | "superseded"
+    assignee: Optional[str]     # GitHub username delegated to (e.g. "copilot")
+    pr_number: Optional[int]
+    pr_url: Optional[str]
+    pr_state: Optional[str]     # "open" | "draft" | "merged" | "closed_unmerged" | "stale" | None
+    merged: bool
+    closed_unmerged: bool
+    blocked: bool
+    superseded: bool
+    created_at: str             # ISO-8601 UTC
+    updated_at: str             # ISO-8601 UTC
+    run_id: str                 # workflow run provenance
+    gap_title: str
+    gap_subsystem: str
 
 
 def log(message: str, *, data: Optional[Dict[str, Any]] = None, json_mode: bool = False) -> None:
@@ -1389,13 +1457,19 @@ def run_issue_cycle(config: Config) -> Dict[str, Any]:
     """Execute one issue-synthesis cycle.
 
     Steps:
-      1. Build analysis and model enrichment (same as analyze/report modes).
-      2. Diagnose architectural gaps.
-      3. For each gap (up to max_issues): synthesize a GitHub Issue or dry-run artifact.
-      4. Emit a structured JSON result and write a step summary.
+      1. Load work state (memory lane) to avoid re-raising in-progress issues.
+      2. Build analysis and model enrichment (same as analyze/report modes).
+      3. Diagnose architectural gaps.
+      4. For each gap (up to max_issues): synthesize a GitHub Issue or dry-run artifact.
+      5. Record new issues into work state so future passes see them.
+      6. Emit a structured JSON result and write a step summary.
     """
     ensure_agent_dir(config.agent_dir)
     state = load_state(config)
+    # Load durable work state (memory lane) — used to suppress in-progress objectives
+    work_state = load_work_state(config)
+    active_fps = _active_fingerprints_in_work_state(work_state)
+
     analysis = build_analysis(config.git_root)
     charter_context = load_charter_context(config.git_root)
     analysis["charter_context"] = charter_context
@@ -1412,6 +1486,15 @@ def run_issue_cycle(config: Config) -> Dict[str, Any]:
     )
 
     gaps = diagnose_gaps(config, analysis, model_meta)
+    # Filter out gaps whose fingerprint is already actively in-progress/delegated
+    if active_fps:
+        filtered_gaps = [
+            g for g in gaps
+            if issue_fingerprint(g.subsystem, g.issue_key) not in active_fps
+        ]
+        if filtered_gaps:
+            gaps = filtered_gaps
+        # If all gaps are filtered, still proceed with original list so planner isn't blocked
     selected_gaps = gaps[: config.max_issues]
 
     issue_actions: List[Dict[str, Any]] = []
@@ -1489,6 +1572,10 @@ def run_issue_cycle(config: Config) -> Dict[str, Any]:
 
     persist_manifest(config, artifact_files)
     write_step_summary(config, result)
+
+    # Record new issues into durable work state (memory lane)
+    ingest_issue_actions_to_work_state(config, work_state, issue_actions, run_id)
+    save_work_state(config, work_state)
 
     state["runs"] = int(state.get("runs", 0)) + 1
     state["last_run_epoch"] = int(time.time())
@@ -2002,6 +2089,47 @@ def save_state(config: Config, state: Dict[str, Any]) -> None:
     atomic_write_json(config.state_path, state)
 
 
+def _work_state_path(config: Config) -> pathlib.Path:
+    """Return the resolved path to the durable work state JSON file."""
+    if config.work_state_path is not None:
+        return config.work_state_path
+    return config.agent_dir / WORK_STATE_FILE
+
+
+def load_work_state(config: Config) -> Dict[str, Any]:
+    """Load the durable work-state artifact (memory lane).
+
+    Returns a dict with schema::
+
+        {
+          "version": str,
+          "updated_at": str | null,
+          "items": [WorkItem-dict, ...]
+        }
+    """
+    return read_json(
+        _work_state_path(config),
+        {"version": VERSION, "updated_at": None, "items": []},
+    )
+
+
+def save_work_state(config: Config, work_state: Dict[str, Any]) -> None:
+    """Persist work state to disk atomically."""
+    work_state["updated_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+    atomic_write_json(_work_state_path(config), work_state)
+
+
+def upsert_work_item(work_state: Dict[str, Any], item: WorkItem) -> None:
+    """Insert or update a WorkItem in the work state, keyed by fingerprint."""
+    items: List[Dict[str, Any]] = work_state.setdefault("items", [])
+    item_dict = dataclasses.asdict(item)
+    for i, existing in enumerate(items):
+        if existing.get("fingerprint") == item.fingerprint:
+            items[i] = item_dict
+            return
+    items.append(item_dict)
+
+
 def persist_analysis(config: Config, analysis: Dict[str, Any]) -> None:
     atomic_write_json(config.analysis_path, analysis)
     atomic_write_json(config.graph_path, analysis.get("local_import_graph", {}))
@@ -2013,6 +2141,662 @@ def baseline_dirty_guard(config: Config) -> None:
         return
     if git_is_dirty(config.git_root):
         raise RepoArchitectError("Repository has uncommitted changes. Re-run with --allow-dirty if you really want mutation.")
+
+
+# ---------------------------------------------------------------------------
+# Execution lane: issue selection, Copilot delegation, PR reconciliation
+# ---------------------------------------------------------------------------
+
+def _list_github_issues_by_labels(
+    config: Config, labels: Sequence[str], state: str = "open"
+) -> List[Dict[str, Any]]:
+    """List GitHub issues that carry ALL of the given labels."""
+    if not config.github_token or not config.github_repo:
+        return []
+    try:
+        params = urllib.parse.urlencode({
+            "labels": ",".join(labels),
+            "state": state,
+            "per_page": "50",
+        })
+        result = github_request(config.github_token, f"/repos/{config.github_repo}/issues?{params}")
+        return result if isinstance(result, list) else []
+    except RepoArchitectError:
+        return []
+
+
+def _extract_fingerprint_from_body(body: str) -> Optional[str]:
+    """Extract the 12-hex arch-gap fingerprint marker from an issue body."""
+    m = re.search(r"arch-gap-fingerprint:\s*([0-9a-f]{12})", body)
+    return m.group(1) if m else None
+
+
+def _extract_lane_from_body(body: str) -> Optional[str]:
+    """Attempt to extract the charter lane name from an issue body."""
+    m = re.search(r"(?i)Lane[:\s]+([A-Za-z][A-Za-z0-9_-]*)", body)
+    return m.group(1).lower() if m else None
+
+
+def select_ready_issue(
+    config: Config, work_state: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
+    """Select one ready issue for delegation to Copilot.
+
+    Selection rules (all must pass):
+    - Issue has labels: arch-gap, copilot-task, needs-implementation
+    - Issue does NOT have: blocked, superseded, in-progress, pr-open, merged
+    - Not already tracked as delegated/in-progress in work state
+    - Fingerprint not already delegated
+    - At most one issue per lane at a time
+    - Respects MAX_CONCURRENT_DELEGATED
+    - Prefers highest priority first (critical > high > medium > low)
+    - Respects active_objective and lane_filter preferences if set
+
+    Returns the GitHub issue dict for the selected issue, or None.
+    """
+    if not config.github_token or not config.github_repo:
+        return None
+
+    items: List[Dict[str, Any]] = work_state.get("items", [])
+
+    # Count currently in-flight items (delegated, not yet done)
+    in_flight = [
+        it for it in items
+        if it.get("delegation_state") == "delegated"
+        and not it.get("merged")
+        and not it.get("closed_unmerged")
+    ]
+    if len(in_flight) >= config.max_concurrent_delegated:
+        return None
+
+    # Build blocked sets from work state
+    blocked_fingerprints: Set[str] = set()
+    blocked_issue_numbers: Set[int] = set()
+    blocked_lanes: Set[str] = set()
+    for it in in_flight:
+        if it.get("fingerprint"):
+            blocked_fingerprints.add(it["fingerprint"])
+        if it.get("issue_number"):
+            blocked_issue_numbers.add(int(it["issue_number"]))
+        if it.get("lane"):
+            blocked_lanes.add(it["lane"])
+
+    # Also block superseded/blocked items by fingerprint
+    for it in items:
+        if it.get("blocked") or it.get("superseded"):
+            if it.get("fingerprint"):
+                blocked_fingerprints.add(it["fingerprint"])
+            if it.get("issue_number"):
+                blocked_issue_numbers.add(int(it["issue_number"]))
+
+    # Fetch eligible issues from GitHub
+    candidate_issues = _list_github_issues_by_labels(
+        config, list(EXECUTION_ELIGIBLE_LABELS), state="open"
+    )
+
+    filtered: List[Tuple[Dict[str, Any], Optional[str], Optional[str]]] = []
+    blocking_lifecycle = {"blocked", "superseded", "in-progress", "pr-open", "merged"}
+
+    for issue in candidate_issues:
+        issue_labels: Set[str] = {
+            lbl["name"]
+            for lbl in issue.get("labels", [])
+            if isinstance(lbl, dict)
+        }
+        # Skip lifecycle-blocked issues
+        if issue_labels & blocking_lifecycle:
+            continue
+
+        issue_num = issue.get("number")
+        if issue_num and int(issue_num) in blocked_issue_numbers:
+            continue
+
+        body = issue.get("body") or ""
+        fp = _extract_fingerprint_from_body(body)
+        if fp and fp in blocked_fingerprints:
+            continue
+
+        lane = _extract_lane_from_body(body)
+
+        # One issue per lane at a time
+        if lane and lane in blocked_lanes:
+            continue
+
+        # Lane filter preference (soft — only skip if we have other options)
+        if config.lane_filter and lane and lane != config.lane_filter:
+            continue
+
+        filtered.append((issue, fp, lane))
+
+    if not filtered:
+        return None
+
+    # Sort by priority
+    _prank = {p: i for i, p in enumerate(ISSUE_PRIORITY_LEVELS)}
+
+    def _priority(entry: Tuple[Dict[str, Any], Optional[str], Optional[str]]) -> int:
+        issue, _, _ = entry
+        lbls = {lbl["name"] for lbl in issue.get("labels", []) if isinstance(lbl, dict)}
+        for lbl in lbls:
+            if lbl.startswith("priority:"):
+                return _prank.get(lbl.split(":", 1)[1], 99)
+        return 99
+
+    filtered.sort(key=_priority)
+    best_issue, _, _ = filtered[0]
+    return best_issue
+
+
+def delegate_to_copilot(
+    config: Config,
+    issue: Dict[str, Any],
+    work_state: Dict[str, Any],
+    run_id: str,
+) -> Dict[str, Any]:
+    """Delegate an issue to GitHub Copilot coding agent.
+
+    Dry-run mode (config.enable_live_delegation is False):
+        - Reports what would happen; no GitHub API side effects.
+
+    Live mode (config.enable_live_delegation is True):
+        - Adds 'in-progress' label, removes 'ready-for-delegation'.
+        - Assigns the issue to COPILOT_AGENT_ASSIGNEE ("copilot").
+        - Posts a delegation comment.
+
+    Always records the delegation event in work_state.
+    """
+    dry_run = not config.enable_live_delegation
+    issue_number = issue.get("number")
+    issue_title = issue.get("title", "")
+    issue_url = issue.get("html_url", "")
+    body = issue.get("body") or ""
+
+    fp = _extract_fingerprint_from_body(body) or f"unknown-{issue_number}"
+    lane = _extract_lane_from_body(body) or "unknown"
+    issue_labels: Set[str] = {
+        lbl["name"] for lbl in issue.get("labels", []) if isinstance(lbl, dict)
+    }
+    subsystem = next((s for s in SUBSYSTEM_LABELS if s in issue_labels), "runtime")
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
+
+    result: Dict[str, Any] = {
+        "action": "dry_run" if dry_run else "delegated",
+        "issue_number": issue_number,
+        "issue_url": issue_url,
+        "issue_title": issue_title,
+        "fingerprint": fp,
+        "assignee": COPILOT_AGENT_ASSIGNEE if not dry_run else None,
+        "labels_added": ["in-progress"],
+        "labels_removed": ["ready-for-delegation"],
+        "dry_run": dry_run,
+    }
+
+    if dry_run:
+        log(
+            f"[dry-run] Would delegate issue #{issue_number} "
+            f"to @{COPILOT_AGENT_ASSIGNEE}: {issue_title}",
+            json_mode=config.log_json,
+        )
+    else:
+        if not config.github_token or not config.github_repo:
+            result["action"] = "error"
+            result["error"] = "Missing GITHUB_TOKEN or GITHUB_REPO for live delegation."
+        else:
+            errors: List[str] = []
+            # 1. Update lifecycle labels
+            new_labels = (issue_labels - {"ready-for-delegation"}) | {"in-progress"}
+            try:
+                ensure_github_labels(config, sorted(new_labels))
+                set_github_issue_labels(config, issue_number, sorted(new_labels))
+            except RepoArchitectError as exc:
+                errors.append(f"label update: {exc}")
+            # 2. Assign to Copilot
+            try:
+                github_request(
+                    config.github_token,
+                    f"/repos/{config.github_repo}/issues/{issue_number}/assignees",
+                    method="POST",
+                    payload={"assignees": [COPILOT_AGENT_ASSIGNEE]},
+                )
+            except RepoArchitectError as exc:
+                errors.append(f"assignment: {exc}")
+            # 3. Post delegation comment
+            comment = (
+                f"**repo-architect delegation** (run `{run_id}`): "
+                f"this issue has been selected for execution and assigned to "
+                f"`@{COPILOT_AGENT_ASSIGNEE}`.\n\n"
+                f"**Active objective**: `{config.active_objective or 'general'}`\n"
+                f"**Lane**: `{lane}`\n"
+                f"**Fingerprint**: `{fp}`\n\n"
+                f"When a PR is opened, repo-architect reconciliation will ingest its state "
+                f"and update this issue's lifecycle labels."
+            )
+            try:
+                update_github_issue_api(config, issue_number, comment)
+            except RepoArchitectError as exc:
+                errors.append(f"comment: {exc}")
+            if errors:
+                result["action"] = "partial"
+                result["errors"] = errors
+            result["assignee"] = COPILOT_AGENT_ASSIGNEE
+
+    # Record in work state
+    delegation_state = "pending" if dry_run else "delegated"
+    existing_item_dict: Optional[Dict[str, Any]] = None
+    for it in work_state.get("items", []):
+        if it.get("fingerprint") == fp:
+            existing_item_dict = it
+            break
+
+    if existing_item_dict:
+        work_item = WorkItem(
+            fingerprint=fp,
+            objective=existing_item_dict.get("objective") or config.active_objective or "",
+            lane=existing_item_dict.get("lane") or lane,
+            issue_number=issue_number,
+            issue_state=existing_item_dict.get("issue_state") or "open",
+            delegation_state=delegation_state,
+            assignee=COPILOT_AGENT_ASSIGNEE if not dry_run else existing_item_dict.get("assignee"),
+            pr_number=existing_item_dict.get("pr_number"),
+            pr_url=existing_item_dict.get("pr_url"),
+            pr_state=existing_item_dict.get("pr_state"),
+            merged=bool(existing_item_dict.get("merged")),
+            closed_unmerged=bool(existing_item_dict.get("closed_unmerged")),
+            blocked=bool(existing_item_dict.get("blocked")),
+            superseded=bool(existing_item_dict.get("superseded")),
+            created_at=existing_item_dict.get("created_at") or now,
+            updated_at=now,
+            run_id=run_id,
+            gap_title=issue_title,
+            gap_subsystem=subsystem,
+        )
+    else:
+        work_item = WorkItem(
+            fingerprint=fp,
+            objective=config.active_objective or "",
+            lane=lane,
+            issue_number=issue_number,
+            issue_state="open",
+            delegation_state=delegation_state,
+            assignee=COPILOT_AGENT_ASSIGNEE if not dry_run else None,
+            pr_number=None,
+            pr_url=None,
+            pr_state=None,
+            merged=False,
+            closed_unmerged=False,
+            blocked=False,
+            superseded=False,
+            created_at=now,
+            updated_at=now,
+            run_id=run_id,
+            gap_title=issue_title,
+            gap_subsystem=subsystem,
+        )
+    upsert_work_item(work_state, work_item)
+    return result
+
+
+def _list_prs_for_repo(
+    config: Config, state: str = "all", per_page: int = 50
+) -> List[Dict[str, Any]]:
+    """List pull requests from the repository."""
+    if not config.github_token or not config.github_repo:
+        return []
+    try:
+        params = urllib.parse.urlencode({"state": state, "per_page": str(per_page)})
+        result = github_request(
+            config.github_token,
+            f"/repos/{config.github_repo}/pulls?{params}",
+        )
+        return result if isinstance(result, list) else []
+    except RepoArchitectError:
+        return []
+
+
+def _classify_pr(pr: Dict[str, Any]) -> str:
+    """Classify a PR into a lifecycle state string."""
+    if pr.get("merged_at"):
+        return "merged"
+    state = pr.get("state", "open")
+    if state == "closed":
+        return "closed_unmerged"
+    if pr.get("draft"):
+        return "draft"
+    return "open"
+
+
+def _pr_mentions_issue(pr: Dict[str, Any], issue_number: int) -> bool:
+    """Return True if the PR body or title references the given issue number."""
+    body = (pr.get("body") or "").lower()
+    title = (pr.get("title") or "").lower()
+    needle = f"#{issue_number}"
+    if needle in body or needle in title:
+        return True
+    # Also check for "closes/fixes/resolves NNN" patterns without #
+    for pat in (f"closes {issue_number}", f"fixes {issue_number}", f"resolves {issue_number}"):
+        if pat in body:
+            return True
+    return False
+
+
+def _update_issue_lifecycle_labels_for_pr(
+    config: Config, issue_number: int, pr_class: str
+) -> None:
+    """Transition lifecycle labels on an issue based on the detected PR state."""
+    if not config.github_token or not config.github_repo:
+        return
+    try:
+        issue_data = github_request(
+            config.github_token,
+            f"/repos/{config.github_repo}/issues/{issue_number}",
+        )
+    except RepoArchitectError:
+        return
+    current = {lbl["name"] for lbl in issue_data.get("labels", []) if isinstance(lbl, dict)}
+    new_labels = current - set(LIFECYCLE_LABELS)
+    if pr_class == "merged":
+        new_labels.add("merged")
+    elif pr_class == "closed_unmerged":
+        new_labels.add("superseded")
+    elif pr_class in ("open", "draft"):
+        new_labels.add("pr-open")
+    elif pr_class == "stale":
+        new_labels.add("blocked")
+    try:
+        ensure_github_labels(config, sorted(new_labels))
+        set_github_issue_labels(config, issue_number, sorted(new_labels))
+    except RepoArchitectError:
+        pass
+
+
+def reconcile_pr_state(
+    config: Config, work_state: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Ingest PR state back into work state for all tracked work items.
+
+    For each tracked item that is not yet finished (merged / closed_unmerged),
+    detect linked PRs and update item state + lifecycle labels accordingly.
+
+    Returns a summary dict with ``status``, ``updated``, ``prs_found``, and ``details``.
+    """
+    items: List[Dict[str, Any]] = work_state.get("items", [])
+    if not items:
+        return {"status": "reconcile_complete", "updated": 0, "prs_found": 0, "details": []}
+
+    # Fetch enough PRs to cover the reconciliation window (100 = GitHub API max per page)
+    recent_prs = _list_prs_for_repo(config, state="all", per_page=100)
+    stale_cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=config.stale_timeout_days)
+    window_cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=config.reconciliation_window_days)
+    # Filter PRs to the reconciliation window
+    filtered_prs: List[Dict[str, Any]] = []
+    for pr in recent_prs:
+        created = pr.get("created_at") or ""
+        try:
+            pr_created = dt.datetime.fromisoformat(created.replace("Z", "+00:00"))
+            if pr_created >= window_cutoff:
+                filtered_prs.append(pr)
+        except (ValueError, TypeError):
+            filtered_prs.append(pr)  # keep PRs with unparseable dates
+    recent_prs = filtered_prs
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
+
+    updated = 0
+    prs_found = 0
+    details: List[Dict[str, Any]] = []
+
+    for i, item in enumerate(items):
+        issue_number = item.get("issue_number")
+        if not issue_number:
+            continue
+        # Already finished
+        if item.get("merged") or item.get("closed_unmerged"):
+            continue
+
+        matching = [pr for pr in recent_prs if _pr_mentions_issue(pr, int(issue_number))]
+        if not matching:
+            # Check for stale (delegated with no PR for too long)
+            updated_str = item.get("updated_at")
+            if item.get("delegation_state") == "delegated" and updated_str:
+                try:
+                    updated_at = dt.datetime.fromisoformat(updated_str.replace("Z", "+00:00"))
+                    if updated_at < stale_cutoff and item.get("pr_state") != "stale":
+                        new_item = dict(item)
+                        new_item["pr_state"] = "stale"
+                        new_item["updated_at"] = now
+                        items[i] = new_item
+                        updated += 1
+                        details.append({"issue": issue_number, "pr_state": "stale"})
+                        if not config.dry_run:
+                            _update_issue_lifecycle_labels_for_pr(
+                                config, int(issue_number), "stale"
+                            )
+                except (ValueError, TypeError):
+                    pass
+            continue
+
+        prs_found += len(matching)
+        merged_pr = next((pr for pr in matching if pr.get("merged_at")), None)
+        open_pr = next(
+            (pr for pr in matching if pr.get("state") == "open" and not pr.get("merged_at")),
+            None,
+        )
+        closed_pr = next(
+            (pr for pr in matching if pr.get("state") == "closed" and not pr.get("merged_at")),
+            None,
+        )
+        best_pr = merged_pr or open_pr or closed_pr or matching[0]
+        pr_class = _classify_pr(best_pr)
+
+        new_item = dict(item)
+        new_item["pr_number"] = best_pr.get("number")
+        new_item["pr_url"] = best_pr.get("html_url")
+        new_item["pr_state"] = pr_class
+        new_item["updated_at"] = now
+        if pr_class == "merged":
+            new_item["merged"] = True
+            new_item["delegation_state"] = "done"
+        elif pr_class == "closed_unmerged":
+            new_item["closed_unmerged"] = True
+            new_item["delegation_state"] = "done"
+        elif pr_class in ("open", "draft"):
+            new_item["delegation_state"] = "delegated"
+
+        if new_item != item:
+            items[i] = new_item
+            updated += 1
+            details.append({
+                "issue": issue_number,
+                "pr_number": best_pr.get("number"),
+                "pr_state": pr_class,
+                "old_delegation": item.get("delegation_state"),
+                "new_delegation": new_item.get("delegation_state"),
+            })
+            if not config.dry_run:
+                _update_issue_lifecycle_labels_for_pr(config, int(issue_number), pr_class)
+
+    work_state["items"] = items
+    return {
+        "status": "reconcile_complete",
+        "updated": updated,
+        "prs_found": prs_found,
+        "details": details,
+    }
+
+
+def ingest_issue_actions_to_work_state(
+    config: Config,
+    work_state: Dict[str, Any],
+    issue_actions: List[Dict[str, Any]],
+    run_id: str,
+) -> None:
+    """Record newly created/updated issues into the work state (memory lane).
+
+    Called at the end of run_issue_cycle() so future planning passes can see
+    what has already been submitted.
+    """
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
+    for action in issue_actions:
+        if action.get("action") not in ("created", "updated", "dry_run"):
+            continue
+        fp = action.get("fingerprint")
+        if not fp:
+            continue
+        issue_number = action.get("issue_number")
+        gap_title = action.get("gap_title") or ""
+        gap_subsystem = action.get("gap_subsystem") or "runtime"
+
+        # Find existing item or create new
+        existing: Optional[Dict[str, Any]] = None
+        for it in work_state.get("items", []):
+            if it.get("fingerprint") == fp:
+                existing = it
+                break
+
+        if existing:
+            # Refresh issue_number if it was just created
+            new_it = dict(existing)
+            if issue_number and not existing.get("issue_number"):
+                new_it["issue_number"] = issue_number
+            new_it["issue_state"] = "open"
+            new_it["updated_at"] = now
+            new_it["run_id"] = run_id
+            upsert_work_item(work_state, WorkItem(**new_it))
+        else:
+            work_item = WorkItem(
+                fingerprint=fp,
+                objective=config.active_objective or "",
+                lane="unknown",
+                issue_number=issue_number,
+                issue_state="open",
+                delegation_state="pending",
+                assignee=None,
+                pr_number=None,
+                pr_url=None,
+                pr_state=None,
+                merged=False,
+                closed_unmerged=False,
+                blocked=False,
+                superseded=False,
+                created_at=now,
+                updated_at=now,
+                run_id=run_id,
+                gap_title=gap_title,
+                gap_subsystem=gap_subsystem,
+            )
+            upsert_work_item(work_state, work_item)
+
+
+def _active_fingerprints_in_work_state(work_state: Dict[str, Any]) -> Set[str]:
+    """Return fingerprints of issues that are currently in-progress or delegated.
+
+    Used by the planner to avoid re-raising the same issue when one is already active.
+    """
+    return {
+        it["fingerprint"]
+        for it in work_state.get("items", [])
+        if it.get("fingerprint")
+        and it.get("delegation_state") in ("pending", "delegated")
+        and not it.get("merged")
+        and not it.get("closed_unmerged")
+    }
+
+
+def run_execution_cycle(config: Config) -> Dict[str, Any]:
+    """Execute one execution-lane pass: select + delegate one ready issue.
+
+    Steps:
+    1. Load work state.
+    2. Reconcile PR state (so selection sees current issue states).
+    3. Select one ready issue.
+    4. Delegate it (dry-run or live depending on config.enable_live_delegation).
+    5. Save updated work state.
+    6. Return structured result.
+    """
+    ensure_agent_dir(config.agent_dir)
+    work_state = load_work_state(config)
+
+    # Run lightweight reconciliation first so selection state is fresh
+    reconcile_result = reconcile_pr_state(config, work_state)
+
+    run_id = (
+        os.environ.get("REPO_ARCHITECT_BRANCH_SUFFIX")
+        or os.environ.get("GITHUB_RUN_ID")
+        or dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d%H%M%S")
+    )
+
+    selected = select_ready_issue(config, work_state)
+    if selected is None:
+        save_work_state(config, work_state)
+        return {
+            "status": "execution_cycle_complete",
+            "mode": EXECUTION_MODE,
+            "dry_run": not config.enable_live_delegation,
+            "selected_issue": None,
+            "delegation": None,
+            "reconcile": reconcile_result,
+            "message": "No ready issues available for delegation.",
+        }
+
+    delegation_result = delegate_to_copilot(config, selected, work_state, run_id)
+    save_work_state(config, work_state)
+
+    summary_line = (
+        f"[dry-run] " if not config.enable_live_delegation else ""
+    ) + (
+        f"delegated issue #{selected.get('number')} "
+        f"— {selected.get('title', '')}"
+    )
+    log(summary_line, json_mode=config.log_json)
+
+    result: Dict[str, Any] = {
+        "status": "execution_cycle_complete",
+        "mode": EXECUTION_MODE,
+        "dry_run": not config.enable_live_delegation,
+        "selected_issue": {
+            "number": selected.get("number"),
+            "title": selected.get("title"),
+            "url": selected.get("html_url"),
+        },
+        "delegation": delegation_result,
+        "reconcile": reconcile_result,
+        "summary": [summary_line],
+    }
+    write_step_summary(config, result)
+    return result
+
+
+def run_reconciliation_cycle(config: Config) -> Dict[str, Any]:
+    """Execute one reconciliation-lane pass: ingest PR outcomes into work state.
+
+    Steps:
+    1. Load work state.
+    2. Fetch all recent PRs.
+    3. Update item states and lifecycle labels.
+    4. Save updated work state.
+    5. Return structured result.
+    """
+    ensure_agent_dir(config.agent_dir)
+    work_state = load_work_state(config)
+    reconcile_result = reconcile_pr_state(config, work_state)
+    save_work_state(config, work_state)
+
+    summary = (
+        f"reconcile: {reconcile_result['updated']} items updated, "
+        f"{reconcile_result['prs_found']} PRs found"
+    )
+    log(summary, json_mode=config.log_json)
+
+    result: Dict[str, Any] = {
+        "status": "reconcile_cycle_complete",
+        "mode": RECONCILE_MODE,
+        "dry_run": config.dry_run,
+        "updated": reconcile_result.get("updated", 0),
+        "prs_found": reconcile_result.get("prs_found", 0),
+        "details": reconcile_result.get("details", []),
+        "summary": [summary],
+    }
+    write_step_summary(config, result)
+    return result
 
 
 def remove_marked_debug_prints(root: pathlib.Path, analysis: Dict[str, Any], budget: int) -> Optional[PatchPlan]:
@@ -2779,9 +3563,13 @@ def persist_manifest(config: Config, artifact_files: List[str]) -> None:
 
 
 def run_cycle(config: Config) -> Dict[str, Any]:
-    # Route issue mode to the dedicated issue cycle function
+    # Route modes to dedicated cycle functions
     if config.mode == ISSUE_MODE:
         return run_issue_cycle(config)
+    if config.mode == EXECUTION_MODE:
+        return run_execution_cycle(config)
+    if config.mode == RECONCILE_MODE:
+        return run_reconciliation_cycle(config)
 
     ensure_agent_dir(config.agent_dir)
     state = load_state(config)
@@ -3115,6 +3903,76 @@ def build_config(args: argparse.Namespace) -> Config:
             f"Invalid REPO_ARCHITECT_SUBSYSTEM={issue_subsystem!r}. "
             f"Expected one of: {', '.join(SUBSYSTEM_LABELS)}"
         )
+    # Closed-loop execution / reconciliation options
+    active_objective = (
+        getattr(args, "active_objective", None)
+        or os.environ.get("ACTIVE_OBJECTIVE")
+        or os.environ.get("REPO_ARCHITECT_ACTIVE_OBJECTIVE")
+    )
+    if active_objective and active_objective not in OBJECTIVE_LABELS:
+        raise RepoArchitectError(
+            f"Invalid active_objective={active_objective!r}. "
+            f"Expected one of: {', '.join(OBJECTIVE_LABELS)}"
+        )
+    lane_filter = (
+        getattr(args, "lane_filter", None)
+        or os.environ.get("LANE_FILTER")
+        or os.environ.get("REPO_ARCHITECT_LANE_FILTER")
+    )
+    # ENABLE_LIVE_DELEGATION accepts "true"/"false" (canonical from workflow) or "1"/"0"/"yes"/"no"
+    # for shell/env compatibility. Only "true"/"1"/"yes" enables live delegation.
+    enable_live_delegation_raw = (
+        os.environ.get("ENABLE_LIVE_DELEGATION", "").strip().lower()
+        or ("true" if getattr(args, "enable_live_delegation", False) else "false")
+    )
+    _delegation_truthy = frozenset({"true", "1", "yes"})
+    _delegation_falsy = frozenset({"false", "0", "no", ""})
+    if enable_live_delegation_raw not in _delegation_truthy | _delegation_falsy:
+        raise RepoArchitectError(
+            f"Invalid ENABLE_LIVE_DELEGATION={enable_live_delegation_raw!r}. "
+            f"Expected true or false."
+        )
+    enable_live_delegation = enable_live_delegation_raw in _delegation_truthy
+
+    max_concurrent_raw = (
+        os.environ.get("MAX_CONCURRENT_DELEGATED", "")
+        or str(getattr(args, "max_concurrent_delegated", 1) or 1)
+    )
+    try:
+        max_concurrent_delegated = int(max_concurrent_raw)
+        if max_concurrent_delegated < 1:
+            raise ValueError("must be >= 1")
+    except (ValueError, TypeError):
+        raise RepoArchitectError(
+            f"Invalid MAX_CONCURRENT_DELEGATED={max_concurrent_raw!r}. Expected positive integer."
+        )
+
+    stale_raw = (
+        os.environ.get("STALE_TIMEOUT_DAYS", "")
+        or str(getattr(args, "stale_timeout_days", 14) or 14)
+    )
+    try:
+        stale_timeout_days = int(stale_raw)
+        if stale_timeout_days < 1:
+            raise ValueError("must be >= 1")
+    except (ValueError, TypeError):
+        raise RepoArchitectError(
+            f"Invalid STALE_TIMEOUT_DAYS={stale_raw!r}. Expected positive integer."
+        )
+
+    reconciliation_raw = (
+        os.environ.get("RECONCILIATION_WINDOW_DAYS", "")
+        or str(getattr(args, "reconciliation_window_days", 30) or 30)
+    )
+    try:
+        reconciliation_window_days = int(reconciliation_raw)
+        if reconciliation_window_days < 1:
+            raise ValueError("must be >= 1")
+    except (ValueError, TypeError):
+        raise RepoArchitectError(
+            f"Invalid RECONCILIATION_WINDOW_DAYS={reconciliation_raw!r}. Expected positive integer."
+        )
+
     return Config(
         git_root=git_root,
         agent_dir=agent_dir,
@@ -3144,6 +4002,12 @@ def build_config(args: argparse.Namespace) -> Config:
         dry_run=args.dry_run,
         max_issues=args.max_issues,
         issue_subsystem=issue_subsystem,
+        enable_live_delegation=enable_live_delegation,
+        max_concurrent_delegated=max_concurrent_delegated,
+        active_objective=active_objective,
+        lane_filter=lane_filter,
+        stale_timeout_days=stale_timeout_days,
+        reconciliation_window_days=reconciliation_window_days,
     )
 
 
@@ -3155,11 +4019,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     p.add_argument(
         "--mode",
-        choices=["analyze", "report", "issue", "mutate", "campaign"],
+        choices=["analyze", "report", "issue", "mutate", "campaign", "execution", "reconcile"],
         default="issue",
         help=(
             "Operating mode. 'issue' (default) is the safe governance mode: detects architectural gaps and "
-            "opens/updates GitHub Issues. 'analyze'/'report' are read-only. "
+            "opens/updates GitHub Issues. 'execution' selects one ready issue and delegates it to Copilot. "
+            "'reconcile' ingests PR outcomes back into work state. "
+            "'analyze'/'report' are read-only. "
             "'mutate'/'campaign' are charter-validated secondary modes that perform "
             "narrow, validated code mutations per GODELOS_REPO_IMPLEMENTATION_CHARTER §9–§10."
         ),
@@ -3191,6 +4057,20 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     p.add_argument("--issue-subsystem", default=None,
                    choices=SUBSYSTEM_LABELS,
                    help="Issue mode: restrict gap detection to a specific subsystem.")
+    # Closed-loop execution / reconciliation operator controls
+    p.add_argument("--enable-live-delegation", action="store_true",
+                   help="Execution mode: actually delegate to Copilot via GitHub API (default: dry-run only).")
+    p.add_argument("--max-concurrent-delegated", type=int, default=1,
+                   help="Execution mode: max number of issues simultaneously in-flight (default: 1).")
+    p.add_argument("--active-objective", default=None,
+                   help=f"Execution mode: restrict selection to a specific objective. "
+                        f"Valid values: {', '.join(OBJECTIVE_LABELS)}.")
+    p.add_argument("--lane-filter", default=None,
+                   help="Execution mode: restrict issue selection to a specific charter lane name.")
+    p.add_argument("--stale-timeout-days", type=int, default=14,
+                   help="Reconciliation: days before a delegated-but-PR-less item is marked stale (default: 14).")
+    p.add_argument("--reconciliation-window-days", type=int, default=30,
+                   help="Reconciliation: days of PRs to consider during reconciliation (default: 30).")
     return p.parse_args(argv)
 
 
@@ -3243,6 +4123,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if config.mode == ISSUE_MODE:
             result = run_issue_cycle(config)
             # Emit human-readable summary to stderr
+            for line in result.get("summary", []):
+                log(line, json_mode=config.log_json)
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+
+        # Execution lane — select one ready issue and delegate to Copilot
+        if config.mode == EXECUTION_MODE:
+            result = run_execution_cycle(config)
+            for line in result.get("summary", []):
+                log(line, json_mode=config.log_json)
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+
+        # Reconciliation lane — ingest PR outcomes back into work state
+        if config.mode == RECONCILE_MODE:
+            result = run_reconciliation_cycle(config)
             for line in result.get("summary", []):
                 log(line, json_mode=config.log_json)
             print(json.dumps(result, indent=2, sort_keys=True))

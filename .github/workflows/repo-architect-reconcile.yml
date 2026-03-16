@@ -1,0 +1,94 @@
+name: repo-architect-reconcile
+
+# Reconciliation lane: ingest PR outcomes back into durable work state.
+# Runs every 4 hours on a schedule, or on workflow_dispatch.
+# Uses a per-repository concurrency group to prevent overlapping reconciliation runs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      stale_timeout_days:
+        description: 'Days before a delegated-but-PR-less item is marked stale'
+        required: false
+        default: '14'
+        type: string
+      reconciliation_window_days:
+        description: 'Days of PRs to consider during reconciliation'
+        required: false
+        default: '30'
+        type: string
+      dry_run:
+        description: 'Dry-run: read PR state but do not update lifecycle labels on issues'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+  schedule:
+    # Every 4 hours
+    - cron: '57 */4 * * *'
+
+concurrency:
+  group: repo-architect-reconcile-${{ github.repository }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+  models: read
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Ensure artifact directories exist
+        run: mkdir -p .agent docs/repo_architect
+
+      - name: Run repo architect (reconcile mode)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPO: ${{ github.repository }}
+          REPO_ARCHITECT_BRANCH_SUFFIX: ${{ github.run_id }}-${{ github.run_attempt }}
+          STALE_TIMEOUT_DAYS: ${{ github.event.inputs.stale_timeout_days || '14' }}
+          RECONCILIATION_WINDOW_DAYS: ${{ github.event.inputs.reconciliation_window_days || '30' }}
+        run: |
+          DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
+          EXTRA_ARGS=""
+          if [ "$DRY_RUN" = "true" ]; then
+            EXTRA_ARGS="$EXTRA_ARGS --dry-run"
+          fi
+          python repo_architect.py --allow-dirty --mode reconcile \
+            --stale-timeout-days "$STALE_TIMEOUT_DAYS" \
+            --reconciliation-window-days "$RECONCILIATION_WINDOW_DAYS" \
+            $EXTRA_ARGS
+
+      - name: Upload reconciliation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: repo-architect-reconcile-${{ github.run_id }}
+          path: .agent
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Write workflow summary
+        if: always()
+        run: |
+          echo "## repo-architect reconciliation run summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **mode**: \`reconcile\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **stale timeout**: \`${{ github.event.inputs.stale_timeout_days || '14' }}d\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **reconciliation window**: \`${{ github.event.inputs.reconciliation_window_days || '30' }}d\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **run**: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY

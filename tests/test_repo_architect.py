@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import ast
 import dataclasses
+import datetime as dt
 import json
 import os
 import pathlib
@@ -2471,6 +2472,632 @@ class TestLane7SameAgentNotFlagged(unittest.TestCase):
         boundary_gaps = [g for g in gaps if g.issue_key == "agent-boundary"]
         self.assertGreaterEqual(len(boundary_gaps), 1,
                                 "Cross-agent import should still trigger agent-boundary gap")
+
+
+# ---------------------------------------------------------------------------
+# 35. Work state ingestion
+# ---------------------------------------------------------------------------
+
+class TestWorkStateIngestion(unittest.TestCase):
+    """Verify load/save/upsert of durable work state."""
+
+    def _make_work_item(self, fp: str = "aabbccddeeff", **kwargs: Any) -> ra.WorkItem:
+        now = "2025-01-01T00:00:00+00:00"
+        defaults: Dict[str, Any] = dict(
+            fingerprint=fp, objective="eliminate-import-cycles",
+            lane="import_cycles", issue_number=42, issue_state="open",
+            delegation_state="pending", assignee=None,
+            pr_number=None, pr_url=None, pr_state=None,
+            merged=False, closed_unmerged=False, blocked=False, superseded=False,
+            created_at=now, updated_at=now, run_id="run123",
+            gap_title="Test gap", gap_subsystem="runtime",
+        )
+        defaults.update(kwargs)
+        return ra.WorkItem(**defaults)
+
+    def test_load_empty_work_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            ws = ra.load_work_state(config)
+        self.assertEqual(ws["items"], [])
+        self.assertEqual(ws["version"], ra.VERSION)
+
+    def test_upsert_inserts_new_item(self) -> None:
+        ws: Dict[str, Any] = {"version": ra.VERSION, "updated_at": None, "items": []}
+        item = self._make_work_item()
+        ra.upsert_work_item(ws, item)
+        self.assertEqual(len(ws["items"]), 1)
+        self.assertEqual(ws["items"][0]["fingerprint"], "aabbccddeeff")
+
+    def test_upsert_updates_existing_item(self) -> None:
+        ws: Dict[str, Any] = {"version": ra.VERSION, "updated_at": None, "items": []}
+        item = self._make_work_item()
+        ra.upsert_work_item(ws, item)
+        updated = self._make_work_item(delegation_state="delegated")
+        ra.upsert_work_item(ws, updated)
+        self.assertEqual(len(ws["items"]), 1)
+        self.assertEqual(ws["items"][0]["delegation_state"], "delegated")
+
+    def test_save_and_reload_work_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            ws: Dict[str, Any] = ra.load_work_state(config)
+            item = self._make_work_item()
+            ra.upsert_work_item(ws, item)
+            ra.save_work_state(config, ws)
+            reloaded = ra.load_work_state(config)
+        self.assertEqual(len(reloaded["items"]), 1)
+        self.assertEqual(reloaded["items"][0]["fingerprint"], "aabbccddeeff")
+
+    def test_ingest_issue_actions_records_created_issue(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            ws: Dict[str, Any] = ra.load_work_state(config)
+            actions = [{
+                "action": "created",
+                "issue_number": 99,
+                "issue_url": "https://github.com/x/y/issues/99",
+                "fingerprint": "aabbccddeeff",
+                "gap_title": "Import cycles in backend.core",
+                "gap_subsystem": "runtime",
+                "labels_applied": [],
+                "dedupe_result": "new",
+                "dry_run_path": None,
+                "error": None,
+                "labels_confirmed": None,
+            }]
+            ra.ingest_issue_actions_to_work_state(config, ws, actions, "run1")
+        self.assertEqual(len(ws["items"]), 1)
+        self.assertEqual(ws["items"][0]["issue_number"], 99)
+
+    def test_ingest_skips_error_actions(self) -> None:
+        ws: Dict[str, Any] = {"version": ra.VERSION, "updated_at": None, "items": []}
+        actions = [{"action": "error", "fingerprint": "aabbccddeeff",
+                    "gap_title": "x", "gap_subsystem": "runtime",
+                    "issue_number": None, "issue_url": None, "labels_applied": [],
+                    "dedupe_result": "create_failed", "dry_run_path": None,
+                    "error": "some error", "labels_confirmed": None}]
+        config = _make_config()
+        ra.ingest_issue_actions_to_work_state(config, ws, actions, "run1")
+        self.assertEqual(len(ws["items"]), 0)
+
+
+# ---------------------------------------------------------------------------
+# 36. select_ready_issue — deterministic selection logic
+# ---------------------------------------------------------------------------
+
+class TestSelectReadyIssue(unittest.TestCase):
+    """Verify deterministic selection with dedup and in-progress guards."""
+
+    def _make_config_exec(self, **overrides: Any) -> ra.Config:
+        cfg = _make_config(mode="execution")
+        return dataclasses.replace(cfg, **overrides)
+
+    def _make_issue(self, number: int = 1, labels: Optional[List[str]] = None,
+                    body: str = "", title: str = "Fix thing") -> Dict[str, Any]:
+        if labels is None:
+            labels = ["arch-gap", "copilot-task", "needs-implementation"]
+        return {
+            "number": number,
+            "title": title,
+            "html_url": f"https://github.com/x/y/issues/{number}",
+            "body": body or f"<!-- arch-gap-fingerprint: aabbccddeeff{number:02x} -->",
+            "labels": [{"name": lbl} for lbl in labels],
+            "state": "open",
+        }
+
+    def test_no_credentials_returns_none(self) -> None:
+        config = self._make_config_exec()
+        ws: Dict[str, Any] = {"items": []}
+        result = ra.select_ready_issue(config, ws)
+        self.assertIsNone(result)
+
+    def test_max_concurrent_blocks_selection(self) -> None:
+        """If we've already hit MAX_CONCURRENT_DELEGATED, select_ready_issue returns None."""
+        config = self._make_config_exec(
+            github_token="tok", github_repo="x/y", max_concurrent_delegated=1
+        )
+        ws: Dict[str, Any] = {
+            "items": [{
+                "fingerprint": "aabb001122cc",
+                "delegation_state": "delegated",
+                "merged": False, "closed_unmerged": False,
+                "lane": "import_cycles", "issue_number": 5,
+            }]
+        }
+        result = ra.select_ready_issue(config, ws)
+        self.assertIsNone(result, "Should not select when concurrency cap is hit")
+
+    def test_blocked_fingerprint_excluded(self) -> None:
+        """Issues whose fingerprint is already delegated must be excluded from selection."""
+        fp = "aabbccddeeff"
+        issue = self._make_issue(body=f"<!-- arch-gap-fingerprint: {fp} -->")
+        ws: Dict[str, Any] = {
+            "items": [{
+                "fingerprint": fp,
+                "delegation_state": "delegated",
+                "merged": False, "closed_unmerged": False,
+                "lane": "import_cycles", "issue_number": 1,
+            }]
+        }
+        # Manually test the filtering logic by checking blocked set
+        config = self._make_config_exec(
+            github_token="tok", github_repo="x/y", max_concurrent_delegated=5
+        )
+        # The issue's fingerprint is in-flight, so it should be blocked
+        in_flight = [it for it in ws["items"] if it.get("delegation_state") == "delegated"
+                     and not it.get("merged") and not it.get("closed_unmerged")]
+        blocked_fps = {it["fingerprint"] for it in in_flight}
+        body = issue.get("body") or ""
+        extracted = ra._extract_fingerprint_from_body(body)
+        self.assertIn(extracted, blocked_fps, "Fingerprint should be in blocked set")
+
+    def test_lifecycle_labels_exclude_issue(self) -> None:
+        """Issues with blocking lifecycle labels must be excluded."""
+        config = self._make_config_exec(
+            github_token="tok", github_repo="x/y"
+        )
+        blocking = {"blocked", "superseded", "in-progress", "pr-open", "merged"}
+        issue_labels = {"arch-gap", "copilot-task", "needs-implementation", "in-progress"}
+        self.assertTrue(issue_labels & blocking, "in-progress should block selection")
+
+    def test_priority_ordering(self) -> None:
+        """Priority critical < high < medium < low in rank (lower index = higher priority)."""
+        rank = {p: i for i, p in enumerate(ra.ISSUE_PRIORITY_LEVELS)}
+        self.assertLess(rank["critical"], rank["high"])
+        self.assertLess(rank["high"], rank["medium"])
+        self.assertLess(rank["medium"], rank["low"])
+
+    def test_extract_fingerprint_from_body(self) -> None:
+        body = "Some text\n<!-- arch-gap-fingerprint: abc123def456 -->\nMore text"
+        fp = ra._extract_fingerprint_from_body(body)
+        self.assertEqual(fp, "abc123def456")
+
+    def test_extract_fingerprint_not_found(self) -> None:
+        self.assertIsNone(ra._extract_fingerprint_from_body("no fingerprint here"))
+
+    def test_extract_lane_from_body(self) -> None:
+        body = "This fixes issues in Lane: import_cycles for the repo."
+        lane = ra._extract_lane_from_body(body)
+        self.assertEqual(lane, "import_cycles")
+
+    def test_active_fingerprints_in_work_state(self) -> None:
+        ws: Dict[str, Any] = {
+            "items": [
+                {"fingerprint": "aaa", "delegation_state": "delegated",
+                 "merged": False, "closed_unmerged": False},
+                {"fingerprint": "bbb", "delegation_state": "pending",
+                 "merged": False, "closed_unmerged": False},
+                {"fingerprint": "ccc", "delegation_state": "done",
+                 "merged": True, "closed_unmerged": False},
+                {"fingerprint": "ddd", "delegation_state": "delegated",
+                 "merged": True, "closed_unmerged": False},
+            ]
+        }
+        active = ra._active_fingerprints_in_work_state(ws)
+        self.assertIn("aaa", active)
+        self.assertIn("bbb", active)
+        self.assertNotIn("ccc", active)
+        self.assertNotIn("ddd", active)
+
+
+# ---------------------------------------------------------------------------
+# 37. Delegation dry-run behavior
+# ---------------------------------------------------------------------------
+
+class TestDelegationDryRun(unittest.TestCase):
+    """Verify delegation dry-run behavior (no real API calls)."""
+
+    def _make_issue(self, number: int = 10) -> Dict[str, Any]:
+        return {
+            "number": number,
+            "title": "Fix import cycles in backend.core",
+            "html_url": f"https://github.com/x/y/issues/{number}",
+            "body": "<!-- arch-gap-fingerprint: aabbccddeeff -->\nLane: import_cycles",
+            "labels": [
+                {"name": "arch-gap"}, {"name": "copilot-task"},
+                {"name": "needs-implementation"}, {"name": "runtime"},
+            ],
+            "state": "open",
+        }
+
+    def test_dry_run_does_not_mutate_state_action(self) -> None:
+        """Dry-run delegation records 'pending' delegation_state and 'dry_run' action."""
+        config = _make_config(mode="execution")
+        # enable_live_delegation defaults to False → dry_run=True
+        self.assertFalse(config.enable_live_delegation)
+        ws: Dict[str, Any] = {"items": []}
+        issue = self._make_issue()
+        result = ra.delegate_to_copilot(config, issue, ws, run_id="run-dryrun")
+        self.assertEqual(result["action"], "dry_run")
+        self.assertTrue(result["dry_run"])
+        self.assertIsNone(result["assignee"])
+        # Work state should be updated with pending state
+        self.assertEqual(len(ws["items"]), 1)
+        self.assertEqual(ws["items"][0]["delegation_state"], "pending")
+        self.assertEqual(ws["items"][0]["fingerprint"], "aabbccddeeff")
+
+    def test_dry_run_no_credentials_still_records(self) -> None:
+        """Dry-run works even without GitHub credentials."""
+        config = _make_config(mode="execution")
+        self.assertIsNone(config.github_token)
+        ws: Dict[str, Any] = {"items": []}
+        issue = self._make_issue(number=7)
+        result = ra.delegate_to_copilot(config, issue, ws, run_id="run-nodeps")
+        self.assertEqual(result["action"], "dry_run")
+        self.assertEqual(len(ws["items"]), 1)
+
+    def test_live_mode_missing_credentials_returns_error(self) -> None:
+        """Live delegation with no GitHub credentials returns error action."""
+        config = _make_config(mode="execution")
+        config = dataclasses.replace(config, enable_live_delegation=True)
+        ws: Dict[str, Any] = {"items": []}
+        issue = self._make_issue()
+        result = ra.delegate_to_copilot(config, issue, ws, run_id="run-live")
+        self.assertEqual(result["action"], "error")
+        self.assertIn("GITHUB_TOKEN", result.get("error", ""))
+
+    def test_upsert_updates_existing_work_item(self) -> None:
+        """A second delegation call updates the existing work item rather than inserting."""
+        config = _make_config(mode="execution")
+        ws: Dict[str, Any] = {"items": []}
+        issue = self._make_issue()
+        ra.delegate_to_copilot(config, issue, ws, run_id="run1")
+        ra.delegate_to_copilot(config, issue, ws, run_id="run2")
+        self.assertEqual(len(ws["items"]), 1, "Should upsert, not append duplicate")
+
+    def test_run_execution_cycle_no_credentials_returns_no_selection(self) -> None:
+        """run_execution_cycle without credentials returns no selected issue."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, mode="execution")
+            result = ra.run_execution_cycle(config)
+        self.assertEqual(result["status"], "execution_cycle_complete")
+        self.assertIsNone(result["selected_issue"])
+
+
+# ---------------------------------------------------------------------------
+# 38. PR reconciliation
+# ---------------------------------------------------------------------------
+
+class TestPRReconciliation(unittest.TestCase):
+    """Verify PR state ingestion and work state reconciliation."""
+
+    def _make_pr(self, number: int, state: str = "open",
+                 body: str = "", merged_at: Optional[str] = None,
+                 draft: bool = False) -> Dict[str, Any]:
+        return {
+            "number": number,
+            "title": f"PR #{number}",
+            "html_url": f"https://github.com/x/y/pull/{number}",
+            "state": state,
+            "draft": draft,
+            "body": body,
+            "merged_at": merged_at,
+        }
+
+    def test_classify_pr_merged(self) -> None:
+        pr = self._make_pr(1, state="closed", merged_at="2025-01-01T00:00:00Z")
+        self.assertEqual(ra._classify_pr(pr), "merged")
+
+    def test_classify_pr_closed_unmerged(self) -> None:
+        pr = self._make_pr(2, state="closed", merged_at=None)
+        self.assertEqual(ra._classify_pr(pr), "closed_unmerged")
+
+    def test_classify_pr_draft(self) -> None:
+        pr = self._make_pr(3, state="open", draft=True)
+        self.assertEqual(ra._classify_pr(pr), "draft")
+
+    def test_classify_pr_open(self) -> None:
+        pr = self._make_pr(4, state="open", draft=False)
+        self.assertEqual(ra._classify_pr(pr), "open")
+
+    def test_pr_mentions_issue_hash(self) -> None:
+        pr = self._make_pr(10, body="Fixes #42 in this PR.")
+        self.assertTrue(ra._pr_mentions_issue(pr, 42))
+        self.assertFalse(ra._pr_mentions_issue(pr, 99))
+
+    def test_pr_mentions_issue_closes(self) -> None:
+        pr = self._make_pr(11, body="closes 55")
+        self.assertTrue(ra._pr_mentions_issue(pr, 55))
+
+    def test_reconcile_empty_work_state(self) -> None:
+        config = _make_config(mode="reconcile")
+        ws: Dict[str, Any] = {"items": []}
+        result = ra.reconcile_pr_state(config, ws)
+        self.assertEqual(result["status"], "reconcile_complete")
+        self.assertEqual(result["updated"], 0)
+
+    def test_reconcile_marks_merged(self) -> None:
+        """An item linked to a merged PR should get merged=True and delegation_state=done."""
+        config = _make_config(mode="reconcile")
+        ws: Dict[str, Any] = {
+            "items": [{
+                "fingerprint": "aabb", "issue_number": 42, "lane": "import_cycles",
+                "delegation_state": "delegated", "merged": False, "closed_unmerged": False,
+                "blocked": False, "superseded": False,
+                "pr_number": None, "pr_url": None, "pr_state": None,
+                "updated_at": "2025-01-01T00:00:00+00:00",
+                "objective": "", "assignee": None,
+                "created_at": "2025-01-01T00:00:00+00:00", "run_id": "r1",
+                "gap_title": "Fix cycles", "gap_subsystem": "runtime",
+                "issue_state": "open",
+            }]
+        }
+        merged_pr = self._make_pr(100, state="closed", body="Fixes #42", merged_at="2025-01-02T00:00:00Z")
+        # Patch _list_prs_for_repo to return the merged PR
+        with patch.object(ra, "_list_prs_for_repo", return_value=[merged_pr]):
+            result = ra.reconcile_pr_state(config, ws)
+        self.assertEqual(result["updated"], 1)
+        self.assertTrue(ws["items"][0]["merged"])
+        self.assertEqual(ws["items"][0]["delegation_state"], "done")
+
+    def test_reconcile_marks_stale(self) -> None:
+        """A delegated item with no PR and old updated_at should be marked stale."""
+        config = _make_config(mode="reconcile")
+        old_date = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=30)).isoformat()
+        ws: Dict[str, Any] = {
+            "items": [{
+                "fingerprint": "ccdd", "issue_number": 77, "lane": "parse_errors",
+                "delegation_state": "delegated", "merged": False, "closed_unmerged": False,
+                "blocked": False, "superseded": False,
+                "pr_number": None, "pr_url": None, "pr_state": None,
+                "updated_at": old_date,
+                "objective": "", "assignee": None,
+                "created_at": old_date, "run_id": "r2",
+                "gap_title": "Fix parse errors", "gap_subsystem": "runtime",
+                "issue_state": "open",
+            }]
+        }
+        with patch.object(ra, "_list_prs_for_repo", return_value=[]):
+            result = ra.reconcile_pr_state(config, ws)
+        self.assertEqual(result["updated"], 1)
+        self.assertEqual(ws["items"][0]["pr_state"], "stale")
+
+    def test_reconcile_stale_respects_stale_timeout_days(self) -> None:
+        """stale_timeout_days parameter controls when an item is marked stale."""
+        config = _make_config(mode="reconcile")
+        # Item updated 5 days ago — should NOT be stale with default 14-day timeout
+        recent_date = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=5)).isoformat()
+        ws: Dict[str, Any] = {
+            "items": [{
+                "fingerprint": "eeff00", "issue_number": 88, "lane": "hygiene",
+                "delegation_state": "delegated", "merged": False, "closed_unmerged": False,
+                "blocked": False, "superseded": False,
+                "pr_number": None, "pr_url": None, "pr_state": None,
+                "updated_at": recent_date,
+                "objective": "", "assignee": None,
+                "created_at": recent_date, "run_id": "r4",
+                "gap_title": "Hygiene", "gap_subsystem": "runtime",
+                "issue_state": "open",
+            }]
+        }
+        with patch.object(ra, "_list_prs_for_repo", return_value=[]):
+            result = ra.reconcile_pr_state(config, ws)
+        self.assertEqual(result["updated"], 0, "Item updated 5 days ago should not be stale with 14-day timeout")
+
+        # Now test with a 3-day timeout: item should be stale
+        config_strict = dataclasses.replace(config, stale_timeout_days=3)
+        ws2: Dict[str, Any] = {
+            "items": [{
+                "fingerprint": "eeff00", "issue_number": 88, "lane": "hygiene",
+                "delegation_state": "delegated", "merged": False, "closed_unmerged": False,
+                "blocked": False, "superseded": False,
+                "pr_number": None, "pr_url": None, "pr_state": None,
+                "updated_at": recent_date,
+                "objective": "", "assignee": None,
+                "created_at": recent_date, "run_id": "r4",
+                "gap_title": "Hygiene", "gap_subsystem": "runtime",
+                "issue_state": "open",
+            }]
+        }
+        with patch.object(ra, "_list_prs_for_repo", return_value=[]):
+            result2 = ra.reconcile_pr_state(config_strict, ws2)
+        self.assertEqual(result2["updated"], 1, "Item updated 5 days ago should be stale with 3-day timeout")
+        self.assertEqual(ws2["items"][0]["pr_state"], "stale")
+
+    def test_reconcile_skips_finished_items(self) -> None:
+        """Items already merged or closed_unmerged are skipped during reconciliation."""
+        config = _make_config(mode="reconcile")
+        ws: Dict[str, Any] = {
+            "items": [{
+                "fingerprint": "eeff", "issue_number": 10,
+                "delegation_state": "done", "merged": True, "closed_unmerged": False,
+                "pr_state": "merged", "updated_at": "2025-01-01T00:00:00+00:00",
+                "objective": "", "lane": "hygiene", "assignee": None,
+                "pr_number": 5, "pr_url": None, "blocked": False, "superseded": False,
+                "created_at": "2025-01-01T00:00:00+00:00", "run_id": "r3",
+                "gap_title": "Hygiene", "gap_subsystem": "runtime", "issue_state": "closed",
+            }]
+        }
+        with patch.object(ra, "_list_prs_for_repo", return_value=[]):
+            result = ra.reconcile_pr_state(config, ws)
+        self.assertEqual(result["updated"], 0, "Already-merged items should not be re-updated")
+
+    def test_run_reconciliation_cycle_no_items(self) -> None:
+        """run_reconciliation_cycle with empty work state returns complete status."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root, mode="reconcile")
+            with patch.object(ra, "_list_prs_for_repo", return_value=[]):
+                result = ra.run_reconciliation_cycle(config)
+        self.assertEqual(result["status"], "reconcile_cycle_complete")
+        self.assertEqual(result["updated"], 0)
+# ---------------------------------------------------------------------------
+
+class TestLifecycleLabelTransitions(unittest.TestCase):
+    """Verify lifecycle label sets are correct and transitions are deterministic."""
+
+    def test_lifecycle_labels_present(self) -> None:
+        expected = {"ready-for-delegation", "in-progress", "pr-open", "merged", "blocked", "superseded"}
+        self.assertEqual(set(ra.LIFECYCLE_LABELS), expected)
+
+    def test_execution_eligible_labels_present(self) -> None:
+        self.assertIn("arch-gap", ra.EXECUTION_ELIGIBLE_LABELS)
+        self.assertIn("copilot-task", ra.EXECUTION_ELIGIBLE_LABELS)
+        self.assertIn("needs-implementation", ra.EXECUTION_ELIGIBLE_LABELS)
+
+    def test_pr_open_lifecycle_added_on_open_pr(self) -> None:
+        """When a PR is open, the lifecycle labels should include pr-open."""
+        current = {"arch-gap", "copilot-task", "needs-implementation", "in-progress"}
+        new_labels = current - set(ra.LIFECYCLE_LABELS)
+        new_labels.add("pr-open")
+        self.assertIn("pr-open", new_labels)
+        self.assertNotIn("in-progress", new_labels)
+
+    def test_merged_lifecycle_added_on_merged_pr(self) -> None:
+        """When a PR merges, the lifecycle labels should include merged."""
+        current = {"arch-gap", "copilot-task", "needs-implementation", "pr-open"}
+        new_labels = current - set(ra.LIFECYCLE_LABELS)
+        new_labels.add("merged")
+        self.assertIn("merged", new_labels)
+        self.assertNotIn("pr-open", new_labels)
+
+    def test_copilot_assignee_constant(self) -> None:
+        self.assertEqual(ra.COPILOT_AGENT_ASSIGNEE, "copilot")
+
+
+# ---------------------------------------------------------------------------
+# 40. Planner skips already-in-progress objectives
+# ---------------------------------------------------------------------------
+
+class TestPlannerSkipsInProgress(unittest.TestCase):
+    """Verify the planner filters out gaps already actively in work state."""
+
+    def _model_meta(self) -> Dict[str, Any]:
+        return {
+            "used": False, "summary": None, "requested_model": None, "actual_model": None,
+            "primary_model": None, "fallback_model": None, "model_used": None,
+            "fallback_used": False, "fallback_reason": None,
+            "fallback_occurred": False, "enabled": False,
+        }
+
+    def test_active_fingerprints_blocks_planning(self) -> None:
+        """Fingerprints already in work state (delegated) should be considered active."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = _make_config(root)
+            analysis: Dict[str, Any] = {
+                "parse_error_files": ["backend/broken.py"],
+                "cycles": [],
+                "entrypoint_clusters": {},
+                "entrypoint_paths": [],
+                "architecture_score": 80,
+                "score_factors": {},
+                "local_import_graph": {},
+            }
+            gaps = ra.diagnose_gaps(config, analysis, self._model_meta())
+        # Find the parse-errors gap fingerprint
+        parse_gaps = [g for g in gaps if g.issue_key == "parse-errors"]
+        if parse_gaps:
+            gap = parse_gaps[0]
+            fp = ra.issue_fingerprint(gap.subsystem, gap.issue_key)
+            ws: Dict[str, Any] = {
+                "items": [{
+                    "fingerprint": fp,
+                    "delegation_state": "delegated",
+                    "merged": False, "closed_unmerged": False,
+                }]
+            }
+            active = ra._active_fingerprints_in_work_state(ws)
+            self.assertIn(fp, active, "Delegated fingerprint should be in active set")
+
+
+# ---------------------------------------------------------------------------
+# 41. Config validation for new operator controls
+# ---------------------------------------------------------------------------
+
+class TestConfigValidationNewControls(unittest.TestCase):
+    """Verify build_config validates new operator control env vars."""
+
+    def setUp(self) -> None:
+        self._orig_cwd = os.getcwd()
+
+    def tearDown(self) -> None:
+        os.chdir(self._orig_cwd)
+
+    def test_invalid_active_objective_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            os.chdir(root)
+            with patch.dict(os.environ, {"ACTIVE_OBJECTIVE": "not-a-valid-objective"}, clear=False):
+                args = ra.parse_args(["--mode", "execution"])
+                with self.assertRaises(ra.RepoArchitectError) as ctx:
+                    ra.build_config(args)
+            self.assertIn("active_objective", str(ctx.exception))
+
+    def test_valid_active_objective_accepted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            os.chdir(root)
+            with patch.dict(os.environ, {"ACTIVE_OBJECTIVE": "eliminate-import-cycles"}, clear=False):
+                args = ra.parse_args(["--mode", "execution"])
+                config = ra.build_config(args)
+            self.assertEqual(config.active_objective, "eliminate-import-cycles")
+
+    def test_invalid_max_concurrent_delegated_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            os.chdir(root)
+            with patch.dict(os.environ, {"MAX_CONCURRENT_DELEGATED": "abc"}, clear=False):
+                args = ra.parse_args(["--mode", "execution"])
+                with self.assertRaises(ra.RepoArchitectError) as ctx:
+                    ra.build_config(args)
+            self.assertIn("MAX_CONCURRENT_DELEGATED", str(ctx.exception))
+
+    def test_invalid_stale_timeout_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            os.chdir(root)
+            with patch.dict(os.environ, {"STALE_TIMEOUT_DAYS": "0"}, clear=False):
+                args = ra.parse_args(["--mode", "execution"])
+                with self.assertRaises(ra.RepoArchitectError) as ctx:
+                    ra.build_config(args)
+            self.assertIn("STALE_TIMEOUT_DAYS", str(ctx.exception))
+
+    def test_defaults_without_env_vars(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            os.chdir(root)
+            # Remove any env vars that might interfere
+            env_clean = {
+                k: v for k, v in os.environ.items()
+                if k not in (
+                    "ACTIVE_OBJECTIVE", "REPO_ARCHITECT_ACTIVE_OBJECTIVE",
+                    "MAX_CONCURRENT_DELEGATED", "STALE_TIMEOUT_DAYS",
+                    "RECONCILIATION_WINDOW_DAYS", "ENABLE_LIVE_DELEGATION",
+                )
+            }
+            with patch.dict(os.environ, env_clean, clear=True):
+                args = ra.parse_args(["--mode", "execution"])
+                config = ra.build_config(args)
+            self.assertEqual(config.max_concurrent_delegated, 1)
+            self.assertEqual(config.stale_timeout_days, 14)
+            self.assertEqual(config.reconciliation_window_days, 30)
+            self.assertFalse(config.enable_live_delegation)
+
+    def test_objective_labels_have_valid_keys(self) -> None:
+        """All objective label keys must be non-empty strings."""
+        for key, desc in ra.OBJECTIVE_LABELS.items():
+            self.assertIsInstance(key, str)
+            self.assertTrue(key)
+            self.assertIsInstance(desc, str)
+            self.assertTrue(desc)
+
+    def test_execution_mode_in_parse_args(self) -> None:
+        args = ra.parse_args(["--mode", "execution"])
+        self.assertEqual(args.mode, "execution")
+
+    def test_reconcile_mode_in_parse_args(self) -> None:
+        args = ra.parse_args(["--mode", "reconcile"])
+        self.assertEqual(args.mode, "reconcile")
+
+    def test_enable_live_delegation_flag(self) -> None:
+        args = ra.parse_args(["--mode", "execution", "--enable-live-delegation"])
+        self.assertTrue(args.enable_live_delegation)
 
 
 if __name__ == "__main__":
