@@ -196,13 +196,13 @@ python repo_architect.py --mode issue --allow-dirty --max-issues 3
 1. Loads durable work state.
 2. Runs lightweight PR reconciliation to refresh issue states.
 3. Selects at most one issue that is ready for delegation (eligible labels + not already in factual terminal/in-progress states).
-4. Requests delegation to Copilot by assignment + machine-linkage comment.
+4. Requests delegation to Copilot by issue assignment. Any machine-linkage comment is posted before assignment for context capture and is audit-only.
 5. Records delegation events with explicit outcomes in work state (`delegation-requested`, `delegation-confirmed`, `delegation-failed`, `delegation-unconfirmed`).
 
 ### Selection rules
 
 - Issue must have all of: `arch-gap`, `copilot-task`, `needs-implementation`
-- Issue must NOT have: `delegation-requested`, `in-progress`, `pr-open`, `pr-draft`, `merged`, `closed-unmerged`, `failed-delegation`, `blocked-by-dependency`, `superseded-by-issue`, `superseded-by-pr`
+- Issue must NOT have: `ready-for-validation`, `delegation-requested`, `in-progress`, `pr-open`, `pr-draft`, `merged`, `closed-unmerged`, `failed-delegation`, `blocked-by-dependency`, `superseded-by-issue`, `superseded-by-pr`
 - Fingerprint must not already be delegated
 - At most one issue per charter lane at a time
 - Respects `MAX_CONCURRENT_DELEGATED` limit (default: 1)
@@ -254,7 +254,7 @@ In live mode, the execution lane performs these steps **in order**:
 
 1. Applies factual lifecycle labels: `delegation-requested` + `in-progress`.
 2. Posts a **pre-assignment audit comment** containing a machine linkage block (`repo-architect-linkage`) and fingerprint marker.  Because this comment is posted before assignment, Copilot will receive it as part of the issue context.
-3. Assigns the issue to `@copilot+gpt-5.3-codex` — **this is the sole execution trigger**.
+3. Assigns the issue to the configured GitHub Copilot coding agent assignee (`@copilot+gpt-5.3-codex`) — **this is the sole execution trigger**.
 
 Delegation is considered **confirmed** when the assignment API response lists the target assignee.  The audit comment is recorded for traceability but is **not** part of the confirmation contract.  Label changes alone are never treated as proof of execution.
 
@@ -516,8 +516,8 @@ These groups ensure that:
 ### Automated (via execution lane)
 
 1. Execution lane selects the issue and posts a pre-assignment audit comment with linkage material.
-2. Execution lane assigns the issue to `@copilot+gpt-5.3-codex` — **this is the sole execution trigger**.
-3. GitHub Copilot coding agent receives the issue body + all existing comments (including the linkage material) and opens a PR.
+2. Execution lane assigns the issue to the configured GitHub Copilot coding agent assignee (`@copilot+gpt-5.3-codex`) — **this is the sole execution trigger**.
+3. GitHub Copilot coding agent receives the issue body + all existing comments that exist at assignment time (including the linkage material) and opens a PR.
 4. A user with write access may need to **approve the workflow run** on the Copilot PR before CI checks execute (see [Workflow approval gate](#workflow-approval-gate)).
 5. Reconciliation lane detects the PR and updates work state + lifecycle labels.
 6. Next planning run sees the in-progress state and skips re-raising the issue.
@@ -530,7 +530,7 @@ These groups ensure that:
 
 | Input | Default | Description |
 |---|---|---|
-| `mode` | `issue` | Operating mode (`issue`, `execution`, `reconcile`, `analyze`, `report`, `mutate`, `campaign`) |
+| `mode` | `issue` | Main workflow operating mode (`issue`, `analyze`, `report`, `mutate`, `campaign`). Use the dedicated execution/reconcile workflows for those lanes. |
 | `dry_run` | `false` | Issue mode dry-run without API calls |
 | `enable_live_delegation` | `false` | Execution mode: actually delegate via GitHub API |
 | `active_objective` | (any) | Execution mode: restrict to a specific objective |
