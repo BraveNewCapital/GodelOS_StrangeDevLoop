@@ -2152,6 +2152,34 @@ def save_work_state(config: Config, work_state: Dict[str, Any]) -> None:
     atomic_write_json(_work_state_path(config), work_state)
 
 
+# Pre-computed WorkItem field metadata for schema normalization (avoid repeated reflection).
+_WORK_ITEM_FIELDS: Dict[str, dataclasses.Field] = {  # type: ignore[type-arg]
+    f.name: f for f in dataclasses.fields(WorkItem)
+}
+# Defaults for required fields (no dataclass default) when missing from older schema.
+_WORK_ITEM_REQUIRED_DEFAULTS: Dict[str, Any] = {
+    "fingerprint": "",
+    "objective": "",
+    "lane": "unknown",
+    "issue_number": None,
+    "issue_state": "open",
+    "delegation_state": "ready-for-delegation",
+    "assignee": None,
+    "pr_number": None,
+    "pr_url": None,
+    "pr_state": None,
+    "merged": False,
+    "closed_unmerged": False,
+    "blocked": False,
+    "superseded": False,
+    "created_at": "",
+    "updated_at": "",
+    "run_id": "",
+    "gap_title": "",
+    "gap_subsystem": "runtime",
+}
+
+
 def _normalize_work_item_dict(raw: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize a persisted work-item dict so it matches the current WorkItem schema.
 
@@ -2163,41 +2191,16 @@ def _normalize_work_item_dict(raw: Dict[str, Any]) -> Dict[str, Any]:
     ``TypeError`` even when ``.agent/work_state.json`` was written by an older
     version of repo_architect.
     """
-    valid_fields: Dict[str, dataclasses.Field] = {  # type: ignore[type-arg]
-        f.name: f for f in dataclasses.fields(WorkItem)
-    }
-    # Defaults for required fields (no dataclass default) when missing from older schema
-    _required_defaults: Dict[str, Any] = {
-        "fingerprint": "",
-        "objective": "",
-        "lane": "unknown",
-        "issue_number": None,
-        "issue_state": "open",
-        "delegation_state": "ready-for-delegation",
-        "assignee": None,
-        "pr_number": None,
-        "pr_url": None,
-        "pr_state": None,
-        "merged": False,
-        "closed_unmerged": False,
-        "blocked": False,
-        "superseded": False,
-        "created_at": "",
-        "updated_at": "",
-        "run_id": "",
-        "gap_title": "",
-        "gap_subsystem": "runtime",
-    }
     result: Dict[str, Any] = {}
-    for name, field in valid_fields.items():
+    for name, field in _WORK_ITEM_FIELDS.items():
         if name in raw:
             result[name] = raw[name]
         elif field.default is not dataclasses.MISSING:
             result[name] = field.default
         elif field.default_factory is not dataclasses.MISSING:  # type: ignore[misc]
             result[name] = field.default_factory()  # type: ignore[misc]
-        elif name in _required_defaults:
-            result[name] = _required_defaults[name]
+        elif name in _WORK_ITEM_REQUIRED_DEFAULTS:
+            result[name] = _WORK_ITEM_REQUIRED_DEFAULTS[name]
         else:
             result[name] = None
     return result

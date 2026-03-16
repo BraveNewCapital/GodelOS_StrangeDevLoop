@@ -60,9 +60,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .agent/work_state.json
-          key: repo-architect-work-state-reconcile
+          key: repo-architect-work-state-v1-reconcile
           restore-keys: |
-            repo-architect-work-state-
+            repo-architect-work-state-v1-
 
       - name: Run repo architect (reconcile mode)
         env:
@@ -87,7 +87,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: .agent/work_state.json
-          key: repo-architect-work-state-reconcile-${{ github.run_id }}
+          key: repo-architect-work-state-v1-reconcile-${{ github.run_id }}
 
       - name: Upload reconciliation artifacts
         if: always()

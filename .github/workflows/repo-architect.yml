@@ -128,9 +128,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .agent/work_state.json
-          key: repo-architect-work-state-issue
+          key: repo-architect-work-state-v1-issue
           restore-keys: |
-            repo-architect-work-state-
+            repo-architect-work-state-v1-
 
       - name: Resolve GitHub Models configuration
         env:
@@ -272,7 +272,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: .agent/work_state.json
-          key: repo-architect-work-state-issue-${{ github.run_id }}
+          key: repo-architect-work-state-v1-issue-${{ github.run_id }}
 
       - name: Upload repo architect artifacts
         if: always()
