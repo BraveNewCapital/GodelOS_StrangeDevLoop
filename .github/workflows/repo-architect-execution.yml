@@ -125,8 +125,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: repo-architect-execution-${{ github.run_id }}
-          path: .agent
+          path: .agent/work_state.json
           if-no-files-found: warn
+          include-hidden-files: true
           retention-days: 7
 
       - name: Write workflow summary

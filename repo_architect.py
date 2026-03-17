@@ -2328,9 +2328,9 @@ def select_ready_issue(
         if it.get("lane"):
             blocked_lanes.add(it["lane"])
 
-    # Also block superseded/blocked items by fingerprint
+    # Block terminal, superseded, or explicitly blocked items by identity.
     for it in items:
-        if it.get("blocked") or it.get("superseded"):
+        if it.get("merged") or it.get("closed_unmerged") or it.get("blocked") or it.get("superseded"):
             if it.get("fingerprint"):
                 blocked_fingerprints.add(it["fingerprint"])
             if it.get("issue_number"):
@@ -2953,18 +2953,25 @@ def reconcile_pr_state(
         new_item["updated_at"] = now
         if pr_class == "merged":
             new_item["merged"] = True
+            new_item["closed_unmerged"] = False
             new_item["delegation_state"] = "delegation-confirmed"
             new_item["lifecycle_fact_state"] = "merged"
             new_item["lifecycle_inferred_state"] = "completed"
         elif pr_class == "closed_unmerged":
+            new_item["merged"] = False
             new_item["closed_unmerged"] = True
+            new_item["delegation_state"] = "delegation-failed"
             new_item["lifecycle_fact_state"] = "closed-unmerged"
             new_item["lifecycle_inferred_state"] = "needs-replanning"
         elif pr_class == "draft":
+            new_item["merged"] = False
+            new_item["closed_unmerged"] = False
             new_item["delegation_state"] = "delegation-confirmed"
             new_item["lifecycle_fact_state"] = "pr-draft"
             new_item["lifecycle_inferred_state"] = "in-progress"
         elif pr_class == "open":
+            new_item["merged"] = False
+            new_item["closed_unmerged"] = False
             new_item["delegation_state"] = "delegation-confirmed"
             new_item["lifecycle_fact_state"] = "pr-open"
             new_item["lifecycle_inferred_state"] = "in-progress"
@@ -3077,6 +3084,32 @@ def _active_fingerprints_in_work_state(work_state: Dict[str, Any]) -> Set[str]:
     }
 
 
+def _execution_no_selection_message(
+    reconcile_result: Dict[str, Any], work_state: Dict[str, Any]
+) -> str:
+    """Explain why execution found nothing ready when reconciliation terminalized items."""
+    closed_unmerged_issues = sorted({
+        int(detail["issue"])
+        for detail in reconcile_result.get("details", [])
+        if detail.get("pr_state") == "closed_unmerged" and detail.get("issue") is not None
+    })
+    if not closed_unmerged_issues:
+        closed_unmerged_issues = sorted({
+            int(it["issue_number"])
+            for it in work_state.get("items", [])
+            if it.get("closed_unmerged") and it.get("issue_number") is not None
+        })
+    if not closed_unmerged_issues:
+        return "No ready issues available for delegation."
+
+    issue_list = ", ".join(f"#{issue_number}" for issue_number in closed_unmerged_issues)
+    noun = "issue remains" if len(closed_unmerged_issues) == 1 else "issues remain"
+    return (
+        f"No ready issues available for delegation. Tracked {noun} "
+        f"in closed-unmerged state ({issue_list}) and require planner intervention."
+    )
+
+
 def run_execution_cycle(config: Config) -> Dict[str, Any]:
     """Execute one execution-lane pass: select + delegate one ready issue.
 
@@ -3103,6 +3136,7 @@ def run_execution_cycle(config: Config) -> Dict[str, Any]:
     selected = select_ready_issue(config, work_state)
     if selected is None:
         save_work_state(config, work_state)
+        message = _execution_no_selection_message(reconcile_result, work_state)
         return {
             "status": "execution_cycle_complete",
             "mode": EXECUTION_MODE,
@@ -3110,7 +3144,7 @@ def run_execution_cycle(config: Config) -> Dict[str, Any]:
             "selected_issue": None,
             "delegation": None,
             "reconcile": reconcile_result,
-            "message": "No ready issues available for delegation.",
+            "message": message,
         }
 
     delegation_result = delegate_to_copilot(config, selected, work_state, run_id)

@@ -2644,6 +2644,29 @@ class TestSelectReadyIssue(unittest.TestCase):
         issue_labels = {"arch-gap", "copilot-task", "needs-implementation", "in-progress"}
         self.assertTrue(issue_labels & blocking, "in-progress should block selection")
 
+    def test_closed_unmerged_work_state_excludes_issue_even_if_labels_lag(self) -> None:
+        """Terminal closed-unmerged work items must stay ineligible even before label sync."""
+        config = self._make_config_exec(
+            github_token="tok", github_repo="x/y", max_concurrent_delegated=5
+        )
+        fp = "aabbccddeeff"
+        issue = self._make_issue(number=12, body=f"<!-- arch-gap-fingerprint: {fp} -->")
+        ws: Dict[str, Any] = {
+            "items": [{
+                "fingerprint": fp,
+                "issue_number": 12,
+                "delegation_state": "delegation-failed",
+                "merged": False,
+                "closed_unmerged": True,
+                "lane": "import_cycles",
+                "blocked": False,
+                "superseded": False,
+            }]
+        }
+        with patch.object(ra, "_list_github_issues_by_labels", return_value=[issue]):
+            result = ra.select_ready_issue(config, ws)
+        self.assertIsNone(result)
+
     def test_priority_ordering(self) -> None:
         """Priority critical < high < medium < low in rank (lower index = higher priority)."""
         rank = {p: i for i, p in enumerate(ra.ISSUE_PRIORITY_LEVELS)}
@@ -2868,6 +2891,76 @@ class TestDelegationDryRun(unittest.TestCase):
             result = ra.run_execution_cycle(config)
         self.assertEqual(result["status"], "execution_cycle_complete")
         self.assertIsNone(result["selected_issue"])
+
+    def test_run_execution_cycle_reports_closed_unmerged_as_non_ready(self) -> None:
+        """Execution output should truthfully report closed-unmerged items as non-ready."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_git_root(tmp)
+            config = dataclasses.replace(
+                _make_config(root, mode="execution"),
+                github_token="tok",
+                github_repo="x/y",
+            )
+            ws: Dict[str, Any] = {
+                "items": [{
+                    "fingerprint": "aabbccddeeff",
+                    "issue_number": 42,
+                    "lane": "import_cycles",
+                    "delegation_state": "ready-for-delegation",
+                    "merged": False,
+                    "closed_unmerged": False,
+                    "blocked": False,
+                    "superseded": False,
+                    "pr_number": None,
+                    "pr_url": None,
+                    "pr_state": None,
+                    "updated_at": "2025-01-01T00:00:00+00:00",
+                    "objective": "",
+                    "assignee": None,
+                    "created_at": "2025-01-01T00:00:00+00:00",
+                    "run_id": "r7",
+                    "gap_title": "Fix cycles",
+                    "gap_subsystem": "runtime",
+                    "issue_state": "open",
+                }]
+            }
+            issue = {
+                "number": 42,
+                "title": "Fix cycles",
+                "html_url": "https://github.com/x/y/issues/42",
+                "body": "<!-- arch-gap-fingerprint: aabbccddeeff -->\nLane: import_cycles",
+                "labels": [
+                    {"name": "arch-gap"},
+                    {"name": "copilot-task"},
+                    {"name": "needs-implementation"},
+                ],
+                "state": "open",
+            }
+            closed_pr = {
+                "number": 64,
+                "title": "PR #64",
+                "html_url": "https://github.com/x/y/pull/64",
+                "state": "closed",
+                "draft": False,
+                "body": "Fixes #42",
+                "merged_at": None,
+                "head": {"ref": "feature/issue-64"},
+                "created_at": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
+                "updated_at": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
+            }
+            with patch.object(ra, "load_work_state", return_value=ws), \
+                    patch.object(ra, "save_work_state", return_value=None), \
+                    patch.object(ra, "_list_prs_for_repo", return_value=[closed_pr]), \
+                    patch.object(ra, "_list_github_issues_by_labels", return_value=[issue]), \
+                    patch.object(ra, "_update_issue_lifecycle_labels_for_pr", return_value=None):
+                result = ra.run_execution_cycle(config)
+        self.assertIsNone(result["selected_issue"])
+        self.assertIsNone(result["delegation"])
+        self.assertIn("closed-unmerged state", result["message"])
+        self.assertIn("#42", result["message"])
+        self.assertEqual(result["reconcile"]["details"][0]["new_delegation"], "delegation-failed")
+        self.assertEqual(ws["items"][0]["delegation_state"], "delegation-failed")
+        self.assertTrue(ws["items"][0]["closed_unmerged"])
 
 
 # ---------------------------------------------------------------------------
@@ -3096,6 +3189,29 @@ class TestPRReconciliation(unittest.TestCase):
             ra.reconcile_pr_state(config, ws)
         self.assertEqual(ws["items"][0]["lifecycle_fact_state"], "closed-unmerged")
         self.assertNotEqual(ws["items"][0]["lifecycle_fact_state"], "superseded-by-pr")
+
+    def test_reconcile_closed_unmerged_marks_terminal_non_ready_state(self) -> None:
+        """Closed-unmerged reconciliation should make the work item terminal and non-ready."""
+        config = _make_config(mode="reconcile")
+        ws: Dict[str, Any] = {"items": [{
+            "fingerprint": "aa11bb22cc33", "issue_number": 42, "lane": "runtime",
+            "delegation_state": "ready-for-delegation", "merged": False, "closed_unmerged": False,
+            "blocked": False, "superseded": False, "pr_number": None, "pr_url": None, "pr_state": None,
+            "updated_at": "2025-01-01T00:00:00+00:00", "objective": "", "assignee": None,
+            "created_at": "2025-01-01T00:00:00+00:00", "run_id": "r5",
+            "gap_title": "x", "gap_subsystem": "runtime", "issue_state": "open",
+        }]}
+        closed_pr = self._make_pr(201, state="closed", body="fixes #42", merged_at=None)
+        with patch.object(ra, "_list_prs_for_repo", return_value=[closed_pr]):
+            result = ra.reconcile_pr_state(config, ws)
+        self.assertEqual(result["updated"], 1)
+        self.assertTrue(ws["items"][0]["closed_unmerged"])
+        self.assertFalse(ws["items"][0]["merged"])
+        self.assertEqual(ws["items"][0]["delegation_state"], "delegation-failed")
+        self.assertEqual(ws["items"][0]["lifecycle_fact_state"], "closed-unmerged")
+        self.assertEqual(ws["items"][0]["lifecycle_inferred_state"], "needs-replanning")
+        self.assertEqual(result["details"][0]["new_delegation"], "delegation-failed")
+        self.assertEqual(result["details"][0]["pr_state"], "closed_unmerged")
 
     def test_stale_not_auto_blocked_dependency(self) -> None:
         """Stale state should not be encoded as blocked-by-dependency without explicit evidence."""
