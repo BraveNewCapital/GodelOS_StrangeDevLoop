@@ -2708,7 +2708,248 @@ class TestSelectReadyIssue(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# 37. Delegation dry-run behavior
+# 37. Stale terminal state revival (live-state authority)
+# ---------------------------------------------------------------------------
+
+class TestStaleTerminalRevival(unittest.TestCase):
+    """Verify that live GitHub ready state overrides stale cached terminal state."""
+
+    def _make_config_exec(self, **overrides: Any) -> ra.Config:
+        cfg = _make_config(mode="execution")
+        return dataclasses.replace(
+            cfg, github_token="tok", github_repo="x/y", max_concurrent_delegated=5,
+            **overrides
+        )
+
+    def _make_issue(
+        self,
+        number: int = 66,
+        labels: Optional[List[str]] = None,
+        body: str = "",
+    ) -> Dict[str, Any]:
+        if labels is None:
+            labels = [
+                "arch-gap", "copilot-task", "needs-implementation",
+                "ready-for-delegation",
+            ]
+        return {
+            "number": number,
+            "title": f"Fix issue {number}",
+            "html_url": f"https://github.com/x/y/issues/{number}",
+            "body": body or f"<!-- arch-gap-fingerprint: aabbccddeeff{number:02x} -->",
+            "labels": [{"name": lbl} for lbl in labels],
+            "state": "open",
+        }
+
+    def _make_stale_terminal_ws(
+        self,
+        number: int = 66,
+        fp: str = "aabbccddeeff42",
+        closed_unmerged: bool = True,
+        blocked: bool = False,
+        superseded: bool = False,
+    ) -> Dict[str, Any]:
+        return {
+            "items": [{
+                "fingerprint": fp,
+                "issue_number": number,
+                "lane": "runtime",
+                "delegation_state": "delegation-failed",
+                "merged": False,
+                "closed_unmerged": closed_unmerged,
+                "blocked": blocked,
+                "superseded": superseded,
+                "pr_number": None,
+                "pr_url": None,
+                "pr_state": None,
+                "objective": "",
+                "assignee": None,
+                "gap_title": "x",
+                "gap_subsystem": "runtime",
+                "issue_state": "open",
+                "lifecycle_fact_state": "closed-unmerged",
+                "lifecycle_inferred_state": "needs-replanning",
+                "created_at": "2025-01-01T00:00:00+00:00",
+                "updated_at": "2025-01-01T00:00:00+00:00",
+                "run_id": "r1",
+            }]
+        }
+
+    # ------------------------------------------------------------------
+    # Case 1: stale closed_unmerged + live issue open/ready → revived
+    # ------------------------------------------------------------------
+    def test_stale_closed_unmerged_revived_when_live_issue_ready(self) -> None:
+        """Stale cached closed_unmerged must not block when live issue is ready."""
+        fp = "aabbccddeeff42"
+        issue = self._make_issue(number=66, body=f"<!-- arch-gap-fingerprint: {fp} -->")
+        ws = self._make_stale_terminal_ws(number=66, fp=fp, closed_unmerged=True)
+
+        config = self._make_config_exec()
+        with patch.object(ra, "_list_github_issues_by_labels", return_value=[issue]):
+            result = ra.select_ready_issue(config, ws)
+
+        self.assertIsNotNone(result, "Issue should be revived and selected")
+        self.assertEqual(result["number"], 66)
+        self.assertTrue(
+            result.get("revived_from_stale_terminal_state"),
+            "Selected issue must carry revival flag",
+        )
+
+    # ------------------------------------------------------------------
+    # Case 2: stale closed_unmerged + live issue still blocked by label
+    # ------------------------------------------------------------------
+    def test_stale_closed_unmerged_not_revived_when_live_issue_blocked(self) -> None:
+        """Stale terminal state is not overridden when live issue has blocking labels."""
+        fp = "aabbccddeeff42"
+        issue = self._make_issue(
+            number=66,
+            labels=["arch-gap", "copilot-task", "needs-implementation",
+                    "blocked-by-dependency"],
+            body=f"<!-- arch-gap-fingerprint: {fp} -->",
+        )
+        ws = self._make_stale_terminal_ws(number=66, fp=fp, closed_unmerged=True)
+
+        config = self._make_config_exec()
+        with patch.object(ra, "_list_github_issues_by_labels", return_value=[issue]):
+            result = ra.select_ready_issue(config, ws)
+
+        self.assertIsNone(result, "Blocked live issue must not be selected")
+
+    # ------------------------------------------------------------------
+    # Case 3: stale terminal + live issue has open-PR label
+    # ------------------------------------------------------------------
+    def test_stale_terminal_not_revived_when_live_issue_has_pr_open_label(self) -> None:
+        """A live pr-open label is a genuine blocker and must prevent revival."""
+        fp = "aabbccddeeff42"
+        issue = self._make_issue(
+            number=66,
+            labels=["arch-gap", "copilot-task", "needs-implementation",
+                    "ready-for-delegation", "pr-open"],
+            body=f"<!-- arch-gap-fingerprint: {fp} -->",
+        )
+        ws = self._make_stale_terminal_ws(number=66, fp=fp, closed_unmerged=True)
+
+        config = self._make_config_exec()
+        with patch.object(ra, "_list_github_issues_by_labels", return_value=[issue]):
+            result = ra.select_ready_issue(config, ws)
+
+        self.assertIsNone(result, "pr-open label must prevent revival")
+
+    # ------------------------------------------------------------------
+    # Case 4: merged work state is irreversible — never revived
+    # ------------------------------------------------------------------
+    def test_merged_work_state_not_revived_even_if_live_ready(self) -> None:
+        """merged=True is a permanent terminal state and must not be revived."""
+        fp = "aabbccddeeff42"
+        issue = self._make_issue(number=66, body=f"<!-- arch-gap-fingerprint: {fp} -->")
+        ws: Dict[str, Any] = {
+            "items": [{
+                "fingerprint": fp,
+                "issue_number": 66,
+                "lane": "runtime",
+                "delegation_state": "done",
+                "merged": True,
+                "closed_unmerged": False,
+                "blocked": False,
+                "superseded": False,
+            }]
+        }
+
+        config = self._make_config_exec()
+        with patch.object(ra, "_list_github_issues_by_labels", return_value=[issue]):
+            result = ra.select_ready_issue(config, ws)
+
+        self.assertIsNone(result, "merged items must never be revived")
+
+    # ------------------------------------------------------------------
+    # Case 5: work state remains coherent after revival (no contradictory flags)
+    # ------------------------------------------------------------------
+    def test_work_state_coherent_after_revival(self) -> None:
+        """After revival the work state item must have no contradictory terminal flags."""
+        fp = "aabbccddeeff42"
+        issue = self._make_issue(number=66, body=f"<!-- arch-gap-fingerprint: {fp} -->")
+        ws = self._make_stale_terminal_ws(number=66, fp=fp, closed_unmerged=True)
+
+        config = self._make_config_exec()
+        with patch.object(ra, "_list_github_issues_by_labels", return_value=[issue]):
+            ra.select_ready_issue(config, ws)
+
+        item = ws["items"][0]
+        self.assertFalse(item["closed_unmerged"], "closed_unmerged must be cleared")
+        self.assertFalse(item["blocked"], "blocked must be cleared")
+        self.assertFalse(item["superseded"], "superseded must be cleared")
+        self.assertEqual(item["delegation_state"], "ready-for-delegation")
+        self.assertTrue(item.get("revived_from_stale_terminal_state"))
+
+    # ------------------------------------------------------------------
+    # Case 6: stale blocked flag revived when live issue ready
+    # ------------------------------------------------------------------
+    def test_stale_blocked_flag_revived_when_live_issue_ready(self) -> None:
+        """Stale blocked=True must also be overridable by live readiness."""
+        fp = "aabbccddeeff42"
+        issue = self._make_issue(number=66, body=f"<!-- arch-gap-fingerprint: {fp} -->")
+        ws = self._make_stale_terminal_ws(
+            number=66, fp=fp, closed_unmerged=False, blocked=True
+        )
+
+        config = self._make_config_exec()
+        with patch.object(ra, "_list_github_issues_by_labels", return_value=[issue]):
+            result = ra.select_ready_issue(config, ws)
+
+        self.assertIsNotNone(result)
+        self.assertTrue(result.get("revived_from_stale_terminal_state"))
+
+    # ------------------------------------------------------------------
+    # Case 7: live issue lacks ready-for-delegation → stale terminal stands
+    # ------------------------------------------------------------------
+    def test_stale_terminal_blocks_when_live_issue_lacks_ready_label(self) -> None:
+        """Without ready-for-delegation label, stale terminal state must still block."""
+        fp = "aabbccddeeff42"
+        issue = self._make_issue(
+            number=66,
+            labels=["arch-gap", "copilot-task", "needs-implementation"],  # no ready-for-delegation
+            body=f"<!-- arch-gap-fingerprint: {fp} -->",
+        )
+        ws = self._make_stale_terminal_ws(number=66, fp=fp, closed_unmerged=True)
+
+        config = self._make_config_exec()
+        with patch.object(ra, "_list_github_issues_by_labels", return_value=[issue]):
+            result = ra.select_ready_issue(config, ws)
+
+        self.assertIsNone(result)
+
+    # ------------------------------------------------------------------
+    # Case 8: run_execution_cycle output reflects revival
+    # ------------------------------------------------------------------
+    def test_run_execution_cycle_output_reflects_revival(self) -> None:
+        """run_execution_cycle output JSON must expose revived_from_stale_terminal_state."""
+        fp = "aabbccddeeff42"
+        issue = self._make_issue(number=66, body=f"<!-- arch-gap-fingerprint: {fp} -->")
+        ws = self._make_stale_terminal_ws(number=66, fp=fp, closed_unmerged=True)
+
+        config = self._make_config_exec(enable_live_delegation=False)
+
+        with (
+            patch.object(ra, "load_work_state", return_value=ws),
+            patch.object(ra, "save_work_state"),
+            patch.object(ra, "reconcile_pr_state", return_value={"updated": 0, "prs_found": 0, "details": []}),
+            patch.object(ra, "_list_github_issues_by_labels", return_value=[issue]),
+            patch.object(ra, "delegate_to_copilot", return_value={"action": "dry_run", "issue_number": 66}),
+            patch.object(ra, "write_step_summary"),
+        ):
+            result = ra.run_execution_cycle(config)
+
+        self.assertEqual(result["status"], "execution_cycle_complete")
+        self.assertIsNotNone(result["selected_issue"])
+        self.assertEqual(result["selected_issue"]["number"], 66)
+        self.assertTrue(
+            result["selected_issue"].get("revived_from_stale_terminal_state"),
+            "Output JSON must declare revival",
+        )
+
+
+# ---------------------------------------------------------------------------
+# 38. Delegation dry-run behavior
 # ---------------------------------------------------------------------------
 
 class TestDelegationDryRun(unittest.TestCase):
