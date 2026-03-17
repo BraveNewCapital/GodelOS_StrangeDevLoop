@@ -2316,25 +2316,38 @@ def select_ready_issue(
     if len(in_flight) >= config.max_concurrent_delegated:
         return None
 
-    # Build blocked sets from work state
-    blocked_fingerprints: Set[str] = set()
-    blocked_issue_numbers: Set[int] = set()
+    # Build blocked sets from in-flight items (unconditional blockers).
+    in_flight_fingerprints: Set[str] = set()
+    in_flight_issue_numbers: Set[int] = set()
     blocked_lanes: Set[str] = set()
     for it in in_flight:
         if it.get("fingerprint"):
-            blocked_fingerprints.add(it["fingerprint"])
+            in_flight_fingerprints.add(it["fingerprint"])
         if it.get("issue_number"):
-            blocked_issue_numbers.add(int(it["issue_number"]))
+            in_flight_issue_numbers.add(int(it["issue_number"]))
         if it.get("lane"):
             blocked_lanes.add(it["lane"])
 
-    # Block terminal, superseded, or explicitly blocked items by identity.
+    # Build terminal blocked sets from work state.
+    # merged: irreversible — cannot be revived under any circumstances.
+    # closed_unmerged / blocked / superseded: stale — overridable when the live
+    # GitHub issue has been reset to ready-for-delegation.
+    merged_fingerprints: Set[str] = set()
+    merged_issue_numbers: Set[int] = set()
+    stale_terminal_by_issue_num: Dict[int, Dict[str, Any]] = {}
+    stale_terminal_fingerprints: Set[str] = set()
+
     for it in items:
-        if it.get("merged") or it.get("closed_unmerged") or it.get("blocked") or it.get("superseded"):
+        if it.get("merged"):
             if it.get("fingerprint"):
-                blocked_fingerprints.add(it["fingerprint"])
+                merged_fingerprints.add(it["fingerprint"])
             if it.get("issue_number"):
-                blocked_issue_numbers.add(int(it["issue_number"]))
+                merged_issue_numbers.add(int(it["issue_number"]))
+        elif it.get("closed_unmerged") or it.get("blocked") or it.get("superseded"):
+            if it.get("fingerprint"):
+                stale_terminal_fingerprints.add(it["fingerprint"])
+            if it.get("issue_number"):
+                stale_terminal_by_issue_num[int(it["issue_number"])] = it
 
     # Fetch eligible issues from GitHub
     candidate_issues = _list_github_issues_by_labels(
@@ -2355,17 +2368,45 @@ def select_ready_issue(
             for lbl in issue.get("labels", [])
             if isinstance(lbl, dict)
         }
-        # Skip lifecycle-blocked issues
+        # Skip lifecycle-blocked issues (live-state check — authoritative).
         if issue_labels & blocking_lifecycle:
             continue
 
         issue_num = issue.get("number")
-        if issue_num and int(issue_num) in blocked_issue_numbers:
+
+        # Unconditional blocks: in-flight or permanently merged.
+        if issue_num and int(issue_num) in in_flight_issue_numbers:
             continue
+        if issue_num and int(issue_num) in merged_issue_numbers:
+            continue
+
+        # Stale-terminal check: overridable when live issue signals readiness.
+        revived = False
+        if issue_num and int(issue_num) in stale_terminal_by_issue_num:
+            if "ready-for-delegation" in issue_labels:
+                # Live GitHub state is authoritative — clear the stale terminal
+                # state so work_state remains coherent after this selection.
+                stale_item = stale_terminal_by_issue_num[int(issue_num)]
+                stale_item["closed_unmerged"] = False
+                stale_item["blocked"] = False
+                stale_item["superseded"] = False
+                stale_item["delegation_state"] = "ready-for-delegation"
+                stale_item["lifecycle_fact_state"] = "ready-for-delegation"
+                stale_item["lifecycle_inferred_state"] = "ready-for-redelegation"
+                stale_item["revived_from_stale_terminal_state"] = True
+                stale_item["updated_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+                revived = True
+            else:
+                continue
 
         body = issue.get("body") or ""
         fp = _extract_fingerprint_from_body(body)
-        if fp and fp in blocked_fingerprints:
+
+        if fp and fp in in_flight_fingerprints:
+            continue
+        if fp and fp in merged_fingerprints:
+            continue
+        if fp and fp in stale_terminal_fingerprints and not revived:
             continue
 
         lane = _extract_lane_from_body(body)
@@ -2377,6 +2418,10 @@ def select_ready_issue(
         # Lane filter preference (soft — only skip if we have other options)
         if config.lane_filter and lane and lane != config.lane_filter:
             continue
+
+        if revived:
+            issue = dict(issue)  # shallow copy — don't mutate the original list
+            issue["revived_from_stale_terminal_state"] = True
 
         filtered.append((issue, fp, lane))
 
@@ -3150,6 +3195,7 @@ def run_execution_cycle(config: Config) -> Dict[str, Any]:
     delegation_result = delegate_to_copilot(config, selected, work_state, run_id)
     save_work_state(config, work_state)
 
+    revived = bool(selected.get("revived_from_stale_terminal_state"))
     if not config.enable_live_delegation:
         summary_line = (
             f"[dry-run] delegation requested for issue #{selected.get('number')} "
@@ -3159,6 +3205,13 @@ def run_execution_cycle(config: Config) -> Dict[str, Any]:
         summary_line = (
             f"{delegation_result.get('action', 'delegation_requested')} issue "
             f"#{selected.get('number')} — {selected.get('title', '')}"
+        )
+    if revived:
+        summary_line += " [revived from stale terminal state]"
+        log(
+            f"Issue #{selected.get('number')} revived: stale cached terminal state overridden "
+            f"by live ready-for-delegation label.",
+            json_mode=config.log_json,
         )
     log(summary_line, json_mode=config.log_json)
 
@@ -3170,6 +3223,7 @@ def run_execution_cycle(config: Config) -> Dict[str, Any]:
             "number": selected.get("number"),
             "title": selected.get("title"),
             "url": selected.get("html_url"),
+            "revived_from_stale_terminal_state": revived,
         },
         "delegation": delegation_result,
         "reconcile": reconcile_result,
