@@ -2328,17 +2328,9 @@ def select_ready_issue(
         if it.get("lane"):
             blocked_lanes.add(it["lane"])
 
-    # Terminal reconciled items must not re-enter execution even if labels lag.
+    # Block terminal, superseded, or explicitly blocked items by identity.
     for it in items:
-        if it.get("merged") or it.get("closed_unmerged"):
-            if it.get("fingerprint"):
-                blocked_fingerprints.add(it["fingerprint"])
-            if it.get("issue_number"):
-                blocked_issue_numbers.add(int(it["issue_number"]))
-
-    # Also block superseded/blocked items by fingerprint
-    for it in items:
-        if it.get("blocked") or it.get("superseded"):
+        if it.get("merged") or it.get("closed_unmerged") or it.get("blocked") or it.get("superseded"):
             if it.get("fingerprint"):
                 blocked_fingerprints.add(it["fingerprint"])
             if it.get("issue_number"):
@@ -3092,6 +3084,32 @@ def _active_fingerprints_in_work_state(work_state: Dict[str, Any]) -> Set[str]:
     }
 
 
+def _execution_no_selection_message(
+    reconcile_result: Dict[str, Any], work_state: Dict[str, Any]
+) -> str:
+    """Explain why execution found nothing ready when reconciliation terminalized items."""
+    closed_unmerged_issues = sorted({
+        int(detail["issue"])
+        for detail in reconcile_result.get("details", [])
+        if detail.get("pr_state") == "closed_unmerged" and detail.get("issue") is not None
+    })
+    if not closed_unmerged_issues:
+        closed_unmerged_issues = sorted({
+            int(it["issue_number"])
+            for it in work_state.get("items", [])
+            if it.get("closed_unmerged") and it.get("issue_number") is not None
+        })
+    if not closed_unmerged_issues:
+        return "No ready issues available for delegation."
+
+    issue_list = ", ".join(f"#{issue_number}" for issue_number in closed_unmerged_issues)
+    noun = "issue remains" if len(closed_unmerged_issues) == 1 else "issues remain"
+    return (
+        f"No ready issues available for delegation. Tracked {noun} "
+        f"in closed-unmerged state ({issue_list}) and require planner intervention."
+    )
+
+
 def run_execution_cycle(config: Config) -> Dict[str, Any]:
     """Execute one execution-lane pass: select + delegate one ready issue.
 
@@ -3118,25 +3136,7 @@ def run_execution_cycle(config: Config) -> Dict[str, Any]:
     selected = select_ready_issue(config, work_state)
     if selected is None:
         save_work_state(config, work_state)
-        closed_unmerged_issues = sorted({
-            int(detail["issue"])
-            for detail in reconcile_result.get("details", [])
-            if detail.get("pr_state") == "closed_unmerged" and detail.get("issue") is not None
-        })
-        if not closed_unmerged_issues:
-            closed_unmerged_issues = sorted({
-                int(it["issue_number"])
-                for it in work_state.get("items", [])
-                if it.get("closed_unmerged") and it.get("issue_number") is not None
-            })
-        message = "No ready issues available for delegation."
-        if closed_unmerged_issues:
-            issue_list = ", ".join(f"#{issue_number}" for issue_number in closed_unmerged_issues)
-            noun = "issue remains" if len(closed_unmerged_issues) == 1 else "issues remain"
-            message = (
-                f"No ready issues available for delegation. Tracked {noun} "
-                f"in closed-unmerged state ({issue_list}) and require planner intervention."
-            )
+        message = _execution_no_selection_message(reconcile_result, work_state)
         return {
             "status": "execution_cycle_complete",
             "mode": EXECUTION_MODE,

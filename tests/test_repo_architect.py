@@ -2936,7 +2936,18 @@ class TestDelegationDryRun(unittest.TestCase):
                 ],
                 "state": "open",
             }
-            closed_pr = TestPRReconciliation()._make_pr(64, state="closed", body="Fixes #42", merged_at=None)
+            closed_pr = {
+                "number": 64,
+                "title": "PR #64",
+                "html_url": "https://github.com/x/y/pull/64",
+                "state": "closed",
+                "draft": False,
+                "body": "Fixes #42",
+                "merged_at": None,
+                "head": {"ref": "feature/issue-64"},
+                "created_at": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
+                "updated_at": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
+            }
             with patch.object(ra, "load_work_state", return_value=ws), \
                     patch.object(ra, "save_work_state", return_value=None), \
                     patch.object(ra, "_list_prs_for_repo", return_value=[closed_pr]), \
