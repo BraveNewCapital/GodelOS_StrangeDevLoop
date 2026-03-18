@@ -3515,7 +3515,7 @@ class TestLifecycleLabelTransitions(unittest.TestCase):
         self.assertNotIn("pr-open", new_labels)
 
     def test_copilot_assignee_constant(self) -> None:
-        self.assertEqual(ra.COPILOT_AGENT_ASSIGNEE, "copilot+gpt-5.3-codex")
+        self.assertEqual(ra.COPILOT_AGENT_ASSIGNEE, "copilot")
 
 
 # ---------------------------------------------------------------------------

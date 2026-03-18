@@ -198,7 +198,7 @@ PR_MATCH_METHOD_PRIORITY: Tuple[str, ...] = (
 # Labels required for an issue to be eligible for execution selection
 EXECUTION_ELIGIBLE_LABELS: Tuple[str, ...] = ("arch-gap", "copilot-task", "needs-implementation")
 # GitHub Copilot coding agent assignee username
-COPILOT_AGENT_ASSIGNEE = "copilot+gpt-5.3-codex"
+COPILOT_AGENT_ASSIGNEE = "copilot"
 # Canonical architectural objectives aligned with charter §14 priority order
 OBJECTIVE_LABELS: Dict[str, str] = {
     "restore-parse-correctness": "Restore or preserve parse correctness (Lane 2)",
